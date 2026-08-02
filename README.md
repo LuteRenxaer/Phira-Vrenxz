@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # 🔥 Phire
 
 **Phire** is a community-driven rhythm game, forked from Phira and inspired by Phigros.
@@ -34,3 +35,7 @@ cargo run -p phira-main
 
 # Android APK
 cargo apk build -p phirano
+=======
+# Phire-Re
+Phire is a community-driven rhythm game, forked from Phira and inspired by Phigros.
+>>>>>>> 2530122bb778fd2a57cd9421157f7cebe6a92ee3
