@@ -2,15 +2,14 @@ prpr_l10n::tl_file!("ending");
 
 use super::{draw_background, game::SimpleRecord, loading::UploadFn, NextScene, Scene};
 use crate::{
-    config::{Config, Mods},
-    core::BOLD_FONT,
-    ext::{create_audio_manger, rect_shadow, semi_black, semi_white, RectExt, SafeTexture, ScaleType},
+    config::Config,
+    ext::{create_audio_manger, draw_parallelogram, draw_parallelogram_ex, draw_text_aligned, screen_aspect, SafeTexture, PARALLELOGRAM_SLOPE},
     info::ChartInfo,
-    judge::{icon_index, PlayResult},
+    judge::{icon_index, Judge, PlayResult},
     scene::show_message,
     task::Task,
     time::TimeManager,
-    ui::{button_hit, DRectButton, Dialog, MessageHandle, RectButton, Ui},
+    ui::{Dialog, MessageHandle, Ui},
 };
 use anyhow::Result;
 use macroquad::prelude::*;
@@ -26,30 +25,14 @@ pub struct RecordUpdateState {
     pub new_rks: Option<f32>,
 }
 
-// ===================== 渲染美化常量（统一管理，方便调整所有间距/尺寸） =====================
-mod render_const {
-    pub const FADE_IN_DELAY: f32 = 0.80;
-    pub const FADE_IN_DUR: f32 = 0.60;          // 稍微延长，更平滑
-
-    pub const SLIDE_DELAY: f32 = 0.90;
-    pub const SLIDE_DUR: f32 = 0.70;            // 稍长，更平滑
-
-    pub const TRANSITION_DURATION: f32 = 0.50;
-
-    pub const CARD_RADIUS: f32 = 0.035;
-    pub const CARD_SHADOW_FEATHER: f32 = 0.015;
-
-    pub const PANEL_BG_ALPHA: f32 = 0.12;
-    pub const GLOBAL_BG_DARK: f32 = 0.35;
-
-    pub const BUTTON_W: f32 = 0.14;
-    pub const BUTTON_H: f32 = 0.055;
-    pub const BUTTON_SPACING: f32 = 0.03;
-
-    pub const AVATAR_SIZE: f32 = 0.04;
-    pub const MOD_ICON_SIZE: f32 = 0.03;
+fn draw_illustration(tex: Texture2D, x: f32, y: f32, w: f32, h: f32, color: Color) -> Rect {
+    let scale = 0.076;
+    let w = scale * 13. * w;
+    let h = scale * 7. * h;
+    let r = Rect::new(x - w / 2., y - h / 2., w, h);
+    draw_parallelogram(r, Some((tex, Rect::new(0., 0., 1., 1.))), color, true);
+    r
 }
-use render_const::*;
 
 pub struct EndingScene {
     background: SafeTexture,
@@ -58,36 +41,22 @@ pub struct EndingScene {
     icons: [SafeTexture; 8],
     icon_retry: SafeTexture,
     icon_proceed: SafeTexture,
-    mod_icons: [SafeTexture; 7],
     target: Option<RenderTarget>,
     audio: AudioManager,
     bgm: Music,
-
     info: ChartInfo,
     result: PlayResult,
     player_name: String,
     player_rks: Option<f32>,
     autoplay: bool,
-    use_keyboard: bool,
     speed: f32,
-    mods: Mods,
-    next: u8,
+    next: u8, // 0 -> none, 1 -> pop, 2 -> exit
     update_state: Option<RecordUpdateState>,
     rated: bool,
-
     upload_fn: Option<UploadFn>,
     upload_task: Option<(Task<Result<RecordUpdateState>>, MessageHandle)>,
     record_data: Option<Vec<u8>>,
-    best_record: Option<SimpleRecord>,
-
-    btn_retry: DRectButton,
-    btn_proceed: DRectButton,
-    btn_detail: RectButton,
-    detail_mode: bool,
-
-    tr_start: f32,
-
-    avg_fps: Option<f32>,
+    record: Option<SimpleRecord>,
 }
 
 impl EndingScene {
@@ -99,7 +68,7 @@ impl EndingScene {
         icons: [SafeTexture; 8],
         icon_retry: SafeTexture,
         icon_proceed: SafeTexture,
-        mod_icons: [SafeTexture; 7],
+        _mod_icons: [SafeTexture; 7],
         info: ChartInfo,
         result: PlayResult,
         config: &Config,
@@ -109,7 +78,7 @@ impl EndingScene {
         historic_best: u32,
         record_data: Option<Vec<u8>>,
         best_record: Option<SimpleRecord>,
-        avg_fps: Option<f32>,
+        _avg_fps: Option<f32>,
     ) -> Result<Self> {
         let mut audio = create_audio_manger(config)?;
         let bgm = audio.create_music(
@@ -123,7 +92,6 @@ impl EndingScene {
         let upload_task = upload_fn
             .as_ref()
             .and_then(|f| record_data.clone().map(|data| (f(data), show_message(tl!("uploading")).handle())));
-
         let update_state = if upload_task.is_some() {
             None
         } else {
@@ -139,7 +107,6 @@ impl EndingScene {
                 new_rks: None,
             })
         };
-
         Ok(Self {
             background,
             illustration,
@@ -147,42 +114,23 @@ impl EndingScene {
             icons,
             icon_retry,
             icon_proceed,
-            mod_icons,
             target: None,
             audio,
             bgm,
             update_state,
             rated: upload_task.is_some(),
-
             info,
             result,
             player_name: config.player_name.clone(),
             player_rks,
             autoplay: config.autoplay(),
-            use_keyboard: config.use_keyboard,
             speed: config.speed,
-            mods: config.mods,
             next: 0,
-
             upload_fn,
             upload_task,
             record_data,
-            best_record,
-            detail_mode: false,
-
-            btn_retry: DRectButton::new(),
-            btn_proceed: DRectButton::new(),
-            btn_detail: RectButton::new(),
-
-            tr_start: f32::NAN,
-
-            avg_fps,
+            record: best_record,
         })
-    }
-
-
-    fn ease_out_cubic(t: f32) -> f32 {
-        1.0 - (1.0 - t).powi(3)
     }
 }
 
@@ -208,34 +156,6 @@ impl Scene for EndingScene {
         self.bgm.play()?;
         tm.resume();
         Ok(())
-    }
-
-    fn touch(&mut self, tm: &mut TimeManager, touch: &Touch) -> Result<bool> {
-        let t = tm.now() as f32;
-        if self.btn_retry.touch(touch, t) {
-            if self.upload_task.is_some() {
-                show_message(tl!("still-uploading"));
-            } else {
-                self.tr_start = t;
-                self.next = 1;
-            }
-            return Ok(true);
-        }
-        if self.btn_proceed.touch(touch, t) {
-            if self.upload_task.is_some() {
-                show_message(tl!("still-uploading"));
-            } else {
-                self.tr_start = t;
-                self.next = 2;
-            }
-            return Ok(true);
-        }
-        if self.btn_detail.touch(touch) {
-            button_hit();
-            self.detail_mode = !self.detail_mode;
-            return Ok(true);
-        }
-        Ok(false)
     }
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
@@ -277,316 +197,204 @@ impl Scene for EndingScene {
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
-        let mut cam = ui.camera();
-        let asp = -cam.zoom.y;
+        let asp = screen_aspect();
         let top = 1. / asp;
-        let t = tm.now() as f32;
-        cam.render_target = self.target;
-        let sr = ui.screen_rect();
-        set_camera(&cam);
-
-        // 底层背景
+        let now = tm.now() as f32;
+        let gl = unsafe { get_internal_gl() }.quad_gl;
+        let res = &self.result;
+        set_camera(&Camera2D {
+            zoom: vec2(1., -asp),
+            render_target: self.target,
+            ..Default::default()
+        });
         draw_background(*self.background);
-
-        // ===================== 动画时序计算 =====================
-        let fade_t = ((t - FADE_IN_DELAY) / FADE_IN_DUR).clamp(0., 1.);
-        let global_alpha = Self::ease_out_cubic(fade_t);
-
-        // 从下往上滑入：slide_progress = 0 时在底部，1 时到位
-        let slide_t = ((t - SLIDE_DELAY) / SLIDE_DUR).clamp(0., 1.);
-        let slide_progress = Self::ease_out_cubic(slide_t);
-
-        if global_alpha <= 0.0 {
-            return Ok(());
+        fn ran(t: f32, l: f32, r: f32) -> f32 {
+            ((t - l) / (r - l)).clamp(0., 1.)
         }
-
-        // 背景虚化遮罩
-        ui.fill_rect(sr, (*self.background, sr));
-        ui.fill_rect(sr, semi_black(GLOBAL_BG_DARK * global_alpha));
-
-        // ========== 垂直滑入偏移：从底部向上滑入 ==========
-        // 最大偏移量（屏幕高度的 60%）
-        let slide_offset = (1.0 - slide_progress) * top * 0.6;
-
-        const OFFSET_Y: f32 = -0.08;
-        // ===================== 左侧封面卡片 =====================
-        let card_w = 0.46;
-        let card_h = card_w * (9.0 / 16.0);
-        let card_x = -0.90;
-        let card_y = -0.10 + OFFSET_Y + slide_offset;
-        let card = Rect::new(card_x, card_y, card_w, card_h);
-
-        // 分层阴影
-        ui.fill_path(&card.feather(CARD_SHADOW_FEATHER).rounded(CARD_RADIUS), semi_black(0.32 * global_alpha));
-        ui.fill_path(&card.rounded(CARD_RADIUS), semi_black(PANEL_BG_ALPHA * global_alpha));
-        ui.fill_rect(card, (*self.illustration, card, ScaleType::Fit));
-
-        // 底部渐变暗角
-        let grad = Rect::new(card.x, card.bottom() - card.h * 0.3, card.w, card.h * 0.3);
-        ui.fill_rect(grad, (semi_black(0.6 * global_alpha), (grad.x, grad.bottom()), Color::default(), (grad.x, grad.y)));
-
-        // 曲名 & 难度
-        ui.text(&self.info.name)
-            .pos(card.x + 0.03, card.bottom() - 0.04)
-            .anchor(0., 1.)
-            .size(0.5)
-            .color(semi_white(0.95 * global_alpha))
-            .max_width(card.w - 0.08)
-            .draw_using(&BOLD_FONT);
-
-        ui.text(&self.info.level)
-            .pos(card.right() - 0.03, card.bottom() - 0.04)
-            .anchor(1., 1.)
-            .size(0.38)
-            .color(semi_white(0.6 * global_alpha))
-            .draw();
-
-        // ===================== 右侧成绩面板 =====================
-        let data_x = card.right() + 0.04;
-        let data_w = 0.92 - data_x;
-        let data_r = Rect::new(data_x, card_y, data_w, card_h);
-
-        // 面板背景
-        ui.fill_path(&data_r.feather(0.006).rounded(0.02), semi_black(PANEL_BG_ALPHA * global_alpha));
-
-        // 评级图标
-        let icon_size = 0.20;
-        let icon_r = Rect::new(data_r.x, data_r.y, icon_size, icon_size);
-        let icon_idx = icon_index(self.result.score, self.result.max_combo == self.result.num_of_notes);
-        ui.fill_rect(icon_r, (*self.icons[icon_idx], icon_r, ScaleType::Fit));
-
-        // 分数信息
-        let score = self.result.score;
-        let max_score = 1000000;
-        let accuracy = self.result.accuracy;
-        let full_combo = self.result.max_combo == self.result.num_of_notes;
-        let perfect = accuracy >= 1.0;
-
-        let score_r = Rect::new(icon_r.right() + 0.02, data_r.y, data_r.right() - icon_r.right() - 0.02, icon_r.h);
-        ui.text(&format!("{}/{}", score, max_score))
-            .pos(score_r.x, score_r.y + 0.01)
-            .anchor(0., 0.)
-            .size(0.75)
-            .color(semi_white(0.95 * global_alpha))
-            .draw_using(&BOLD_FONT);
-
-        ui.text(&format!("{:.2}%", accuracy * 100.))
-            .pos(score_r.x, score_r.y + 0.01 + 0.75 * 0.7 + 0.01)
-            .anchor(0., 0.)
-            .size(0.45)
-            .color(semi_white(0.7 * global_alpha))
-            .draw();
-
-        let status = if perfect { "AP" } else if full_combo { "FC" } else { "" };
-        if !status.is_empty() {
-            let base_color = if perfect {
-                Color::from_hex_rgb(0xffd700)
-            } else {
-                Color::from_hex_rgb(0x4fc3f7)
-            };
-            // 缓慢明暗闪烁效果
-            let flash = ((t * 2.5).sin() * 0.22 + 1.0).clamp(0.7, 1.1);
-            let status_color = Color::new(base_color.r, base_color.g, base_color.b, base_color.a * flash * global_alpha);
-
-            ui.text(status)
-                .pos(score_r.right() - 0.02, score_r.y + 0.01)
-                .anchor(1., 0.)
-                .size(0.55)
-                .color(status_color)
-                .draw_using(&BOLD_FONT);
+        fn tran(gl: &mut QuadGl, x: f32) {
+            gl.push_model_matrix(Mat4::from_translation(vec3(x * 2., 0., 0.)));
         }
-
-        // 分隔线
-        let line_y = data_r.y + icon_size + 0.03;
-        ui.fill_rect(Rect::new(data_r.x, line_y, data_r.w, 0.003), semi_white(0.2 * global_alpha));
-
-        // 判定统计双列布局
-        let stats_y = line_y + 0.04;
-        let stats_r = Rect::new(data_r.x, stats_y, data_r.w, data_r.bottom() - stats_y - 0.02);
-        let col_w = stats_r.w / 2.;
-        let counts = &self.result.counts;
-
-        let stat_items = [
-            ("Perfect", counts[0]),
-            ("Good", counts[1]),
-            ("Bad", counts[2]),
-            ("Miss", counts[3]),
-            ("Combo", self.result.max_combo),
-            ("Notes", self.result.num_of_notes),
-        ];
-
-        for (i, (label, value)) in stat_items.iter().enumerate() {
-            let col = i / 3;
-            let row = i % 3;
-            let x = stats_r.x + col as f32 * col_w;
-            let y = stats_r.y + row as f32 * 0.055;
-            let color = match *label {
-                "Perfect" => semi_white(0.95 * global_alpha),
-                "Good" => semi_white(0.75 * global_alpha),
-                "Bad" => semi_white(0.55 * global_alpha),
-                "Miss" => semi_white(0.42 * global_alpha),
-                _ => semi_white(0.72 * global_alpha),
-            };
-            ui.text(&format!("{}: {}", label, value))
-                .pos(x, y)
-                .anchor(0., 0.)
-                .size(0.36)
-                .color(color)
-                .draw_using(&BOLD_FONT);
-        }
-
-        // ===================== 右下角功能按钮 =====================
-        let btn_y = ui.top - 0.06 - BUTTON_H;
-        let btn_x = 0.92 - BUTTON_W - BUTTON_SPACING - BUTTON_W;
-
-        // 继续按钮
-        let proceed_r = Rect::new(btn_x + BUTTON_W + BUTTON_SPACING, btn_y, BUTTON_W, BUTTON_H);
-        self.btn_proceed.render_shadow(ui, proceed_r, t, |ui: &mut Ui, path| {
-            ui.fill_path(&path, Color::from_hex_rgb(0x3f51b5));
-            let ir = Rect::new(proceed_r.x + 0.03, proceed_r.center().y, 0., 0.).feather(0.022);
-            ui.fill_rect(ir, (*self.icon_proceed, ir));
-            ui.text(tl!("proceed"))
-                .pos((ir.right() + proceed_r.right() - 0.01) / 2., proceed_r.center().y)
-                .anchor(0.5, 0.5)
-                .no_baseline()
-                .size(0.38)
-                .color(WHITE)
-                .draw_using(&BOLD_FONT);
-        });
-
-        // 重试按钮
-        let retry_r = Rect::new(btn_x, btn_y, BUTTON_W, BUTTON_H);
-        self.btn_retry.render_shadow(ui, retry_r, t, |ui: &mut Ui, path| {
-            ui.fill_path(&path, Color::from_hex_rgb(0x78909c));
-            let ir = Rect::new(retry_r.x + 0.03, retry_r.center().y, 0., 0.).feather(0.022);
-            ui.fill_rect(ir, (*self.icon_retry, ir));
-            ui.text(tl!("retry"))
-                .pos((ir.right() + retry_r.right() - 0.01) / 2., retry_r.center().y)
-                .anchor(0.5, 0.5)
-                .no_baseline()
-                .size(0.38)
-                .color(WHITE)
-                .draw_using(&BOLD_FONT);
-        });
-
-        // Detail切换按钮
-        let detail_color = if self.detail_mode {
-            semi_white(0.4 * global_alpha)
+        tran(gl, (1. - ran(now, 0.1, 1.3)).powi(3));
+        let r = draw_illustration(*self.illustration, -0.38, 0., 1., 1.2, WHITE);
+        let slope = PARALLELOGRAM_SLOPE;
+        let ratio = 0.2;
+        draw_parallelogram_ex(
+            Rect::new(r.x, r.y + r.h * (1. - ratio), r.w - r.h * (1. - ratio) * slope, r.h * ratio),
+            None,
+            Color::default(),
+            Color::new(0., 0., 0., 0.7),
+            false,
+        );
+        let rr = draw_text_aligned(ui, &self.info.level, r.right() - r.h / 7. * 13. * 0.13 - 0.01, r.bottom() - top / 20., (1., 1.), 0.46, WHITE);
+        let p = (r.x + 0.04, r.bottom() - top / 20.);
+        let mw = rr.x - 0.02 - p.0;
+        let mut text = ui.text(&self.info.name).pos(p.0, p.1).anchor(0., 1.).size(0.7);
+        if text.measure().w <= mw {
+            text.draw();
         } else {
-            semi_white(0.8 * global_alpha)
-        };
-        let detail_draw = ui
-            .text(tl!("detail"))
-            .pos(0.92, btn_y - 0.07)
-            .anchor(0.5, 0.)
-            .size(0.3)
-            .color(detail_color)
-            .draw_using(&BOLD_FONT);
-        self.btn_detail.set(ui, detail_draw.feather(0.02));
-
-        // New Best 文字 + 轻微跳动动画
-        if let Some(s) = &self.update_state {
-            if s.best {
-                let bounce = ((t * 4.0).sin() * 0.006).sin();
-                let offset_y = bounce * 0.012;
-                let gold = Color::from_hex_rgb(0xffd700);
-                let gold_alpha = Color::new(gold.r, gold.g, gold.b, gold.a * global_alpha);
-                ui.text(format!("{}  {:+07}", tl!("new-best"), s.improvement))
-                    .pos(0.92, detail_draw.bottom() + 0.02 + offset_y)
-                    .anchor(1., 0.)
-                    .color(gold_alpha)
-                    .size(0.3)
-                    .draw_using(&BOLD_FONT);
-            }
+            drop(text);
+            ui.text(&self.info.name).pos(p.0, p.1).anchor(0., 1.).size(0.5).max_width(mw).draw();
         }
-
-        // ===================== 左上角玩家信息 =====================
-        let pad = 0.02;
-        let mw = 0.35;
-        // 修复：使用 mut 以便调用 measure
-        let mut name_text = ui.text(&self.player_name).size(0.5);
-        let name_width = name_text.measure().w.min(mw);
-        let w = AVATAR_SIZE * 2. + pad + name_width + 0.02;
-        let r = Rect::new(-0.96, -top + 0.04, w, AVATAR_SIZE * 2.);
-
-        ui.fill_path(&r.feather(0.01).rounded(AVATAR_SIZE + 0.01), semi_black(0.5 * global_alpha));
-        ui.avatar(r.x + AVATAR_SIZE, r.y + AVATAR_SIZE, AVATAR_SIZE, t, Ok(Some(self.player.clone())));
-
-        let lf = r.x + AVATAR_SIZE * 2. + pad;
-        // 重新创建文本对象以绘制（之前的已经 measure 消耗了）
-        ui.text(&self.player_name)
-            .pos(lf, r.y + AVATAR_SIZE)
-            .anchor(0., 1.)
-            .max_width(mw)
-            .size(0.5)
-            .draw();
-
-        // RKS显示
-        let rks_text = if let Some(new_rks) = self.update_state.as_ref().and_then(|it| it.new_rks) {
-            format!("{new_rks:.2}")
-        } else if let Some(rks) = &self.player_rks {
-            format!("{rks:.2}")
-        } else {
-            String::new()
-        };
-        ui.text(rks_text)
-            .pos(lf, r.y + AVATAR_SIZE + 0.008)
-            .size(0.32)
-            .color(semi_white(0.7 * global_alpha))
-            .draw();
-
-        // ===================== Mod 图标行 =====================
-        let active_mod_indices: Vec<usize> = [
-            (Mods::FLIP_X, 0),
-            (Mods::FADE_OUT, 1),
-            (Mods::FADE_IN, 2),
-            (Mods::NIGHTCORE, 3),
-            (Mods::RAINBOW, 4),
-            (Mods::AUTOPLAY, 5),
-            (Mods::NO_SHADER, 6),
-        ]
-        .into_iter()
-        .filter(|(m, _)| self.mods.contains(*m))
-        .map(|(_, idx)| idx)
-        .collect();
-
-        if !active_mod_indices.is_empty() {
-            let mut x = -0.90;
-            let y_pos = -top + 0.04 + AVATAR_SIZE * 2. + 0.04;
-            for &mod_idx in &active_mod_indices {
-                let icon_r = Rect::new(x, y_pos, MOD_ICON_SIZE, MOD_ICON_SIZE);
-                ui.fill_rect(icon_r, (*self.mod_icons[mod_idx], icon_r, ScaleType::Fit, semi_white(0.7 * global_alpha)));
-                x += MOD_ICON_SIZE + 0.02;
-            }
-        }
-
-        // ===================== 页面切换过渡动画 =====================
-        if !self.tr_start.is_nan() {
-            let p = ((t - self.tr_start) / TRANSITION_DURATION).min(1.);
-            let p_ease = Self::ease_out_cubic(p);
-            if p >= 1. {
-                self.tr_start = f32::NAN;
-            }
-
-            let mut mask_rect = sr;
-            mask_rect.y -= mask_rect.h * (1.0 - p_ease);
-            rect_shadow(mask_rect, 0.01, 0.5);
-            let (tex, alpha) = if self.next == 1 {
-                (&self.background, 0.3)
+        gl.pop_model_matrix();
+        let dx = 0.06;
+        let c = Color::new(0., 0., 0., 0.6);
+        tran(gl, (1. - ran(now, 0.2, 1.3)).powi(3));
+        let main = Rect::new(r.right() - 0.05, r.y, r.w * 0.84, r.h / 2.);
+        draw_parallelogram(main, None, c, true);
+        {
+            let spd = if (self.speed - 1.).abs() <= 1e-4 {
+                String::new()
             } else {
-                (&self.illustration, 0.55)
+                format!(" {:.2}x", self.speed)
             };
-            ui.fill_rect(mask_rect, (**tex, mask_rect));
-            ui.fill_rect(mask_rect, semi_black(alpha));
+            let text = if self.autoplay {
+                format!("PhirLie[AUTOPLAY] {spd}")
+            } else if !self.rated {
+                format!("PhirLie[UNRATED] {spd}")
+            } else if let Some(state) = &self.update_state {
+                format!(
+                    "PhirLie {spd}  {}",
+                    if state.best {
+                        format!("NEW BEST +{:07}", state.improvement)
+                    } else {
+                        String::new()
+                    }
+                )
+            } else {
+                "Uploading…".to_owned()
+            };
+            let r = draw_text_aligned(ui, &text, main.x + dx, main.bottom() - 0.035, (0., 1.), 0.34, WHITE);
+            let r = draw_text_aligned(ui, &format!("{:07}", res.score), r.x, r.y - 0.023, (0., 1.), 1., WHITE);
+            let icon = icon_index(res.score, res.num_of_notes == res.max_combo);
+            let p = ran(now, 1.4, 1.9).powi(2);
+            let s = main.h * 0.67;
+            let ct = (main.right() - main.h * slope - s / 2., r.bottom() + 0.02 - s / 2.);
+            let s = s + s * (1. - p) * 0.3;
+            draw_texture_ex(
+                *self.icons[icon],
+                ct.0 - s / 2.,
+                ct.1 - s / 2.,
+                Color::new(1., 1., 1., p),
+                DrawTextureParams {
+                    dest_size: Some(vec2(s, s)),
+                    ..Default::default()
+                },
+            );
         }
-
+        gl.pop_model_matrix();
+        tran(gl, (1. - ran(now, 0.4, 1.5)).powi(3));
+        let d = r.h / 16.;
+        let s1 = Rect::new(main.x - d * 4. * slope, main.bottom() + d, main.w - d * 5. * slope, d * 3.);
+        draw_parallelogram(s1, None, c, true);
+        {
+            let dy = 0.025;
+            let r = draw_text_aligned(ui, "Max Combo", s1.x + dx, s1.bottom() - dy, (0., 1.), 0.34, WHITE);
+            draw_text_aligned(ui, &res.max_combo.to_string(), r.x, r.y - 0.01, (0., 1.), 0.7, WHITE);
+            let r = draw_text_aligned(ui, "Accuracy", s1.right() - dx, s1.bottom() - dy, (1., 1.), 0.34, WHITE);
+            draw_text_aligned(ui, &format!("{:.2}%", res.accuracy * 100.), r.right(), r.y - 0.01, (1., 1.), 0.7, WHITE);
+        }
+        gl.pop_model_matrix();
+        tran(gl, (1. - ran(now, 0.5, 1.7)).powi(3));
+        let s2 = Rect::new(s1.x - d * 4. * slope, s1.bottom() + d, s1.w, s1.h);
+        draw_parallelogram(s2, None, c, true);
+        {
+            let dy = 0.025;
+            let dy2 = 0.015;
+            let bg = 0.57;
+            let sm = 0.26;
+            let draw_count = |ui: &mut Ui, ratio: f32, name: &str, count: u32| {
+                let r = draw_text_aligned(ui, name, s2.x + s2.w * ratio, s2.bottom() - dy, (0.5, 1.), sm, WHITE);
+                draw_text_aligned(ui, &count.to_string(), r.center().x, r.y - dy2, (0.5, 1.), bg, WHITE);
+            };
+            draw_count(ui, 0.14, "Perfect", res.counts[0]);
+            draw_count(ui, 0.33, "Good", res.counts[1]);
+            draw_count(ui, 0.46, "Bad", res.counts[2]);
+            draw_count(ui, 0.59, "Miss", res.counts[3]);
+            let sm = 0.3;
+            let l = s2.x + s2.w * 0.72;
+            let rt = s2.x + s2.w * 0.94;
+            let cy = s2.center().y;
+            let r = draw_text_aligned(ui, "Early", l, cy - dy2 / 2., (0., 1.), sm, WHITE);
+            draw_text_aligned(ui, &res.early.to_string(), rt, r.bottom(), (1., 1.), sm, WHITE);
+            let r = draw_text_aligned(ui, "Late", l, cy + dy2 / 2., (0., 0.), 0.3, WHITE);
+            draw_text_aligned(ui, &res.late.to_string(), rt, r.y, (1., 0.), sm, WHITE);
+        }
+        gl.pop_model_matrix();
+        fn touched(rect: Rect) -> bool {
+            Judge::get_touches()
+                .iter()
+                .any(|touch| touch.phase == TouchPhase::Ended && rect.contains(touch.position))
+        }
+        let dy = 0.006;
+        let w = 0.17;
+        let p = (1. - ran(now, 2., 2.7)).powi(2);
+        let h = 0.1;
+        let s = 0.05;
+        let hs = h * 0.3;
+        let params = DrawTextureParams {
+            dest_size: Some(vec2(hs * 2., hs * 2.)),
+            ..Default::default()
+        };
+        tran(gl, -p * 0.085);
+        let r = Rect::new(-1. - h * slope, -top + dy, w, h);
+        draw_parallelogram(r, None, c, true);
+        draw_parallelogram(Rect::new(r.x + r.w * (1. - s), r.y, r.w * s, r.h), None, WHITE, false);
+        let ct = r.center();
+        draw_texture_ex(*self.icon_retry, ct.x - hs, ct.y - hs, WHITE, params.clone());
+        gl.pop_model_matrix();
+        if p <= 0. && touched(r) {
+            if self.upload_task.is_some() {
+                show_message(tl!("still-uploading"));
+            }
+            self.next = 1;
+        }
+        tran(gl, p * 0.085);
+        let r = Rect::new(1. + h * slope - w, top - dy - h, w, h);
+        draw_parallelogram(r, None, c, true);
+        draw_parallelogram(Rect::new(r.x + r.w * s, r.y, r.w * s, r.h), None, WHITE, false);
+        let ct = r.center();
+        draw_texture_ex(*self.icon_proceed, ct.x - hs, ct.y - hs, WHITE, params);
+        gl.pop_model_matrix();
+        if p <= 0. && touched(r) {
+            if self.upload_task.is_some() {
+                show_message(tl!("still-uploading"));
+            }
+            self.next = 2;
+        }
+        let alpha = ran(now, 1.5, 1.9);
+        let main = Rect::new(1. - 0.28, -top + dy * 2.5, 0.35, 0.1);
+        draw_parallelogram(main, None, Color::new(0., 0., 0., c.a * alpha), false);
+        let sub = Rect::new(1. - 0.13, main.center().y + 0.01, 0.12, 0.03);
+        let color = Color::new(1., 1., 1., alpha);
+        draw_parallelogram(sub, None, color, false);
+        draw_text_aligned(
+            ui,
+            &if let Some(new_rks) = self.update_state.as_ref().and_then(|it| it.new_rks) {
+                format!("{new_rks:.2}")
+            } else if let Some(rks) = &self.player_rks {
+                format!("{rks:.2}")
+            } else {
+                "".to_owned()
+            },
+            sub.center().x,
+            sub.center().y,
+            (0.5, 0.5),
+            0.37,
+            Color::new(0., 0., 0., alpha),
+        );
+        let r = draw_illustration(*self.player, 1. - 0.21, main.center().y, 0.12 / (0.076 * 13.), 0.12 / (0.076 * 7.), color);
+        let text = draw_text_aligned(ui, &self.player_name, r.x - 0.01, r.center().y, (1., 0.5), 0.54, color);
+        draw_parallelogram(
+            Rect::new(text.x - main.h * slope - 0.01, main.y, r.x - text.x + main.h * slope * 2. + 0.013, main.h),
+            None,
+            Color::new(0., 0., 0., c.a * alpha),
+            false,
+        );
+        draw_text_aligned(ui, &self.player_name, r.x - 0.01, r.center().y, (1., 0.5), 0.54, color);
         Ok(())
     }
 
     fn next_scene(&mut self, _tm: &mut TimeManager) -> NextScene {
-        if !self.tr_start.is_nan() {
-            return NextScene::None;
-        }
         if self.next != 0 {
             let _ = self.bgm.pause();
         }
@@ -594,7 +402,7 @@ impl Scene for EndingScene {
             0 => NextScene::None,
             1 => NextScene::Pop,
             2 => {
-                if let Some(rec) = &self.best_record {
+                if let Some(rec) = &self.record {
                     NextScene::PopNWithResult(2, Box::new(rec.clone()))
                 } else {
                     NextScene::PopN(2)

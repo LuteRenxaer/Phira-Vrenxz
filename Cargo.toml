@@ -1,7 +1,11 @@
 [package]
-name = "phire"  # 或者您的项目名称
+name = "phirLte"
 version = "1.2.1"
 edition = "2021"
+
+[lib]
+name = "PhirLie"
+crate-type = ["cdylib", "rlib"]
 
 [workspace]
 members = [
@@ -9,9 +13,9 @@ members = [
 	"prpr-avc",
 	"prpr-pbc",
 	"prpr-l10n",
-	"phira",
-	"phira-main",
-	"phira-monitor",
+	"PhirLie",
+	"PhirLie-main",
+	"PhirLie-monitor",
 ]
 resolver = "2"
 
@@ -64,13 +68,23 @@ objc2-uniform-type-identifiers = "0.3.2"
 
 macroquad = { git = "https://github.com/Mivik/prpr-macroquad", rev = "b2eab29", default-features = false }
 miniquad = { git = "https://github.com/Mivik/prpr-miniquad", rev = "0c525a3" }
-phira = { path = "phira", default-features = false }
+PhirLie = { path = "PhirLie", default-features = false }
 phira-mp-client = { git = "https://github.com/TeamFlos/phira-mp", rev = "6967475" }
 phira-mp-common = { git = "https://github.com/TeamFlos/phira-mp", rev = "6967475" }
 prpr = { path = "prpr", default-features = false }
 prpr-avc = { path = "prpr-avc" }
 prpr-l10n = { path = "prpr-l10n" }
 sasa = { git = "https://github.com/Mivik/sasa", rev = "e76229b", default-features = false }
+
+[target.'cfg(target_os="android")'.dependencies]
+android-activity = { version = "0.6", features = ["native-activity"] }
+ndk = "0.7"
+ndk-sys = "0.5.0+25.2.9519653"
+ndk-context = "0.1"
+android_logger = "0.13"
+log = "0.4"
+macroquad = { git = "https://github.com/Mivik/prpr-macroquad", rev = "b2eab29", default-features = false }
+PhirLie = { path = "PhirLie", default-features = false }
 
 [profile.release]
 opt-level = 2
@@ -79,10 +93,15 @@ strip = true
 [profile.dev.package."*"]
 opt-level = 2
 
+# ===== Android 打包配置 =====
 [package.metadata.android]
-apk_name = "Phire"
-package = "com.lute.phire"
-assets = "../assets"
+apk_name = "phirLte"
+package = "com.lute.phirLte"
+assets = "assets"
+resources = "res"
 min_sdk_version = 30
 target_sdk_version = 30
 
+[package.metadata.android.application]
+icon = "@mipmap/ic_launcher"
+label = "phirLte"

@@ -6,6 +6,9 @@ prpr_l10n::tl_file!("scene" ttl);
 mod ending;
 pub use ending::{EndingScene, RecordUpdateState};
 
+mod crash;
+pub use crash::{CrashCode, CrashScene};
+
 mod game;
 pub use game::{GameMode, GameScene, SimpleRecord};
 

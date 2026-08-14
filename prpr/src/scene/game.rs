@@ -418,8 +418,7 @@ impl GameScene {
                 ui.fill_circle(pause_center.x, pause_center.y, 0.05, Color::new(1., 1., 1., 0.5));
             }
 
-            // 左上角版本号文本
-            ui.text("phire v1.2.5")
+            ui.text("PHIRLTE v1.2.5")
                 .pos(pause_center.x + 0.08, pause_center.y)
                 .anchor(0., 0.5)
                 .size(0.4)
@@ -442,7 +441,6 @@ impl GameScene {
             } else {
                 format!("{:07}", self.judge.score())
             };
-            // 计算字体大小，确保罗马数字或中文数字不会超出原来的文本范围
             let base_score_size = 0.8;
             let score_size = if res.config.roman_numerals || res.config.chinese_numerals {
                 let ref_width = ui.text("0000000").size(base_score_size).measure_using(&PGR_FONT).w;
@@ -490,11 +488,9 @@ impl GameScene {
                     ui.fill_rect(r, c);
                 },
             );
-            
-            // ====== COMBO 显示 ======
-            // 判断是否为 Autoplay 模式
+
             let is_autoplay = res.config.autoplay();
-            
+
             if self.judge.combo() >= 3 || is_autoplay {
                 if legacy_aui {
                     let combo_top = top + eps * 2. - (1. - p) * 0.4;
@@ -502,10 +498,9 @@ impl GameScene {
                         .chart
                         .with_element(ui, res, UIElement::ComboNumber, None, (0., combo_top + unit_h / 2.), |ui, c| {
                             if is_autoplay {
-                                // Autoplay 模式：显示配置的文字
                                 let text = &res.config.autoplay_display_text;
                                 let size = 0.45;
-                                let color = Color::new(1.0, 0.8, 0.2, c.a); // 金色
+                                let color = Color::new(1.0, 0.8, 0.2, c.a);
                                 ui.text(text)
                                     .pos(0., combo_top)
                                     .anchor(0.5, 0.)
@@ -514,7 +509,6 @@ impl GameScene {
                                     .draw_using(&PGR_FONT)
                                     .bottom()
                             } else {
-                                // 普通模式：显示 COMBO 数字
                                 ui.text(format_number(self.judge.combo(), res.config.roman_numerals, res.config.chinese_numerals))
                                     .pos(0., combo_top)
                                     .anchor(0.5, 0.)
@@ -525,7 +519,6 @@ impl GameScene {
                         });
                     let combo_top = btm + 0.01;
 
-                    // ✅ 获取自定义 Combo 文本，如果为空则使用默认 "COMBO"
                     let combo_label = res.config.custom_combo_text();
                     let combo_display = if combo_label.is_empty() { "COMBO" } else { combo_label };
 
@@ -540,7 +533,6 @@ impl GameScene {
                         });
                 } else {
                     if is_autoplay {
-                        // Autoplay 模式：显示配置的文字
                         let text = &res.config.autoplay_display_text;
                         let size = 0.6;
                         let color = Color::new(1.0, 0.8, 0.2, res.alpha);
@@ -555,7 +547,6 @@ impl GameScene {
                                 .draw_using(&PGR_FONT);
                         });
                     } else {
-                        // 普通模式：显示 COMBO
                         let combo = format_number(self.judge.combo(), res.config.roman_numerals, res.config.chinese_numerals);
                         let ct = ui.text(&combo).size(1.0).measure().center();
                         let combo_y = top + eps * 2. - (1. - p) * 0.4 + ct.y;
@@ -571,7 +562,6 @@ impl GameScene {
                         let ct = ui.text("COMBO").size(0.4).measure().center();
                         let combo_top = btm + 0.01 + ct.y;
 
-                        // ✅ 获取自定义 Combo 文本，如果为空则使用默认 "COMBO"
                         let combo_label = res.config.custom_combo_text();
                         let combo_display = if combo_label.is_empty() { "COMBO" } else { combo_label };
 
@@ -586,7 +576,6 @@ impl GameScene {
                     }
                 }
             }
-            // magic to make score visible, refer to phira/src/rate.rs#L219
             ui.text("").draw_using(&PGR_FONT);
             let lf = -1. + margin;
             let bt = -top - eps * 2.8 + (1. - p) * 0.4;
@@ -629,16 +618,13 @@ impl GameScene {
         let res = &mut self.res;
         if tm.paused() {
             let h = 1. / res.aspect_ratio;
-            // 暂停遮罩 - 更透明
             draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., 0.5));
 
-            // ====== 暂停菜单 - 卡片风格 ======
             let o = if self.mode == GameMode::Exercise { -0.3 } else { 0. };
             let s = 0.07;
             let w = 0.05;
             let no_retry = self.mode == GameMode::NoRetry;
 
-            // 三个按钮: 返回 | 重试 | 继续
             let btn_positions = [-1, 0, 1];
             let btn_icons = [
                 (*res.icon_back, "返回"),
@@ -656,15 +642,12 @@ impl GameScene {
                     semi_white(res.alpha)
                 };
 
-                // 卡片背景
                 ui.fill_path(&r.rounded(0.01), semi_black(0.3));
                 ui.fill_path(&r.rounded(0.01), (Color::new(0.4, 0.4, 0.4, 0.1 * res.alpha), (r.x, r.y), Color::default(), (r.right(), r.y)));
 
-                // 图标
                 let icon_r = r.feather(0.02);
                 ui.fill_rect(icon_r, (btn_icons[i].0, icon_r, ScaleType::Fit, color));
 
-                // 文字
                 if !is_disabled {
                     ui.text(btn_icons[i].1)
                         .pos(r.center().x, r.bottom() + 0.015)
@@ -950,6 +933,7 @@ impl GameScene {
             }
         });
     }
+
     pub fn get_avg_fps(&self) -> Option<f32> {
         if self.fps_frame_count > 0 && self.fps_total_time > 0.0 {
             Some(self.fps_frame_count as f32 / self.fps_total_time as f32)
@@ -1030,7 +1014,6 @@ impl Scene for GameScene {
                 } else {
                     #[cfg(target_os = "windows")]
                     {
-                        // wtf bro. why must particles exist on Windows?
                         let emitter_config = self.res.emitter.emitter.config.clone();
                         let emitter_square_config = self.res.emitter.emitter_square.config.clone();
                         self.res.emitter.emitter.config.size = 0.0;
@@ -1070,7 +1053,6 @@ impl Scene for GameScene {
                 let t = time - self.res.track_length - WAIT_TIME;
                 if t >= AFTER_TIME + 0.3 {
                     let mut record_data = None;
-                    // TODO strengthen the protection
                     #[cfg(closed)]
                     if let Some(upload_fn) = &self.upload_fn {
                         if !self.res.config.offline_mode
@@ -1436,7 +1418,6 @@ impl Scene for GameScene {
             tm.speed = 1.0;
             tm.adjust_time = false;
             match self.mode {
-                // return result to update score and refresh
                 GameMode::Normal => {
                     if let Some(rec) = &self.best_record {
                         NextScene::PopWithResult(Box::new(rec.clone()))
@@ -1444,7 +1425,6 @@ impl Scene for GameScene {
                         NextScene::Pop
                     }
                 }
-                // not sure if they need result. just keep it
                 GameMode::Exercise | GameMode::NoRetry | GameMode::View => NextScene::Pop,
                 GameMode::TweakOffset => NextScene::PopWithResult(Box::new(None::<f32>)),
             }

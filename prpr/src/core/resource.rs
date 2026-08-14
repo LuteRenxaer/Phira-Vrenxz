@@ -187,6 +187,7 @@ pub struct ResourcePack {
     pub note_style: NoteStyle,
     pub note_style_mh: NoteStyle,
     pub sfx_click: AudioClip,
+    pub challenge_texture: SafeTexture,
     pub sfx_drag: AudioClip,
     pub sfx_flick: AudioClip,
     pub ending: AudioClip,
@@ -286,6 +287,8 @@ impl ResourcePack {
             };
         }
 
+        let challenge_texture = load_texture("rank/rainbow.png").await?;
+
         Ok(Self {
             info,
             note_style,
@@ -294,6 +297,7 @@ impl ResourcePack {
             sfx_drag: load_clip!("drag"),
             sfx_flick: load_clip!("flick"),
             ending: load_clip!("ending"),
+            challenge_texture: challenge_texture.into(),
             hit_fx,
         })
     }
@@ -515,6 +519,8 @@ impl Resource {
         let sfx_click = audio.create_sfx(res_pack.sfx_click.clone(), buffer_size)?;
         let sfx_drag = audio.create_sfx(res_pack.sfx_drag.clone(), buffer_size)?;
         let sfx_flick = audio.create_sfx(res_pack.sfx_flick.clone(), buffer_size)?;
+
+        // 该纹理现在由 ResourcePack::load 加载并保存在 res_pack.challenge_texture 中
 
         let aspect_ratio = config.aspect_ratio.unwrap_or(info.aspect_ratio);
         let note_width = config.note_scale * NOTE_WIDTH_RATIO_BASE as f32;

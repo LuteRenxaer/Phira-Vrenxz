@@ -4,6 +4,8 @@ use std::ffi::c_void;
 
 pub const AV_CH_LAYOUT_STEREO: u64 = 3;
 
+pub const AV_CHANNEL_ORDER_NATIVE: AVChannelOrder = 1;
+
 pub const AV_SAMPLE_FMT_FLT: AVSampleFormat = 3;
 
 pub const AV_ROUND_UP: AVRounding = 0;
@@ -81,17 +83,17 @@ extern "C" {
 
 #[link(name = "swresample", kind = "static")]
 extern "C" {
-    pub fn swr_alloc_set_opts(
-        s: *mut SwrContext,
-        out_ch_layout: i64,
+    pub fn swr_alloc_set_opts2(
+        s: *mut *mut SwrContext,
+        out_ch_layout: *const AVChannelLayout,
         out_sample_fmt: AVSampleFormat,
         out_sample_rate: ::std::os::raw::c_int,
-        in_ch_layout: i64,
+        in_ch_layout: *const AVChannelLayout,
         in_sample_fmt: AVSampleFormat,
         in_sample_rate: ::std::os::raw::c_int,
         log_offset: ::std::os::raw::c_int,
         log_ctx: *mut ::std::os::raw::c_void,
-    ) -> *mut SwrContext;
+    ) -> ::std::os::raw::c_int;
     pub fn swr_init(s: *mut SwrContext) -> ::std::os::raw::c_int;
     pub fn swr_get_delay(s: *const SwrContext, base: ::std::os::raw::c_int) -> i64;
     pub fn swr_convert(

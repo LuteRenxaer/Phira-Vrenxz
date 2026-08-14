@@ -1,7 +1,7 @@
 <<<<<<< HEAD
-##PhireRe
+##phirLte
 
-**PhireRe** is a community-driven rhythm game, forked from Phira and inspired by Phigros.
+**phirLte** is a community-driven rhythm game, forked from Phira and inspired by Phigros.
 
 Built with Rust, it inherits Phira's core while adding new features:
 
@@ -12,13 +12,13 @@ Built with Rust, it inherits Phira's core while adding new features:
 - **Custom Watermark** – add your own text overlay
 - **Redesigned UI** – modern card-style visual improvements
 
-PhireRe is a fork of Phira, inspired by Phigros (Pigeon Games). Special thanks to both projects.
+phirLte is a fork of Phira, inspired by Phigros (Pigeon Games). Special thanks to both projects.
 
 ---
 
 ## Download
 
-> Coming soon. Pre-built binaries will be available in [Releases](https://github.com/LuteRenxaer/phire/releases).
+> Coming soon. Pre-built binaries will be available in [Releases](https://github.com/LuteRenxaer/phirLte/releases).
 
 ---
 
@@ -31,7 +31,7 @@ PhireRe is a fork of Phira, inspired by Phigros (Pigeon Games). Special thanks t
 ### Build Commands
 ```bash
 # Desktop (Windows/Linux)
-cargo run -p phira-main
+cargo run -p PhirLie-main
 
 # Android APK
-cargo apk build -p phirano
+cargo apk build -p PhirLie

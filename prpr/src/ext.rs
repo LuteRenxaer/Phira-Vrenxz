@@ -478,6 +478,15 @@ pub fn make_pipeline(write_color: bool, pass_op: StencilOp, test_func: CompareFu
     .unwrap()
 }
 
+pub fn draw_polygon(points: &[Vec2], color: Color) {
+    if points.len() < 3 {
+        return;
+    }
+    for i in 1..points.len() - 1 {
+        draw_triangle(points[0], points[i], points[i + 1], color);
+    }
+}
+
 #[inline]
 pub fn semi_black(alpha: f32) -> Color {
     Color::new(0., 0., 0., alpha)
@@ -554,24 +563,23 @@ pub fn parse_time(s: &str) -> Option<f64> {
     Some(res)
 }
 
-/// 灏嗘暣鏁拌浆鎹负缃楅┈鏁板瓧
 pub fn to_roman_numeral(num: u32) -> String {
     if num == 0 {
-        return "N".to_string(); // 缃楅┈鏁板瓧涓?0 鐢?N 琛ㄧず
+        return "N".to_string();
     }
     let map = [
-        ("M", 1000000),
-        ("CM", 900000),
-        ("D", 500000),
-        ("CD", 400000),
-        ("C", 100000),
-        ("XC", 90000),
-        ("L", 50000),
-        ("XL", 40000),
-        ("X", 10000),
-        ("IX", 9000),
-        ("V", 5000),
-        ("IV", 4000),
+        ("M-", 1000000),
+        (" C-M- ", 900000),
+        ("D-", 500000),
+        (" C-D- ", 400000),
+        ("C-", 100000),
+        (" X-C- ", 90000),
+        ("L-", 50000),
+        (" X-L- ", 40000),
+        ("X-", 10000),
+        (" I-X- ", 9000),
+        ("V-", 5000),
+        (" I-V- ", 4000),
         ("M", 1000),
         ("CM", 900),
         ("D", 500),
@@ -597,7 +605,6 @@ pub fn to_roman_numeral(num: u32) -> String {
     result
 }
 
-/// 将整数转换为中文数字
 pub fn to_chinese_numeral(num: u32) -> String {
     if num == 0 {
         return "零".to_string();
@@ -654,7 +661,6 @@ pub fn to_chinese_numeral(num: u32) -> String {
     result
 }
 
-/// 濡傛灉鍚敤浜嗙綏椹暟瀛楁ā寮忥紝鍒欏皢鏁板瓧杞崲涓虹綏椹暟瀛楋紝鍚﹀垯杩斿洖鍘熸暟瀛楀瓧绗︿覆
 pub fn format_number(num: u32, roman_numerals: bool, chinese_numerals: bool) -> String {
     if roman_numerals {
         to_roman_numeral(num)

@@ -5,7 +5,12 @@ use bitflags::bitflags;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
-pub static TIPS: Lazy<Vec<String>> = Lazy::new(|| include_str!("tips.txt").split('\n').map(str::to_owned).collect());
+pub static TIPS: Lazy<Vec<String>> = Lazy::new(|| {
+    include_str!("tips.txt")
+        .split('\n')
+        .map(str::to_owned)
+        .collect()
+});
 
 bitflags! {
     #[derive(Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq, Debug)]
@@ -47,6 +52,20 @@ impl Mods {
     }
 }
 
+// ─── 默认值函数 ──────────────────────────────────────────────────────
+
+fn default_custom_crash_code() -> u32 {
+    888
+}
+
+fn default_custom_crash_reason() -> String {
+    "玩家自定义崩溃".to_string()
+}
+
+fn default_custom_crash_title() -> String {
+    "哇!你的PhiLie崩溃啦!看来error先生愤怒了呢".to_string()
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default)]
 #[serde(rename_all = "camelCase")]
@@ -56,9 +75,9 @@ pub struct Config {
     pub aggressive: bool,
     pub ap_fc_indicator: bool,
     pub full_screen_judge: bool,
-    pub combo_text_debug: bool,         // ✅ Combo 文本调试开关
-    pub custom_combo_text: String,      // ✅ 自定义 Combo 文本
-    pub custom_watermark: String,       // ✅ 自定义水印文本
+    pub combo_text_debug: bool,
+    pub custom_combo_text: String,
+    pub custom_watermark: String,
     pub aspect_ratio: Option<f32>,
     pub audio_buffer_size: Option<u32>,
     pub chart_debug: bool,
@@ -92,6 +111,14 @@ pub struct Config {
     pub volume_music: f32,
     pub volume_sfx: f32,
 
+    // ── 自定义崩溃信息 ──
+    #[serde(default = "default_custom_crash_code")]
+    pub custom_crash_code: u32,
+    #[serde(default = "default_custom_crash_reason")]
+    pub custom_crash_reason: String,
+    #[serde(default = "default_custom_crash_title")]
+    pub custom_crash_title: String,
+
     // for compatibility
     autoplay: Option<bool>,
 }
@@ -103,9 +130,9 @@ impl Default for Config {
             aggressive: true,
             ap_fc_indicator: true,
             full_screen_judge: false,
-            combo_text_debug: false,        // ✅ 默认关闭
+            combo_text_debug: false,
             custom_combo_text: "COMBO".to_string(),
-            custom_watermark: "Phire".to_string(),
+            custom_watermark: "phirLte".to_string(),
             aspect_ratio: None,
             audio_buffer_size: None,
             chart_debug: false,
@@ -138,7 +165,9 @@ impl Default for Config {
             volume_music: 1.,
             volume_sfx: 1.,
             volume_bgm: 1.,
-
+            custom_crash_code: default_custom_crash_code(),
+            custom_crash_reason: default_custom_crash_reason(),
+            custom_crash_title: default_custom_crash_title(),
             autoplay: None,
         }
     }

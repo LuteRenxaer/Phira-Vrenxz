@@ -521,7 +521,6 @@ impl Judge {
             })
             .collect();
 
-        // ========== ✅ 全屏判定修改点 1：计算 pos ==========
         let full_screen_judge = res.config.full_screen_judge();
         let mut pos = Vec::<Vec<Option<Point>>>::with_capacity(chart.lines.len());
         for id in 0..chart.lines.len() {
@@ -533,11 +532,8 @@ impl Judge {
                     .map(|touch| {
                         let p = touch.position;
                         if full_screen_judge {
-                            // ✅ 全屏判定：直接使用触摸点的标准化坐标（不经过逆矩阵变换）
-                            // 这样触摸点在整个屏幕范围内都被视为有效
                             Some(Point::new(p.x, -p.y))
                         } else {
-                            // 原逻辑：通过逆矩阵变换检查触摸点是否在行区域内
                             let p = inv.transform_point(&Point::new(p.x, -p.y));
                             fn ok(f: f32) -> bool {
                                 matches!(f.classify(), FpCategory::Zero | FpCategory::Subnormal | FpCategory::Normal)
@@ -553,10 +549,8 @@ impl Judge {
             );
         }
 
-        // ========== ✅ 全屏判定修改点 2：横向距离阈值 ==========
-        // 全屏判定模式下，由于坐标体系不同，需要更大的容差
         let x_diff_max = if full_screen_judge {
-            X_DIFF_MAX * 3.0  // 全屏模式：放宽到 3 倍
+            X_DIFF_MAX * 3.0
         } else {
             X_DIFF_MAX
         };
@@ -580,9 +574,7 @@ impl Judge {
             let t = time_of(touch);
             let mut closest = (None, x_diff_max, LIMIT_BAD, LIMIT_BAD + (x_diff_max / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR);
             for (line_id, ((line, pos), (idx, st))) in chart.lines.iter_mut().zip(pos.iter()).zip(self.notes.iter_mut()).enumerate() {
-                // ✅ 全屏判定：跳过 pos 的 None 检查（因为全屏模式下始终是 Some）
                 let pos = if full_screen_judge {
-                    // 全屏模式下，pos 总是 Some，直接 unwrap
                     pos[id].unwrap_or(Point::new(0.0, 0.0))
                 } else {
                     match pos[id] {

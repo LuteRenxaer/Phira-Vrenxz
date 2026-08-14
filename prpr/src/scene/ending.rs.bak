@@ -1,0 +1,584 @@
+prpr_l10n::tl_file!("ending");
+
+use super::{draw_background, game::SimpleRecord, loading::UploadFn, NextScene, Scene};
+use crate::{
+    config::{Config, Mods},
+    core::BOLD_FONT,
+    ext::{create_audio_manger, rect_shadow, semi_black, semi_white, RectExt, SafeTexture, ScaleType},
+    info::ChartInfo,
+    judge::{icon_index, PlayResult},
+    scene::show_message,
+    task::Task,
+    time::TimeManager,
+    ui::{button_hit, DRectButton, Dialog, MessageHandle, RectButton, Ui},
+};
+use anyhow::Result;
+use macroquad::prelude::*;
+use sasa::{AudioClip, AudioManager, Music, MusicParams};
+use serde::Deserialize;
+use std::{cell::RefCell, ops::DerefMut};
+
+#[derive(Deserialize)]
+pub struct RecordUpdateState {
+    pub best: bool,
+    pub improvement: u32,
+    pub gain_exp: f32,
+    pub new_rks: Option<f32>,
+}
+
+mod render_const {
+    pub const FADE_IN_DELAY: f32 = 0.0;
+    pub const FADE_IN_DUR: f32 = 0.20;
+
+    pub const SLIDE_DELAY: f32 = 0.0;
+    pub const SLIDE_DUR: f32 = 0.25;
+
+    pub const TRANSITION_DURATION: f32 = 0.30;
+
+    pub const CARD_RADIUS: f32 = 0.035;
+    pub const CARD_SHADOW_FEATHER: f32 = 0.015;
+
+    pub const PANEL_BG_ALPHA: f32 = 0.12;
+    pub const GLOBAL_BG_DARK: f32 = 0.35;
+
+    pub const BUTTON_W: f32 = 0.14;
+    pub const BUTTON_H: f32 = 0.055;
+    pub const BUTTON_SPACING: f32 = 0.03;
+
+    pub const AVATAR_SIZE: f32 = 0.04;
+    pub const MOD_ICON_SIZE: f32 = 0.03;
+}
+use render_const::*;
+
+pub struct EndingScene {
+    background: SafeTexture,
+    illustration: SafeTexture,
+    player: SafeTexture,
+    icons: [SafeTexture; 8],
+    icon_retry: SafeTexture,
+    icon_proceed: SafeTexture,
+    mod_icons: [SafeTexture; 7],
+    target: Option<RenderTarget>,
+    audio: AudioManager,
+    bgm: Music,
+
+    info: ChartInfo,
+    result: PlayResult,
+    player_name: String,
+    player_rks: Option<f32>,
+    autoplay: bool,
+    use_keyboard: bool,
+    speed: f32,
+    mods: Mods,
+    next: u8,
+    update_state: Option<RecordUpdateState>,
+    rated: bool,
+
+    upload_fn: Option<UploadFn>,
+    upload_task: Option<(Task<Result<RecordUpdateState>>, MessageHandle)>,
+    record_data: Option<Vec<u8>>,
+    best_record: Option<SimpleRecord>,
+
+    btn_retry: DRectButton,
+    btn_proceed: DRectButton,
+    btn_detail: RectButton,
+    detail_mode: bool,
+
+    tr_start: f32,
+
+    avg_fps: Option<f32>,
+}
+
+impl EndingScene {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        background: SafeTexture,
+        illustration: SafeTexture,
+        player: SafeTexture,
+        icons: [SafeTexture; 8],
+        icon_retry: SafeTexture,
+        icon_proceed: SafeTexture,
+        mod_icons: [SafeTexture; 7],
+        info: ChartInfo,
+        result: PlayResult,
+        config: &Config,
+        bgm: AudioClip,
+        upload_fn: Option<UploadFn>,
+        player_rks: Option<f32>,
+        historic_best: u32,
+        record_data: Option<Vec<u8>>,
+        best_record: Option<SimpleRecord>,
+        avg_fps: Option<f32>,
+    ) -> Result<Self> {
+        let mut audio = create_audio_manger(config)?;
+        let bgm = audio.create_music(
+            bgm,
+            MusicParams {
+                amplifier: config.volume_music,
+                loop_mix_time: 0.,
+                ..Default::default()
+            },
+        )?;
+        let upload_task = upload_fn
+            .as_ref()
+            .and_then(|f| record_data.clone().map(|data| (f(data), show_message(tl!("uploading")).handle())));
+
+        let update_state = if upload_task.is_some() {
+            None
+        } else {
+            let (best, improvement) = if result.score > historic_best {
+                (true, result.score - historic_best)
+            } else {
+                (false, 0)
+            };
+            Some(RecordUpdateState {
+                best,
+                improvement,
+                gain_exp: 0.,
+                new_rks: None,
+            })
+        };
+
+        Ok(Self {
+            background,
+            illustration,
+            player,
+            icons,
+            icon_retry,
+            icon_proceed,
+            mod_icons,
+            target: None,
+            audio,
+            bgm,
+            update_state,
+            rated: upload_task.is_some(),
+
+            info,
+            result,
+            player_name: config.player_name.clone(),
+            player_rks,
+            autoplay: config.autoplay(),
+            use_keyboard: config.use_keyboard,
+            speed: config.speed,
+            mods: config.mods,
+            next: 0,
+
+            upload_fn,
+            upload_task,
+            record_data,
+            best_record,
+            detail_mode: false,
+
+            btn_retry: DRectButton::new(),
+            btn_proceed: DRectButton::new(),
+            btn_detail: RectButton::new(),
+
+            tr_start: f32::NAN,
+
+            avg_fps,
+        })
+    }
+
+    fn ease_out_quart(t: f32) -> f32 {
+        1.0 - (1.0 - t).powi(4)
+    }
+}
+
+thread_local! {
+    static RE_UPLOAD: RefCell<bool> = RefCell::default();
+}
+
+impl Scene for EndingScene {
+    fn enter(&mut self, tm: &mut TimeManager, target: Option<RenderTarget>) -> Result<()> {
+        tm.reset();
+        tm.seek_to(-0.4);
+        self.target = target;
+        Ok(())
+    }
+
+    fn pause(&mut self, tm: &mut TimeManager) -> Result<()> {
+        self.bgm.pause()?;
+        tm.pause();
+        Ok(())
+    }
+
+    fn resume(&mut self, tm: &mut TimeManager) -> Result<()> {
+        self.bgm.play()?;
+        tm.resume();
+        Ok(())
+    }
+
+    fn touch(&mut self, tm: &mut TimeManager, touch: &Touch) -> Result<bool> {
+        let t = tm.now() as f32;
+        if self.btn_retry.touch(touch, t) {
+            if self.upload_task.is_some() {
+                show_message(tl!("still-uploading"));
+            } else {
+                self.tr_start = t;
+                self.next = 1;
+            }
+            return Ok(true);
+        }
+        if self.btn_proceed.touch(touch, t) {
+            if self.upload_task.is_some() {
+                show_message(tl!("still-uploading"));
+            } else {
+                self.tr_start = t;
+                self.next = 2;
+            }
+            return Ok(true);
+        }
+        if self.btn_detail.touch(touch) {
+            button_hit();
+            self.detail_mode = !self.detail_mode;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
+        self.audio.recover_if_needed()?;
+        if tm.now() >= 0. && self.target.is_none() && self.bgm.paused() {
+            self.bgm.play()?;
+        }
+        if RE_UPLOAD.with(|it| std::mem::replace(it.borrow_mut().deref_mut(), false)) && self.upload_task.is_none() {
+            self.upload_task = self
+                .record_data
+                .clone()
+                .map(|data| ((self.upload_fn.as_ref().unwrap())(data), show_message(tl!("uploading")).handle()));
+        }
+        if let Some((task, handle)) = &mut self.upload_task {
+            if let Some(result) = task.take() {
+                handle.cancel();
+                match result {
+                    Err(err) => {
+                        let error = format!("{:?}", err.context(tl!("upload-failed")));
+                        Dialog::plain(tl!("upload-failed"), error)
+                            .buttons(vec![tl!("upload-cancel").to_string(), tl!("upload-retry").to_string()])
+                            .listener(|_dialog, pos| {
+                                if pos == 1 {
+                                    RE_UPLOAD.with(|it| *it.borrow_mut() = true);
+                                }
+                                false
+                            })
+                            .show();
+                    }
+                    Ok(state) => {
+                        self.update_state = Some(state);
+                        show_message(tl!("uploaded")).ok();
+                    }
+                }
+                self.upload_task = None;
+            }
+        }
+        Ok(())
+    }
+
+    fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
+        let mut cam = ui.camera();
+        let asp = -cam.zoom.y;
+        let top = 1. / asp;
+        let t = tm.now() as f32;
+        cam.render_target = self.target;
+        let sr = ui.screen_rect();
+        set_camera(&cam);
+
+        draw_background(*self.background);
+
+        let fade_t = ((t - FADE_IN_DELAY) / FADE_IN_DUR).clamp(0., 1.);
+        let global_alpha = Self::ease_out_quart(fade_t);
+
+        let slide_t = ((t - SLIDE_DELAY) / SLIDE_DUR).clamp(0., 1.);
+        let slide_progress = Self::ease_out_quart(slide_t);
+
+        if global_alpha <= 0.0 {
+            return Ok(());
+        }
+
+        ui.fill_rect(sr, (*self.background, sr));
+        ui.fill_rect(sr, semi_black(GLOBAL_BG_DARK * global_alpha));
+
+        let slide_offset = (1.0 - slide_progress) * top * 0.6;
+
+        const OFFSET_Y: f32 = -0.08;
+        let card_w = 0.46;
+        let card_h = card_w * (9.0 / 16.0);
+        let card_x = -0.90;
+        let card_y = -0.10 + OFFSET_Y + slide_offset;
+        let card = Rect::new(card_x, card_y, card_w, card_h);
+
+        ui.fill_path(&card.feather(CARD_SHADOW_FEATHER).rounded(CARD_RADIUS), semi_black(0.32 * global_alpha));
+        ui.fill_path(&card.rounded(CARD_RADIUS), semi_black(PANEL_BG_ALPHA * global_alpha));
+        ui.fill_rect(card, (*self.illustration, card, ScaleType::Fit));
+
+        let grad = Rect::new(card.x, card.bottom() - card.h * 0.3, card.w, card.h * 0.3);
+        ui.fill_rect(grad, (semi_black(0.6 * global_alpha), (grad.x, grad.bottom()), Color::default(), (grad.x, grad.y)));
+
+        ui.text(&self.info.name)
+            .pos(card.x + 0.03, card.bottom() - 0.04)
+            .anchor(0., 1.)
+            .size(0.5)
+            .color(semi_white(0.95 * global_alpha))
+            .max_width(card.w - 0.08)
+            .draw_using(&BOLD_FONT);
+
+        ui.text(&self.info.level)
+            .pos(card.right() - 0.03, card.bottom() - 0.04)
+            .anchor(1., 1.)
+            .size(0.38)
+            .color(semi_white(0.6 * global_alpha))
+            .draw();
+
+        let data_x = card.right() + 0.04;
+        let data_w = 0.92 - data_x;
+        let data_r = Rect::new(data_x, card_y, data_w, card_h);
+
+        ui.fill_path(&data_r.feather(0.006).rounded(0.02), semi_black(PANEL_BG_ALPHA * global_alpha));
+
+        let icon_size = 0.20;
+        let icon_r = Rect::new(data_r.x, data_r.y, icon_size, icon_size);
+        let icon_idx = icon_index(self.result.score, self.result.max_combo == self.result.num_of_notes);
+        ui.fill_rect(icon_r, (*self.icons[icon_idx], icon_r, ScaleType::Fit));
+
+        let score = self.result.score;
+        let max_score = 1000000;
+        let accuracy = self.result.accuracy;
+        let full_combo = self.result.max_combo == self.result.num_of_notes;
+        let perfect = accuracy >= 1.0;
+
+        let score_r = Rect::new(icon_r.right() + 0.02, data_r.y, data_r.right() - icon_r.right() - 0.02, icon_r.h);
+
+        let text_y = score_r.y + 0.01;
+        let text_size = 0.7;
+        let small_size = 0.42;
+        let gap = 0.04;
+
+        let score_width = ui.text(&format!("{}/{}", score, max_score)).size(text_size).measure().w;
+
+        ui.text(&format!("{}/{}", score, max_score))
+            .pos(score_r.x, text_y)
+            .anchor(0., 0.)
+            .size(text_size)
+            .color(semi_white(0.95 * global_alpha))
+            .draw_using(&BOLD_FONT);
+
+        ui.text(&format!("{:.2}%", accuracy * 100.))
+            .pos(score_r.x + score_width + gap, text_y)
+            .anchor(0., 0.)
+            .size(small_size)
+            .color(semi_white(0.7 * global_alpha))
+            .draw_using(&BOLD_FONT);
+
+        let status = if perfect { "AP" } else if full_combo { "FC" } else { "" };
+        if !status.is_empty() {
+            let base_color = if perfect {
+                Color::from_hex_rgb(0xffd700)
+            } else {
+                Color::from_hex_rgb(0x4fc3f7)
+            };
+            let flash = ((t * 2.5).sin() * 0.22 + 1.0).clamp(0.7, 1.1);
+            let status_color = Color::new(base_color.r, base_color.g, base_color.b, base_color.a * flash * global_alpha);
+            let acc_width = ui.text(&format!("{:.2}%", accuracy * 100.)).size(small_size).measure().w;
+            ui.text(status)
+                .pos(score_r.x + score_width + gap + acc_width + gap, text_y)
+                .anchor(0., 0.)
+                .size(0.45)
+                .color(status_color)
+                .draw_using(&BOLD_FONT);
+        }
+
+        let line_y = data_r.y + icon_size + 0.03;
+        ui.fill_rect(Rect::new(data_r.x, line_y, data_r.w, 0.003), semi_white(0.2 * global_alpha));
+
+        let stats_y = line_y + 0.04;
+        let stats_r = Rect::new(data_r.x, stats_y, data_r.w, data_r.bottom() - stats_y - 0.02);
+        let col_w = stats_r.w / 2.;
+        let counts = &self.result.counts;
+
+        let stat_items = [
+            ("Perfect", counts[0]),
+            ("Good", counts[1]),
+            ("Bad", counts[2]),
+            ("Miss", counts[3]),
+            ("Combo", self.result.max_combo),
+            ("Notes", self.result.num_of_notes),
+        ];
+
+        for (i, (label, value)) in stat_items.iter().enumerate() {
+            let col = i / 3;
+            let row = i % 3;
+            let x = stats_r.x + col as f32 * col_w;
+            let y = stats_r.y + row as f32 * 0.055;
+            let color = match *label {
+                "Perfect" => semi_white(0.95 * global_alpha),
+                "Good" => semi_white(0.75 * global_alpha),
+                "Bad" => semi_white(0.55 * global_alpha),
+                "Miss" => semi_white(0.42 * global_alpha),
+                _ => semi_white(0.72 * global_alpha),
+            };
+            ui.text(&format!("{}: {}", label, value))
+                .pos(x, y)
+                .anchor(0., 0.)
+                .size(0.36)
+                .color(color)
+                .draw_using(&BOLD_FONT);
+        }
+
+        let btn_y = ui.top - 0.06 - BUTTON_H;
+        let btn_x = 0.92 - BUTTON_W - BUTTON_SPACING - BUTTON_W;
+
+        let proceed_r = Rect::new(btn_x + BUTTON_W + BUTTON_SPACING, btn_y, BUTTON_W, BUTTON_H);
+        self.btn_proceed.render_shadow(ui, proceed_r, t, |ui: &mut Ui, path| {
+            ui.fill_path(&path, Color::from_hex_rgb(0x3f51b5));
+            let ir = Rect::new(proceed_r.x + 0.03, proceed_r.center().y, 0., 0.).feather(0.022);
+            ui.fill_rect(ir, (*self.icon_proceed, ir));
+            ui.text(tl!("proceed"))
+                .pos((ir.right() + proceed_r.right() - 0.01) / 2., proceed_r.center().y)
+                .anchor(0.5, 0.5)
+                .no_baseline()
+                .size(0.38)
+                .color(WHITE)
+                .draw_using(&BOLD_FONT);
+        });
+
+        let retry_r = Rect::new(btn_x, btn_y, BUTTON_W, BUTTON_H);
+        self.btn_retry.render_shadow(ui, retry_r, t, |ui: &mut Ui, path| {
+            ui.fill_path(&path, Color::from_hex_rgb(0x78909c));
+            let ir = Rect::new(retry_r.x + 0.03, retry_r.center().y, 0., 0.).feather(0.022);
+            ui.fill_rect(ir, (*self.icon_retry, ir));
+            ui.text(tl!("retry"))
+                .pos((ir.right() + retry_r.right() - 0.01) / 2., retry_r.center().y)
+                .anchor(0.5, 0.5)
+                .no_baseline()
+                .size(0.38)
+                .color(WHITE)
+                .draw_using(&BOLD_FONT);
+        });
+
+        let detail_color = if self.detail_mode {
+            semi_white(0.4 * global_alpha)
+        } else {
+            semi_white(0.8 * global_alpha)
+        };
+        let detail_draw = ui
+            .text(tl!("detail"))
+            .pos(0.92, btn_y - 0.07)
+            .anchor(0.5, 0.)
+            .size(0.3)
+            .color(detail_color)
+            .draw_using(&BOLD_FONT);
+        self.btn_detail.set(ui, detail_draw.feather(0.02));
+
+        if let Some(s) = &self.update_state {
+            if s.best {
+                let bounce = ((t * 4.0).sin() * 0.006).sin();
+                let offset_y = bounce * 0.012;
+                let gold = Color::from_hex_rgb(0xffd700);
+                let gold_alpha = Color::new(gold.r, gold.g, gold.b, gold.a * global_alpha);
+                ui.text(format!("{}  {:+07}", tl!("new-best"), s.improvement))
+                    .pos(0.92, detail_draw.bottom() + 0.02 + offset_y)
+                    .anchor(1., 0.)
+                    .color(gold_alpha)
+                    .size(0.3)
+                    .draw_using(&BOLD_FONT);
+            }
+        }
+
+        let pad = 0.02;
+        let mw = 0.35;
+        let mut name_text = ui.text(&self.player_name).size(0.5);
+        let name_width = name_text.measure().w.min(mw);
+        let w = AVATAR_SIZE * 2. + pad + name_width + 0.02;
+        let r = Rect::new(-0.96, -top + 0.04, w, AVATAR_SIZE * 2.);
+
+        ui.fill_path(&r.feather(0.01).rounded(AVATAR_SIZE + 0.01), semi_black(0.5 * global_alpha));
+        ui.avatar(r.x + AVATAR_SIZE, r.y + AVATAR_SIZE, AVATAR_SIZE, t, Ok(Some(self.player.clone())));
+
+        let lf = r.x + AVATAR_SIZE * 2. + pad;
+        ui.text(&self.player_name)
+            .pos(lf, r.y + AVATAR_SIZE)
+            .anchor(0., 1.)
+            .max_width(mw)
+            .size(0.5)
+            .draw();
+
+        let rks_text = if let Some(new_rks) = self.update_state.as_ref().and_then(|it| it.new_rks) {
+            format!("{new_rks:.2}")
+        } else if let Some(rks) = &self.player_rks {
+            format!("{rks:.2}")
+        } else {
+            String::new()
+        };
+        ui.text(rks_text)
+            .pos(lf, r.y + AVATAR_SIZE + 0.008)
+            .size(0.32)
+            .color(semi_white(0.7 * global_alpha))
+            .draw();
+
+        let active_mod_indices: Vec<usize> = [
+            (Mods::FLIP_X, 0),
+            (Mods::FADE_OUT, 1),
+            (Mods::FADE_IN, 2),
+            (Mods::NIGHTCORE, 3),
+            (Mods::RAINBOW, 4),
+            (Mods::AUTOPLAY, 5),
+            (Mods::NO_SHADER, 6),
+        ]
+        .into_iter()
+        .filter(|(m, _)| self.mods.contains(*m))
+        .map(|(_, idx)| idx)
+        .collect();
+
+        if !active_mod_indices.is_empty() {
+            let mut x = -0.90;
+            let y_pos = -top + 0.04 + AVATAR_SIZE * 2. + 0.04;
+            for &mod_idx in &active_mod_indices {
+                let icon_r = Rect::new(x, y_pos, MOD_ICON_SIZE, MOD_ICON_SIZE);
+                ui.fill_rect(icon_r, (*self.mod_icons[mod_idx], icon_r, ScaleType::Fit, semi_white(0.7 * global_alpha)));
+                x += MOD_ICON_SIZE + 0.02;
+            }
+        }
+
+        if !self.tr_start.is_nan() {
+            let p = ((t - self.tr_start) / TRANSITION_DURATION).min(1.);
+            let p_ease = Self::ease_out_quart(p);
+            if p >= 1. {
+                self.tr_start = f32::NAN;
+            }
+
+            let mut mask_rect = sr;
+            mask_rect.y -= mask_rect.h * (1.0 - p_ease);
+            rect_shadow(mask_rect, 0.01, 0.5);
+            let (tex, alpha) = if self.next == 1 {
+                (&self.background, 0.3)
+            } else {
+                (&self.illustration, 0.55)
+            };
+            ui.fill_rect(mask_rect, (**tex, mask_rect));
+            ui.fill_rect(mask_rect, semi_black(alpha));
+        }
+
+        Ok(())
+    }
+
+    fn next_scene(&mut self, _tm: &mut TimeManager) -> NextScene {
+        if !self.tr_start.is_nan() {
+            return NextScene::None;
+        }
+        if self.next != 0 {
+            let _ = self.bgm.pause();
+        }
+        match self.next {
+            0 => NextScene::None,
+            1 => NextScene::Pop,
+            2 => {
+                if let Some(rec) = &self.best_record {
+                    NextScene::PopNWithResult(2, Box::new(rec.clone()))
+                } else {
+                    NextScene::PopN(2)
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+}

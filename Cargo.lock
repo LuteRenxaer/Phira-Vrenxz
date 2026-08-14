@@ -3,6 +3,99 @@
 version = 4
 
 [[package]]
+name = "PhirLie"
+version = "1.2.0"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "async-trait",
+ "base64 0.22.1",
+ "bitflags 2.13.1",
+ "bytes",
+ "bytesize",
+ "cacache",
+ "cfg-if",
+ "chrono",
+ "daachorse",
+ "dashmap 6.2.1",
+ "dotenv-build",
+ "fluent",
+ "fluent-syntax",
+ "futures-util",
+ "hex",
+ "image",
+ "inputbox",
+ "jni 0.22.4",
+ "logos",
+ "lru",
+ "lyon",
+ "macroquad",
+ "miniquad",
+ "nalgebra",
+ "napi-derive-ohos",
+ "napi-ohos",
+ "ndk-context",
+ "obfstr",
+ "objc2",
+ "objc2-foundation",
+ "objc2-ui-kit",
+ "once_cell",
+ "phira-mp-client",
+ "phira-mp-common",
+ "pollster",
+ "prpr",
+ "prpr-l10n",
+ "rand 0.8.7",
+ "regex",
+ "reqwest",
+ "rfd",
+ "sanitize-filename",
+ "sasa",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "smallvec",
+ "tap",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+ "walkdir",
+ "zip",
+ "zstd",
+]
+
+[[package]]
+name = "PhirLie-main"
+version = "1.2.0"
+dependencies = [
+ "PhirLie",
+]
+
+[[package]]
+name = "PhirLie-monitor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "futures-util",
+ "log",
+ "macroquad",
+ "phira-mp-client",
+ "phira-mp-common",
+ "pretty_env_logger",
+ "prpr",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "ab_glyph"
 version = "0.2.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -77,6 +170,49 @@ checksum = "ad7569085a265dd3f607ebecce7458eaab2132a84393534c95b18dcbc3f31e04"
 dependencies = [
  "libc",
  "pkg-config",
+]
+
+[[package]]
+name = "android-activity"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0f2a1bb052857d5dd49572219344a7332b31b76405648eabac5bc68978251bcd"
+dependencies = [
+ "android-properties",
+ "bitflags 2.13.1",
+ "cc",
+ "jni 0.22.4",
+ "libc",
+ "log",
+ "ndk 0.9.0",
+ "ndk-context",
+ "ndk-sys 0.6.0+11769913",
+ "num_enum 0.7.6",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "android-properties"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc7eb209b1518d6bb87b283c20095f5228ecda460da70b44f0802523dea6da04"
+
+[[package]]
+name = "android_log-sys"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84521a3cf562bc62942e294181d9eef17eb38ceb8c68677bc49f144e4c3d4f8d"
+
+[[package]]
+name = "android_logger"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c494134f746c14dc653a35a4ea5aca24ac368529da5370ecf41fe0341c35772f"
+dependencies = [
+ "android_log-sys",
+ "env_logger",
+ "log",
+ "once_cell",
 ]
 
 [[package]]
@@ -594,7 +730,7 @@ dependencies = [
  "js-sys",
  "libc",
  "mach2",
- "ndk",
+ "ndk 0.9.0",
  "ndk-context",
  "num-derive",
  "num-traits",
@@ -2234,7 +2370,7 @@ dependencies = [
  "ohos-xcomponent-binding",
  "ohos-xcomponent-sys",
  "ohos_enum_macro 0.0.2",
- "raw-window-handle",
+ "raw-window-handle 0.6.2",
  "rustls-platform-verifier 0.6.2",
  "winapi",
  "xcomponent-sys",
@@ -2385,6 +2521,20 @@ dependencies = [
 
 [[package]]
 name = "ndk"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "451422b7e4718271c8b5b3aadf5adedba43dc76312454b387e98fae0fc951aa0"
+dependencies = [
+ "bitflags 1.3.2",
+ "jni-sys 0.3.1",
+ "ndk-sys 0.4.1+23.1.7779620",
+ "num_enum 0.5.11",
+ "raw-window-handle 0.5.2",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "ndk"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3f42e7bbe13d351b6bead8286a43aac9534b82bd3cc43e47037f012ebfd62d4"
@@ -2393,7 +2543,7 @@ dependencies = [
  "jni-sys 0.3.1",
  "log",
  "ndk-sys 0.6.0+11769913",
- "num_enum",
+ "num_enum 0.7.6",
  "thiserror 1.0.69",
 ]
 
@@ -2408,6 +2558,24 @@ name = "ndk-sys"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1bcdd74c20ad5d95aacd60ef9ba40fdf77f767051040541df557b7a9b2a2121"
+
+[[package]]
+name = "ndk-sys"
+version = "0.4.1+23.1.7779620"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cf2aae958bd232cac5069850591667ad422d263686d75b52a065f9badeee5a3"
+dependencies = [
+ "jni-sys 0.3.1",
+]
+
+[[package]]
+name = "ndk-sys"
+version = "0.5.0+25.2.9519653"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c196769dd60fd4f363e11d948139556a344e79d451aeb2fa2fd040738ef7691"
+dependencies = [
+ "jni-sys 0.3.1",
+]
 
 [[package]]
 name = "ndk-sys"
@@ -2526,12 +2694,33 @@ dependencies = [
 
 [[package]]
 name = "num_enum"
+version = "0.5.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f646caf906c20226733ed5b1374287eb97e3c2a5c227ce668c1f2ce20ae57c9"
+dependencies = [
+ "num_enum_derive 0.5.11",
+]
+
+[[package]]
+name = "num_enum"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d0bca838442ec211fa11de3a8b0e0e8f3a4522575b5c4c06ed722e005036f26"
 dependencies = [
- "num_enum_derive",
+ "num_enum_derive 0.7.6",
  "rustversion",
+]
+
+[[package]]
+name = "num_enum_derive"
+version = "0.5.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcbff9bc912032c62bf65ef1d5aea88983b420f4f839db1e9b0c281a25c9c799"
+dependencies = [
+ "proc-macro-crate 1.3.1",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -2540,7 +2729,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate",
+ "proc-macro-crate 3.5.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -2949,7 +3138,7 @@ dependencies = [
  "ohos-display-binding",
  "ohos-xcomponent-sys",
  "ohos_enum_macro 0.0.2",
- "raw-window-handle",
+ "raw-window-handle 0.6.2",
 ]
 
 [[package]]
@@ -3125,96 +3314,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "phira"
-version = "1.2.0"
+name = "phirLte"
+version = "1.2.1"
 dependencies = [
- "anyhow",
- "arc-swap",
- "async-trait",
- "base64 0.22.1",
- "bitflags 2.13.1",
- "bytes",
- "bytesize",
- "cacache",
- "cfg-if",
- "chrono",
- "daachorse",
- "dashmap 6.2.1",
- "dotenv-build",
- "fluent",
- "fluent-syntax",
- "futures-util",
- "hex",
- "image",
- "inputbox",
- "jni 0.22.4",
- "logos",
- "lru",
- "lyon",
- "macroquad",
- "miniquad",
- "nalgebra",
- "napi-derive-ohos",
- "napi-ohos",
- "ndk-context",
- "obfstr",
- "objc2",
- "objc2-foundation",
- "objc2-ui-kit",
- "once_cell",
- "phira-mp-client",
- "phira-mp-common",
- "pollster",
- "prpr",
- "prpr-l10n",
- "rand 0.8.7",
- "regex",
- "reqwest",
- "rfd",
- "sanitize-filename",
- "sasa",
- "semver",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "smallvec",
- "tap",
- "tempfile",
- "tokio",
- "tracing",
- "uuid",
- "walkdir",
- "zip",
- "zstd",
-]
-
-[[package]]
-name = "phira-main"
-version = "1.2.0"
-dependencies = [
- "phira",
-]
-
-[[package]]
-name = "phira-monitor"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "futures-util",
+ "PhirLie",
+ "android-activity",
+ "android_logger",
  "log",
  "macroquad",
- "phira-mp-client",
- "phira-mp-common",
- "pretty_env_logger",
- "prpr",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
- "uuid",
+ "ndk 0.7.0",
+ "ndk-context",
+ "ndk-sys 0.5.0+25.2.9519653",
 ]
 
 [[package]]
@@ -3256,10 +3366,6 @@ dependencies = [
  "quote",
  "syn 1.0.109",
 ]
-
-[[package]]
-name = "phire"
-version = "1.2.1"
 
 [[package]]
 name = "pin-project-lite"
@@ -3337,11 +3443,21 @@ dependencies = [
 
 [[package]]
 name = "proc-macro-crate"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f4c021e1093a56626774e81216a4ce732a735e5bad4868a03f3ed65ca0c3919"
+dependencies = [
+ "once_cell",
+ "toml_edit 0.19.15",
+]
+
+[[package]]
+name = "proc-macro-crate"
 version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e67ba7e9b2b56446f1d419b1d807906278ffa1a658a8a5d8a39dcb1f5a78614f"
 dependencies = [
- "toml_edit",
+ "toml_edit 0.25.13+spec-1.1.0",
 ]
 
 [[package]]
@@ -3755,6 +3871,12 @@ dependencies = [
 
 [[package]]
 name = "raw-window-handle"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2ff9a1f06a88b01621b7ae906ef0211290d1c8a168a15542486a8f61c0833b9"
+
+[[package]]
+name = "raw-window-handle"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
@@ -3902,7 +4024,7 @@ dependencies = [
  "objc2-foundation",
  "percent-encoding",
  "pollster",
- "raw-window-handle",
+ "raw-window-handle 0.6.2",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wayland-backend",
@@ -4808,6 +4930,12 @@ dependencies = [
 
 [[package]]
 name = "toml_datetime"
+version = "0.6.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22cddaf88f4fbc13c51aebbf5f8eceb5c7c5a9da2ac40a13519eb5b0a0e8f11c"
+
+[[package]]
+name = "toml_datetime"
 version = "1.1.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3165f65f62e28e0115a00b2ebdd37eb6f3b641855f9d636d3cd4103767159ad7"
@@ -4817,14 +4945,25 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
+version = "0.19.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b5bb770da30e5cbfde35a2d7b9b8a2c4b8ef89548a7a6aeab5c9a576e3e7421"
+dependencies = [
+ "indexmap",
+ "toml_datetime 0.6.11",
+ "winnow 0.5.40",
+]
+
+[[package]]
+name = "toml_edit"
 version = "0.25.13+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6975367e4d2ef766d86af01ffad14b622fecc8d4357a998fbc4deb6e9bacaf9b"
 dependencies = [
  "indexmap",
- "toml_datetime",
+ "toml_datetime 1.1.1+spec-1.1.0",
  "toml_parser",
- "winnow",
+ "winnow 1.0.4",
 ]
 
 [[package]]
@@ -4833,7 +4972,7 @@ version = "1.1.3+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
 dependencies = [
- "winnow",
+ "winnow 1.0.4",
 ]
 
 [[package]]
@@ -5633,6 +5772,15 @@ name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
+
+[[package]]
+name = "winnow"
+version = "0.5.40"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f593a95398737aeed53e489c785df13f3618e41dbcd6718c6addbf1395aa6876"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "winnow"

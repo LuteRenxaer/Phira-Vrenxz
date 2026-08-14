@@ -1,23 +1,37 @@
 use crate::{ffi, handle, AudioStreamFormat, Error, OwnedPtr, Result};
-use std::ptr::null_mut;
 
 pub struct SwrContext(OwnedPtr<ffi::SwrContext>);
 impl SwrContext {
     pub fn new(in_format: &AudioStreamFormat, out_format: &AudioStreamFormat) -> Result<Self> {
         unsafe {
-            OwnedPtr::new(ffi::swr_alloc_set_opts(
-                null_mut(),
-                out_format.channel_layout as _,
+            let mut ptr: *mut ffi::SwrContext = std::ptr::null_mut();
+            let in_ch_layout = ffi::AVChannelLayout {
+                order: ffi::AV_CHANNEL_ORDER_NATIVE,
+                nb_channels: in_format.channels,
+                u: ffi::AVChannelLayout__bindgen_ty_1 { mask: in_format.channel_layout },
+                opaque: std::ptr::null_mut(),
+            };
+            let out_ch_layout = ffi::AVChannelLayout {
+                order: ffi::AV_CHANNEL_ORDER_NATIVE,
+                nb_channels: out_format.channels,
+                u: ffi::AVChannelLayout__bindgen_ty_1 { mask: out_format.channel_layout },
+                opaque: std::ptr::null_mut(),
+            };
+            let ret = ffi::swr_alloc_set_opts2(
+                &mut ptr,
+                &out_ch_layout,
                 out_format.sample_fmt,
                 out_format.sample_rate,
-                in_format.channel_layout as _,
+                &in_ch_layout,
                 in_format.sample_fmt,
                 in_format.sample_rate,
                 0,
-                null_mut(),
-            ))
-            .map(Self)
-            .ok_or(Error::AllocationFailed)
+                std::ptr::null_mut(),
+            );
+            if ret != 0 {
+                return Err(Error::from_error_code(ret));
+            }
+            OwnedPtr::new(ptr).map(Self).ok_or(Error::AllocationFailed)
         }
     }
 
