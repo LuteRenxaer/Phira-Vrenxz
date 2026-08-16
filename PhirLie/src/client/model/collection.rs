@@ -122,7 +122,7 @@ impl ChartRef {
         let Some(id) = self.id() else {
             return Ok(None);
         };
-        // TODO: optimize
+
         Ok(get_data().charts.iter().find_map(|it| {
             if it.info.id == Some(id) {
                 Some(Cow::Owned(it.local_path.clone()))

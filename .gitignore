@@ -40,3 +40,10 @@ inner.rs
 # OHOS
 
 /phira/dist/
+
+# Temp files
+/temp
+/tmp
+*.log
+strip_comments.py
+backup_*

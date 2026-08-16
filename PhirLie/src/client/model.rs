@@ -143,7 +143,7 @@ impl<T: Object + 'static> Ptr<T> {
     }
 
     pub async fn load(&self) -> Result<Arc<T>> {
-        // sync locks can not be held accross await point
+
         {
             let map = obtain_map_cache::<T>();
             let mut guard = map.lock().unwrap();
@@ -183,7 +183,7 @@ pub struct File {
 impl File {
     fn request(&self) -> reqwest::RequestBuilder {
         let mut req = basic_client_builder().build().unwrap().get(&self.url);
-        // TODO: thread safety?
+
         if get_data().enable_anys {
             if let Some(path) = self.url.strip_prefix(API_URL) {
                 if let Some(rest_path) = path.strip_prefix("/files/") {

@@ -22,7 +22,7 @@ use std::{
     sync::atomic::AtomicU32,
 };
 
-pub const MAX_SIZE: usize = 64; // needs tweaking
+pub const MAX_SIZE: usize = 64;
 pub static DPI_VALUE: AtomicU32 = AtomicU32::new(250);
 pub const BUFFER_SIZE: usize = 1024;
 
@@ -477,7 +477,7 @@ impl Resource {
         ])
     }
     pub async fn load_mod_icons() -> Result<[SafeTexture; 7]> {
-        // FLIP_X, FADE_OUT, FADE_IN, NIGHTCORE, RAINBOW, AUTOPLAY, NO_SHADER
+
         Ok(loads![
             "mod/flip_x.png",
             "mod/fade_out.png",
@@ -520,7 +520,7 @@ impl Resource {
         let sfx_drag = audio.create_sfx(res_pack.sfx_drag.clone(), buffer_size)?;
         let sfx_flick = audio.create_sfx(res_pack.sfx_flick.clone(), buffer_size)?;
 
-        // 该纹理现在由 ResourcePack::load 加载并保存在 res_pack.challenge_texture 中
+
 
         let aspect_ratio = config.aspect_ratio.unwrap_or(info.aspect_ratio);
         let note_width = config.note_scale * NOTE_WIDTH_RATIO_BASE as f32;

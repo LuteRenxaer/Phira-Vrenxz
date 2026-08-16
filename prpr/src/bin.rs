@@ -191,8 +191,6 @@ impl BinaryData for Color {
     }
 }
 
-// IMPLEMENTATIONS
-
 impl<T: BinaryData> BinaryData for Keyframe<T> {
     fn read_binary<R: Read>(r: &mut BinaryReader<R>) -> Result<Self> {
         Ok(Self {

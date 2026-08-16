@@ -304,7 +304,7 @@ impl DRectButton {
 
     pub fn build(&mut self, ui: &mut Ui, t: f32, r: Rect, f: impl FnOnce(&mut Ui, Path)) {
         self.inner.set(ui, r);
-        // let r = r.feather((1. - self.progress(t)) * self.delta);
+
         let ct = r.center();
         let ct = Vector::new(ct.x, ct.y);
         if PREFER_REDUCED_MOTION.load(Ordering::Relaxed) {
@@ -855,7 +855,7 @@ impl<'a> Ui<'a> {
     #[inline]
     pub fn with_gl<R>(&mut self, transform: Mat4, f: impl FnOnce(&mut Self) -> R) -> R {
         let old = self.gl_transform;
-        // self.gl_transform = old * transform;
+
         let gl = unsafe { get_internal_gl() }.quad_gl;
         gl.push_model_matrix(transform);
         let res = f(self);
@@ -1230,23 +1230,23 @@ impl<'a> Ui<'a> {
     }
 
     pub fn full_loading<'b>(&mut self, text: impl Into<Cow<'b, str>>, t: f32) {
-        // Phigros-style loading screen: pure black background
+
         self.fill_rect(self.screen_rect(), BLACK);
-        // Larger, more prominent loading ring
+
         self.loading(0., -0.05, t, WHITE, LoadingParams {
             radius: 0.08,
             width: 0.018,
             progress: None,
             last: None,
         });
-        // Clean, minimal loading text below
+
         self.text(text.into()).pos(0., 0.08).anchor(0.5, 0.).size(0.5).color(semi_white(0.8)).draw();
     }
 
     pub fn full_loading_simple(&mut self, t: f32) {
-        // Phigros-style loading screen: pure black background
+
         self.fill_rect(self.screen_rect(), BLACK);
-        // Larger, more prominent loading ring
+
         self.loading(0., 0., t, WHITE, LoadingParams {
             radius: 0.08,
             width: 0.018,
@@ -1327,9 +1327,9 @@ impl Drop for SafeAudio {
             }));
             std::panic::set_hook(prev_hook);
             if result.is_err() {
-                // cleanup_audio() was not called before process exit;
-                // the audio backend thread may have already terminated.
-                // Nothing we can do — just let the OS reclaim resources.
+
+
+
             }
         }
     }
@@ -1344,7 +1344,6 @@ pub fn cleanup_audio() {
     });
 }
 
-// This function is used to create UI audio manager.
 #[allow(clippy::blocks_in_conditions)]
 fn build_audio() -> SafeAudio {
     match {

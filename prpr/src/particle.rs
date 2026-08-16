@@ -143,12 +143,12 @@ pub struct EmitterConfig {
     /// Velocity acceleration applied to each particle in the direction of motion.
     pub linear_accel: f32,
 
-    // Initial rotation for each emitted particle.
+
     pub initial_rotation: f32,
     /// Initial rotation randomness.
     /// Each particle will spawned with "initial_rotation = initial_rotation - initial_rotation * rand::gen_range(0.0, initial_rotation_randomness)".
     pub initial_rotation_randomness: f32,
-    // Initial rotational speed
+
     pub initial_angular_velocity: f32,
     /// Initial angular velocity randomness.
     /// Each particle will spawned with "initial_angular_velocity = initial_angular_velocity - initial_angular_velocity * rand::gen_range(0.0, initial_angular_velocity_randomness)".
@@ -224,7 +224,7 @@ impl ParticleShape {
             ParticleShape::Rectangle { aspect_ratio } => {
                 #[rustfmt::skip]
                 let vertices: &[f32] = &[
-                    // positions          uv          colors
+
                     -1.0 * aspect_ratio, -1.0, 0.0,   0.0, 0.0,  1.0, 1.0, 1.0, 1.0,
                      1.0 * aspect_ratio, -1.0, 0.0,   1.0, 0.0,  1.0, 1.0, 1.0, 1.0,
                      1.0 * aspect_ratio,  1.0, 0.0,   1.0, 1.0,  1.0, 1.0, 1.0, 1.0,
@@ -428,7 +428,7 @@ impl Emitter {
     pub fn new(config: EmitterConfig) -> Emitter {
         let InternalGlContext { quad_context: ctx, .. } = unsafe { get_internal_gl() };
 
-        // empty, dynamic instance-data vertex buffer
+
         let positions_vertex_buffer = Buffer::stream(ctx, BufferType::VertexBuffer, Self::MAX_PARTICLES * std::mem::size_of::<GpuParticle>());
 
         let bindings = config.shape.build_bindings(ctx, positions_vertex_buffer, config.texture);
@@ -516,7 +516,7 @@ impl Emitter {
         let post_processing_bindings = {
             #[rustfmt::skip]
             let vertices: &[f32] = &[
-                // positions   uv
+
                 -1.0, -1.0,    0.0, 0.0,
                  1.0, -1.0,    1.0, 0.0,
                  1.0,  1.0,    1.0, 1.0,
@@ -632,10 +632,10 @@ impl Emitter {
             let gap = (self.config.lifetime / self.config.amount as f32) * (1.0 - self.config.explosiveness);
 
             let spawn_amount = if gap < 0.001 {
-                // to prevent division by 0 problems
+
                 self.config.amount as usize
             } else {
-                // how many particles fits into this delta time
+
                 ((self.time_passed - self.last_emit_time) / gap) as usize
             };
 
@@ -659,8 +659,8 @@ impl Emitter {
         }
 
         for (gpu, cpu) in self.gpu_particles.iter_mut().zip(&mut self.cpu_counterpart) {
-            // TODO: this is not quite the way to apply acceleration, this is not
-            // fps independent and just wrong
+
+
             cpu.velocity += cpu.velocity * self.config.linear_accel * dt;
             cpu.angular_velocity += cpu.angular_velocity * self.config.angular_accel * dt;
             cpu.angular_velocity *= 1.0 - self.config.angular_damping;
@@ -684,7 +684,7 @@ impl Emitter {
                 gpu.data.y = cpu.lived / cpu.lifetime;
             }
 
-            //cpu.lived = f32::min(cpu.lived + dt, cpu.lifetime);
+
             cpu.lived += dt;
             cpu.velocity += self.config.gravity * dt;
 
@@ -703,8 +703,8 @@ impl Emitter {
         }
 
         for i in (0..self.gpu_particles.len()).rev() {
-            // second if clause is just for the case when lifetime was changed in the editor
-            // normally particle lifetime is always less or equal config lifetime
+
+
             if self.cpu_counterpart[i].lived >= self.cpu_counterpart[i].lifetime || self.cpu_counterpart[i].lived > self.config.lifetime {
                 if self.cpu_counterpart[i].lived != self.cpu_counterpart[i].lifetime {
                     self.particles_spawned -= 1;
@@ -754,7 +754,7 @@ impl Emitter {
         };
 
         ctx.apply_pipeline(&self.pipeline);
-        // This is made
+
         let (x, y, w, h) = quad_gl
             .get_viewport()
             .unwrap_or_else(|| (0, 0, screen_width() as _, screen_height() as _));

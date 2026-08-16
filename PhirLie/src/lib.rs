@@ -5,6 +5,7 @@ prpr_l10n::tl_file!("common" ttl crate::);
 mod inner;
 
 mod anim;
+mod blue_archive_tips;
 mod censor;
 mod charts_view;
 mod client;
@@ -31,7 +32,7 @@ use prpr::{
     core::{init_assets, PGR_FONT},
     ext::SafeTexture,
     log,
-    scene::show_error,
+    scene::{show_error, CrashCode},
     time::TimeManager,
     ui::{cleanup_audio, FontArc, TextPainter},
     Main,
@@ -39,10 +40,14 @@ use prpr::{
 use prpr_l10n::set_prefered_locale;
 #[cfg(not(feature = "hykb"))]
 use prpr_l10n::{GLOBAL, LANGS};
-use scene::MainScene;
+use scene::{LoginScene, StartupLoadingScene};
 use std::{
+    any::Any,
     collections::VecDeque,
-    sync::{mpsc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Mutex,
+    },
 };
 use tracing::{error, info};
 
@@ -57,6 +62,21 @@ static MESSAGES_TX: Mutex<Option<mpsc::Sender<bool>>> = Mutex::new(None);
 static DATA_PATH: Mutex<Option<String>> = Mutex::new(None);
 static CACHE_DIR: Mutex<Option<String>> = Mutex::new(None);
 pub static mut DATA: Option<Data> = None;
+
+/// Set once a panic has been routed to the crash screen, so repeated panics
+/// (e.g. inside the crash scene itself) cannot push it again.
+static CRASH_SCENE_SHOWN: AtomicBool = AtomicBool::new(false);
+
+/// Extract the message from a caught panic payload.
+fn panic_message(payload: &(dyn Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_owned()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        format!("{payload:?}")
+    }
+}
 
 #[cfg(target_env = "ohos")]
 use napi_derive_ohos::napi;
@@ -205,8 +225,8 @@ async fn the_main() -> Result<()> {
     sync_data();
     save_data()?;
 
-    // Warm up the offline banned-word automaton so local edits can check
-    // synchronously. No-op without the `aa` feature.
+
+
     tokio::spawn(censor::preload());
 
     let rx = {
@@ -226,7 +246,12 @@ async fn the_main() -> Result<()> {
     let font = FontArc::try_from_vec(load_file("font.ttf").await?)?;
     let mut painter = TextPainter::new(font.clone(), None);
 
-    let mut main = Main::new(Box::new(MainScene::new(font).await?), TimeManager::default(), None).await?;
+    let first_scene: Box<dyn prpr::scene::Scene> = if get_data().show_startup_screen {
+        Box::new(LoginScene::new(font))
+    } else {
+        Box::new(StartupLoadingScene::new(font))
+    };
+    let mut main = Main::new(first_scene, TimeManager::default(), None).await?;
 
     let tm = TimeManager::default();
     let mut fps_time = -1;
@@ -249,7 +274,9 @@ async fn the_main() -> Result<()> {
             fps_time_sum += frame_time;
         }
         last_frame_start = frame_start as f32;
-        let res = || -> Result<()> {
+        // Catch panics on the main thread so they enter the crash screen
+        // instead of unwinding through the C boundary and aborting the app.
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<()> {
             let signal = if paused {
                 rx.recv_timeout(std::time::Duration::from_secs(1)).ok()
             } else {
@@ -269,7 +296,25 @@ async fn the_main() -> Result<()> {
             }
             prpr::ext::flush_pending_texture_deletions();
             Ok(())
-        }();
+        }));
+        let res = match res {
+            Ok(res) => res,
+            Err(payload) => {
+                let message = panic_message(&*payload);
+                error!("caught panic on main thread: {message}");
+                if !CRASH_SCENE_SHOWN.swap(true, Ordering::SeqCst) {
+                    let entered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        main.enter_crash_scene(CrashCode::UnexpectedPanic { message }, "游戏发生意外崩溃".to_owned())
+                    }));
+                    match entered {
+                        Ok(Ok(())) => {}
+                        Ok(Err(err)) => error!("failed to enter crash scene: {err:?}"),
+                        Err(payload) => error!("crash scene itself panicked: {}", panic_message(&*payload)),
+                    }
+                }
+                Ok(())
+            }
+        };
         if let Err(err) = res {
             error!("uncaught error: {err:?}");
             show_error(err);
@@ -290,8 +335,8 @@ async fn the_main() -> Result<()> {
             }
         }
 
-        // While backgrounded the scene is paused; the blocking `recv_timeout`
-        // above already parks this thread, so nothing extra is needed here.
+
+
         next_frame().await;
     }
     Ok(())
@@ -299,7 +344,7 @@ async fn the_main() -> Result<()> {
 
 fn build_global_window_conf() -> Conf {
     let mut conf = build_conf();
-    conf.window_title = "phirLte".to_owned();
+    conf.window_title = "phirLie".to_owned();
     conf.icon = Some(miniquad::conf::Icon {
         small: *include_bytes!("../icon/small"),
         medium: *include_bytes!("../icon/medium"),
@@ -432,13 +477,13 @@ impl HykbCredential {
         if self.code == 0 {
             Ok(self)
         } else {
-            // A non-zero code is any failure the HYKB SDK reports: 2001 auth
-            // failed, 2002 login failed, 2003 cancelled, 2004 exception, 2005
-            // developer-requested exit / account logout. A HYKB build mandates a
-            // valid, matching HYKB session, so every one of these must tear the
-            // in-game session down — otherwise cancelling the HYKB prompt during
-            // a silent re-verify would leave the player signed in and bypass the
-            // gate entirely.
+
+
+
+
+
+
+
             force_logout();
             anyhow::bail!("{}", crate::ttl!("hykb-login-cancelled"))
         }
@@ -553,13 +598,13 @@ pub extern "C" fn Java_quad_1native_QuadNative_hykbLoginCallback(
             access_token,
         });
     } else if code == 2005 {
-        // No login is in flight, so this is the SDK's asynchronous
-        // anti-addiction "exit game" action: the player hit a play-time limit
-        // and chose to quit from the SDK's own dialog. Honor it by exiting.
-        // Other async codes (e.g. 2008 "continue playing") are handled inside
-        // the SDK and need no response here. A request-less success (code 0, the
-        // SDK switching accounts on its own) is likewise ignored: any signed-in
-        // HYKB account is accepted, so a switch no longer tears the session down.
+
+
+
+
+
+
+
     }
 }
 

@@ -21,7 +21,6 @@ static CLIENT: Lazy<ArcSwap<reqwest::Client>> = Lazy::new(|| ArcSwap::from_point
 
 pub struct Client;
 
-// pub const API_URL: &str = "http://localhost:2924";
 pub const API_URL: &str = "https://phira.5wyxi.com";
 
 pub fn basic_client_builder() -> ClientBuilder {
@@ -366,9 +365,9 @@ impl Client {
 
     pub async fn get_me() -> Result<User> {
         let user: User = Self::get_me_unchecked().await?;
-        // In HYKB builds an account must stay bound to a HYKB account. If the
-        // server ever reports an unbound account, force a logout instead of
-        // letting the player continue in an invalid state.
+
+
+
         #[cfg(feature = "hykb")]
         if user.hykb_uid.is_none() {
             get_data_mut().me = None;
@@ -424,7 +423,7 @@ impl Client {
             .ok_or_else(|| anyhow!("invalid last-modified header"))?;
         debug!("{new_modified} {modified:?}");
         if Some(new_modified.as_str()) == modified {
-            // That mother fucker qiniu does not return NOT_MODIFIED
+
             return Ok(None);
         }
         let new_terms = resp.text().await?;

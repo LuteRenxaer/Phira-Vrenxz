@@ -135,7 +135,7 @@ impl Note {
 
     pub fn plain(&self) -> bool {
         !self.fake && !matches!(self.kind, NoteKind::Hold { .. }) && self.object.translation.1.keyframes.len() <= 1
-        // && self.ctrl_obj.is_default()
+
     }
 
     pub fn update(&mut self, res: &mut Resource, parent_rot: f32, parent_tr: &Matrix, ctrl_obj: &mut CtrlObject, line_height: f64) {
@@ -165,7 +165,7 @@ impl Note {
 
     pub fn dead(&self) -> bool {
         (!matches!(self.kind, NoteKind::Hold { .. }) || matches!(self.judge, JudgeStatus::Judged)) && self.object.dead()
-        // && self.ctrl_obj.dead()
+
     }
 
     fn init_ctrl_obj(&self, ctrl_obj: &mut CtrlObject, line_height: f64) {
@@ -196,7 +196,7 @@ impl Note {
             return;
         }
         if config.appear_before.is_finite() {
-            // TODO optimize
+
             let beat = bpm_list.beat(self.time);
             let time = bpm_list.time_beats(beat - config.appear_before);
             if time > res.time {
@@ -275,7 +275,7 @@ impl Note {
                         &res.res_pack.note_style
                     };
                     if matches!(self.judge, JudgeStatus::Judged) {
-                        // miss
+
                         color.a *= 0.5;
                     }
                     if res.time >= end_time {
@@ -289,8 +289,8 @@ impl Note {
                     let top = (end_height - line_height) as f32;
                     let tex = &style.hold;
                     let ratio = style.hold_ratio();
-                    // body
-                    // TODO (end_height - height) is not always total height
+
+
                     draw_tex(
                         res,
                         **(if res.res_pack.info.hold_repeat {
@@ -318,7 +318,7 @@ impl Note {
                         },
                         false,
                     );
-                    // head
+
                     if res.time < self.time || res.res_pack.info.hold_keep_head {
                         let r = style.hold_head_rect();
                         let hf = vec2(scale, r.h / r.w * scale * ratio);
@@ -337,7 +337,7 @@ impl Note {
                             false,
                         );
                     }
-                    // tail
+
                     let r = style.hold_tail_rect();
                     let hf = vec2(scale, r.h / r.w * scale * ratio);
                     draw_tex(

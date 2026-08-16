@@ -30,7 +30,6 @@ struct RPEBpmItem {
     start_time: Triple,
 }
 
-// serde is weird...
 fn f32_zero() -> f32 {
     0.
 }
@@ -142,7 +141,7 @@ struct RPEExtendedEvents {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RPENote {
-    // TODO above == 0? what does that even mean?
+
     #[serde(rename = "type")]
     kind: u8,
     above: u8,
@@ -150,8 +149,8 @@ struct RPENote {
     end_time: Triple,
     position_x: f32,
     y_offset: f32,
-    alpha: u16,               // some alpha has 256...
-    hitsound: Option<String>, // TODO implement this feature
+    alpha: u16,
+    hitsound: Option<String>,
     size: f32,
     speed: f32,
     is_fake: u8,
@@ -167,8 +166,8 @@ struct RPENote {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RPEJudgeLine {
-    // TODO group
-    // TODO bpmfactor
+
+
     #[serde(rename = "Name")]
     name: String,
     #[serde(rename = "Texture")]
@@ -257,9 +256,9 @@ fn speed_linear_tween(start_speed: f32, end_speed: f32) -> Rc<dyn TweenFunction>
     if (start_speed - end_speed).abs() < EPS as f32 {
         StaticTween::get_rc(2)
     } else if start_speed.abs() > end_speed.abs() {
-        Rc::new(ClampedTween::new(7 /*quadOut*/, 0.0..(1. - end_speed / start_speed)))
+        Rc::new(ClampedTween::new(7 , 0.0..(1. - end_speed / start_speed)))
     } else {
-        Rc::new(ClampedTween::new(6 /*quadIn*/, (start_speed / end_speed)..1.))
+        Rc::new(ClampedTween::new(6 , (start_speed / end_speed)..1.))
     }
 }
 
@@ -415,7 +414,7 @@ fn parse_speed_events(r: &mut BpmList, rpe: &[RPEEventLayer], bezier_map: &Bezie
 fn parse_speed_events_legacy(r: &mut BpmList, rpe: &[RPEEventLayer], max_time: f64) -> Result<AnimFloat> {
     let rpe: Vec<_> = rpe.iter().filter_map(|it| it.speed_events.as_ref()).collect();
     if rpe.is_empty() {
-        // TODO or is it?
+
         return Ok(AnimFloat::default());
     };
     let anis: Vec<_> = rpe
@@ -461,8 +460,8 @@ fn parse_speed_events_legacy(r: &mut BpmList, rpe: &[RPEEventLayer], max_time: f
         let end_time = *pts[i + 1];
         sani.set_time(now_time);
         let speed = sani.now();
-        // this can affect a lot! do not use end_time...
-        // using end_time causes Hold tween (x |-> 0) to be recognized as Linear tween (x |-> x)
+
+
         sani.set_time(end_time - 1e-4);
         let end_speed = sani.now();
         kfs.push(if (speed - end_speed).abs() < EPS as f32 {
@@ -471,13 +470,13 @@ fn parse_speed_events_legacy(r: &mut BpmList, rpe: &[RPEEventLayer], max_time: f
             Keyframe {
                 time: now_time,
                 value: height as f32,
-                tween: Rc::new(ClampedTween::new(7 /*quadOut*/, 0.0..(1. - end_speed / speed))),
+                tween: Rc::new(ClampedTween::new(7 , 0.0..(1. - end_speed / speed))),
             }
         } else {
             Keyframe {
                 time: now_time,
                 value: height as f32,
-                tween: Rc::new(ClampedTween::new(6 /*quadIn*/, (speed / end_speed)..1.)),
+                tween: Rc::new(ClampedTween::new(6 , (speed / end_speed)..1.)),
             }
         });
         height += (speed + end_speed) as f64 * (end_time - now_time) / 2.;
@@ -510,7 +509,7 @@ fn parse_gif_events<V: Clone + Into<f32>>(r: &mut BpmList, rpe: &[RPEEvent<V>], 
         next_rep_time = (r.time(&e.end_time) * 1000. + gif.total_time() as f64 * (1. - e.end.clone().into()) as f64).round() as u128;
     }
 
-    // TODO maybe a better approach?
+
     const GIF_MAX_TIME: f64 = 2000.;
     while GIF_MAX_TIME > next_rep_time as f64 / 1000. {
         kfs.push(Keyframe::new(next_rep_time as f64 / 1000., 1.0, 0));
@@ -552,7 +551,7 @@ async fn parse_notes(
         };
         let hitsound = match note.hitsound {
             Some(s) => {
-                // TODO: RPE doc needed...
+
                 if s == "flick.mp3" {
                     HitSound::Flick
                 } else if s == "tap.mp3" {
@@ -612,10 +611,10 @@ fn parse_ctrl_events(rpe: &[RPECtrlEvent], key: &str) -> AnimFloat {
     if rpe.is_empty() || (rpe.len() == 2 && rpe[0].easing == 1 && (vals[0] - 1.).abs() < 1e-4) {
         return AnimFloat::default();
     }
-    // In RPE, each control event's easing governs the interval ending at that
-    // event's x, not starting from it. The Anim system uses kf[i].tween for
-    // the interval [kf[i], kf[i+1]], so we shift the tween assignment: each
-    // keyframe gets the tween from the next event.
+
+
+
+
     let tweens: Vec<Rc<dyn TweenFunction>> = rpe
         .iter()
         .skip(1)
@@ -900,7 +899,7 @@ pub async fn parse_rpe(source: &str, fs: &mut dyn FileSystem, extra: ChartExtra,
             )
         })
         .max().unwrap_or_default() + 1.;
-    // don't want to add a whole crate for a mere join_all...
+
     let mut lines = Vec::new();
     let mut line_texture_map = HashMap::new();
     for (id, rpe) in rpe.judge_line_list.into_iter().enumerate() {

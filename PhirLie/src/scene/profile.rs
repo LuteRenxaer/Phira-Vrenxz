@@ -476,7 +476,7 @@ impl Scene for ProfileScene {
                         .draw();
                     self.btn_name.set(ui, r);
 
-                    // ID
+
                     let r = ui
                         .text(format!("#{}", self.id))
                         .size(0.35)
@@ -485,7 +485,7 @@ impl Scene for ProfileScene {
                         .color(semi_white(0.5))
                         .draw();
 
-                    // RKS
+
                     let r = ui
                         .text(format!("RKS {:.2}", user.rks))
                         .size(0.5)

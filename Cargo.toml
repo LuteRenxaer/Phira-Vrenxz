@@ -1,10 +1,10 @@
 [package]
-name = "phirLte"
+name = "phirLie"
 version = "1.2.1"
 edition = "2021"
 
 [lib]
-name = "PhirLie"
+name = "phira"
 crate-type = ["cdylib", "rlib"]
 
 [workspace]
@@ -23,7 +23,7 @@ resolver = "2"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(closed)'] }
 
 [workspace.package]
-version = "1.2.0"
+version = "1.2.84"
 edition = "2021"
 license = "GPL-3.0-only"
 
@@ -95,8 +95,8 @@ opt-level = 2
 
 # ===== Android 打包配置 =====
 [package.metadata.android]
-apk_name = "phirLte"
-package = "com.lute.phirLte"
+apk_name = "phirLie"
+package = "com.lute.phirLie"
 assets = "assets"
 resources = "res"
 min_sdk_version = 30
@@ -104,4 +104,4 @@ target_sdk_version = 30
 
 [package.metadata.android.application]
 icon = "@mipmap/ic_launcher"
-label = "phirLte"
+label = "phirLie"

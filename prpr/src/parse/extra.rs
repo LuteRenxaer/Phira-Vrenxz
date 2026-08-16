@@ -13,7 +13,6 @@ use crate::{
     fs::FileSystem,
 };
 
-// serde is weird...
 fn f32_zero() -> f32 {
     0.
 }

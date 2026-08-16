@@ -66,7 +66,7 @@ impl FileSystem for AssetsFileSystem {
     }
 
     async fn exists(&mut self, path: &str) -> Result<bool> {
-        // unlikely to be called
+
         Ok(load_file(&concat_string!(self.0, path)).await.is_ok())
     }
 
@@ -290,9 +290,9 @@ fn info_from_txt(text: &str) -> Result<ChartInfo> {
 
 fn info_from_csv(text: &str) -> Result<ChartInfo> {
     let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(Cursor::new(text));
-    // shitty design
+
     let headers = reader.headers()?.iter().map(str::to_owned).collect::<Vec<_>>();
-    let record = reader.into_records().last().ok_or_else(|| anyhow!("expected csv records"))??; // ??
+    let record = reader.into_records().last().ok_or_else(|| anyhow!("expected csv records"))??;
     info_from_kv(headers.iter().zip(&record).map(|(key, value)| (key.as_str(), value.to_owned())), true)
 }
 

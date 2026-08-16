@@ -180,12 +180,7 @@ impl From<DynamicImage> for SafeTexture {
 pub static BLACK_TEXTURE: Lazy<SafeTexture> = Lazy::new(|| Texture2D::from_rgba8(1, 1, &[0, 0, 0, 255]).into());
 
 pub fn nalgebra_to_glm(mat: &Matrix) -> Mat4 {
-    /*
-        [11] [12]  0  [13]
-        [21] [22]  0  [23]
-          0    0   1    0
-        [31] [32]  0  [33]
-    */
+
     Mat4::from_cols_array(&[
         mat.m11, mat.m21, 0., mat.m31, mat.m12, mat.m22, 0., mat.m32, 0., 0., 1., 0., mat.m13, mat.m23, 0., mat.m33,
     ])
@@ -389,7 +384,7 @@ pub fn poll_future<R>(future: Pin<&mut (impl Future<Output = R> + ?Sized)>) -> O
             RawWaker::new(data, &VTABLE)
         }
         unsafe fn wake(_data: *const ()) {
-            // panic!()
+
         }
         unsafe fn wake_by_ref(data: *const ()) {
             wake(data)
@@ -411,7 +406,7 @@ pub fn screen_aspect() -> f32 {
     let vp = get_viewport();
     vp.2 as f32 / vp.3 as f32
 }
-// This function is used to create in-game audio manager
+
 pub fn create_audio_manger(config: &Config) -> Result<AudioManager> {
     #[cfg(target_os = "android")]
     {
@@ -612,24 +607,24 @@ pub fn to_chinese_numeral(num: u32) -> String {
     let digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
     let units = ["", "十", "百", "千"];
     let big_units = ["", "万", "亿"];
-    
+
     let mut result = String::new();
     let mut n = num;
     let mut section = 0;
-    
+
     while n > 0 {
         let mut section_num = n % 10000;
         n /= 10000;
-        
+
         if section_num > 0 {
             let mut section_str = String::new();
             let mut zero_flag = false;
             let mut has_non_zero = false;
-            
+
             for i in 0..4 {
                 let digit = (section_num % 10) as usize;
                 section_num /= 10;
-                
+
                 if digit == 0 {
                     if has_non_zero {
                         zero_flag = true;
@@ -644,20 +639,20 @@ pub fn to_chinese_numeral(num: u32) -> String {
                     has_non_zero = true;
                 }
             }
-            
+
             section_str.push_str(big_units[section]);
             result.insert_str(0, &section_str);
         } else if section > 0 && !result.is_empty() && !result.starts_with("零") {
             result.insert_str(0, "零");
         }
-        
+
         section += 1;
     }
-    
+
     if result.starts_with("一十") {
         result = result.trim_start_matches('一').to_string();
     }
-    
+
     result
 }
 
@@ -695,7 +690,7 @@ pub fn open_url(url: &str) -> Result<()> {
 
             let mtm = MainThreadMarker::new().unwrap();
             let url = NSURL::URLWithString(&NSString::from_str(url)).unwrap();
-            // SAFETY: options are empty
+
             unsafe {
                 UIApplication::sharedApplication(mtm).openURL_options_completionHandler(&url, &NSDictionary::new(), None);
             }

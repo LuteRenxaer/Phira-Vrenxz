@@ -159,7 +159,7 @@ pub struct JudgeLine {
 
 impl JudgeLine {
     pub fn update(&mut self, res: &mut Resource, tr: Matrix, parent_rot: f32) {
-        // self.object.set_time(res.time); // this is done by chart, chart has to calculate transform for us
+
         self.height.set_time(res.time);
         let line_height = self.height.now();
         let mut ctrl_obj = self.ctrl_obj.borrow_mut();
@@ -378,7 +378,7 @@ impl JudgeLine {
                         config.appear_before = (w as f64 - 100.) / 10.;
                     }
                     w if (1000..2000).contains(&w) => {
-                        // TODO unsupported
+
                     }
                     _ => {}
                 }

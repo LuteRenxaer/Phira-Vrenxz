@@ -19,7 +19,7 @@ use prpr::{
     ext::{open_url, semi_black, semi_white, RectExt},
     scene::{request_input, return_input, show_error, show_message, take_input},
     task::Task,
-    ui::{button_hit, DRectButton, Dialog, RectButton, Ui},
+    ui::{button_hit, rounded_rect_shadow, DRectButton, Dialog, RectButton, ShadowConfig, Ui},
 };
 use regex::Regex;
 use std::{future::Future, sync::atomic::Ordering, sync::Arc};
@@ -245,8 +245,8 @@ impl Login {
     }
 
     pub fn enter(&mut self, t: f32) {
-        // With HYKB available, show the method-choice panel before any form;
-        // otherwise go straight to the email form.
+
+
         #[cfg(feature = "hykb")]
         self.show_picker(t);
         #[cfg(not(feature = "hykb"))]
@@ -307,7 +307,7 @@ impl Login {
     pub fn dismiss(&mut self, t: f32) {
         self.show = false;
         self.fader.back(t);
-        // Drop any pending claim so a later plain login isn't treated as a claim.
+
         #[cfg(feature = "hykb")]
         {
             self.forced = false;
@@ -360,7 +360,7 @@ impl Login {
             .buttons(vec![tl!("hykb-choice-register").to_string(), tl!("hykb-choice-claim").to_string()])
             .listener(move |_, pos| {
                 match pos {
-                    // Outside click / dismiss: treat as backing out to the picker.
+
                     -1 => *choice.lock().unwrap() = Some(HykbChoice::Cancel),
                     0 => *choice.lock().unwrap() = Some(HykbChoice::Register),
                     1 => *choice.lock().unwrap() = Some(HykbChoice::Claim),
@@ -381,7 +381,7 @@ impl Login {
             .buttons(vec![crate::ttl!("cancel").into_owned(), tl!("hykb-bind-required-confirm").into_owned()])
             .listener(move |_, pos| {
                 match pos {
-                    // Cancel button or outside click: back out and log out.
+
                     0 | -1 => *choice.lock().unwrap() = Some(false),
                     1 => *choice.lock().unwrap() = Some(true),
                     _ => {}
@@ -431,15 +431,15 @@ impl Login {
         if self.hykb_task.is_some() {
             return true;
         }
-        // The "choose your username" panel for a new HYKB account.
+
         #[cfg(feature = "hykb")]
         if self.reg_name_show {
             if self.reg_name_fader.transiting() {
                 return true;
             }
             if !Self::reg_name_rect().contains(touch.position) && touch.phase == TouchPhase::Started {
-                // Backing out returns to the register/claim choice dialog (the
-                // previous level), keeping the token so the choice can be remade.
+
+
                 self.dismiss_reg_name(t);
                 if let Some(token) = self.hykb_reg_token.take() {
                     self.hykb_pending_token = Some(token);
@@ -468,14 +468,14 @@ impl Login {
             }
             return true;
         }
-        // The method-choice panel sits on top of (and gates) the form.
+
         #[cfg(feature = "hykb")]
         if self.picker_show {
             if self.picker_fader.transiting() {
                 return true;
             }
             if !Self::picker_rect().contains(touch.position) && touch.phase == TouchPhase::Started {
-                // When login is mandatory, swallow the touch but keep the panel.
+
                 if !self.forced {
                     self.dismiss_picker(t);
                 }
@@ -488,10 +488,10 @@ impl Login {
             }
             if self.btn_method_hykb.touch(touch, t) {
                 if !check_read_tos_and_policy(true, true) {
-                    // Keep the picker up behind the TOS dialog: if the player
-                    // denies (which never fires JUST_ACCEPTED_TOS), they simply
-                    // stay on the picker rather than being stranded on a blank,
-                    // forced home. The picker is dismissed once TOS is accepted.
+
+
+
+
                     self.after_accept_tos = Some(NextAction::Hykb);
                 } else {
                     self.dismiss_picker(t);
@@ -503,10 +503,10 @@ impl Login {
         }
         if self.show {
             if !Ui::dialog_rect().contains(touch.position) && touch.phase == TouchPhase::Started {
-                // In the HYKB claim flow, backing out of the credential form
-                // returns to the register/claim choice dialog (the previous
-                // level) instead of closing the login entirely. Keep the
-                // pending token so the choice can be made again.
+
+
+
+
                 #[cfg(feature = "hykb")]
                 if self.hykb_pending_token.is_some() {
                     self.show = false;
@@ -514,9 +514,9 @@ impl Login {
                     self.show_hykb_choice();
                     return true;
                 }
-                // When login is mandatory, the flow can't be dismissed, but the
-                // player may still back out of the email form to the method
-                // picker (rather than being stranded on the form).
+
+
+
                 #[cfg(feature = "hykb")]
                 if self.forced {
                     self.show = false;
@@ -562,8 +562,8 @@ impl Login {
                 return true;
             }
             if self.btn_login.touch(touch, t) {
-                // A pending HYKB claim already accepted TOS in the picker; only
-                // gate a plain email login on the TOS check.
+
+
                 #[cfg(feature = "hykb")]
                 let pending_claim = self.hykb_pending_token.is_some();
                 #[cfg(not(feature = "hykb"))]
@@ -596,10 +596,10 @@ impl Login {
                 show_message(tl!("illegal-email")).error();
                 return;
             }
-            // Keep the pending token: on success `dismiss` clears it, but on a
-            // failed claim it must survive so backing out returns to the
-            // register/claim dialog (and a retry still claims) rather than
-            // dropping all the way back to the method picker.
+
+
+
+
             self.start("hykb-login", async move {
                 Client::login_hykb_claim(&token, &email, &pwd).await?;
                 Ok(Some(Client::get_me().await?))
@@ -614,18 +614,18 @@ impl Login {
                 password: &pwd,
             })
             .await?;
-            // Fetch without the HYKB guard: an unbound account is handled by the
-            // "bind HYKB to continue" dialog rather than an immediate logout.
+
+
             #[cfg(feature = "hykb")]
             let me = Client::get_me_unchecked().await?;
             #[cfg(not(feature = "hykb"))]
             let me = Client::get_me().await?;
-            // An account already bound to a HYKB uid must still have the native
-            // SDK signed in (same requirement as the app-restart session restore
-            // in `page/home.rs`): restore it silently and tear the session down if
-            // that login fails/cancels. The signed-in HYKB account no longer has
-            // to match the bound `hykb_uid` — any successful HYKB login is
-            // accepted.
+
+
+
+
+
+
             #[cfg(feature = "hykb")]
             if me.hykb_uid.is_some() {
                 crate::obtain_hykb_credential_silent().await?.ok_or_err()?;
@@ -649,8 +649,8 @@ impl Login {
         dispatch_tos_task();
         if let Some((id, text)) = take_input() {
             'tmp: {
-                // The HYKB register username feeds the in-app panel's input slot
-                // rather than being stored into one of the email-form fields.
+
+
                 #[cfg(feature = "hykb")]
                 if id == "hykb_reg_name" {
                     self.t_hykb_name = text;
@@ -670,8 +670,8 @@ impl Login {
                 *tmp = text;
             }
         }
-        // Cancelling the username InputBox simply returns to the in-app username
-        // panel (still shown); consume the event so it doesn't leak to others.
+
+
         #[cfg(feature = "hykb")]
         if let Some(id) = take_input_cancelled() {
             let _ = id;
@@ -688,8 +688,8 @@ impl Login {
                 }
                 #[cfg(feature = "hykb")]
                 Some(NextAction::Hykb) => {
-                    // The picker was kept visible through the TOS gate; drop it
-                    // now that the player accepted and we're proceeding.
+
+
                     self.dismiss_picker(t);
                     self.start_hykb_login();
                 }
@@ -704,9 +704,9 @@ impl Login {
                 match res {
                     Err(err) => show_error(err.context(tl!("action-failed", "action" => *action))),
                     Ok(user) => {
-                        // In HYKB builds a plain email login is only permitted for
-                        // accounts already bound to a HYKB account; others are sent
-                        // through the "bind HYKB to continue" dialog below.
+
+
+
                         #[cfg(feature = "hykb")]
                         let needs_bind = *action == "login" && user.as_ref().is_some_and(|u| u.hykb_uid.is_none());
                         #[cfg(not(feature = "hykb"))]
@@ -741,9 +741,9 @@ impl Login {
                 self.task = None;
             }
         }
-        // The email login resolved to an account not yet bound to HYKB: prompt the
-        // player to bind it (deferred to here so it doesn't overlap the `self.task`
-        // borrow above).
+
+
+
         #[cfg(feature = "hykb")]
         if email_needs_bind {
             self.show_email_bind();
@@ -757,23 +757,23 @@ impl Login {
     /// choice dialog, and the follow-up that resolves to a logged-in user.
     #[cfg(feature = "hykb")]
     fn update_hykb(&mut self, t: f32) -> Result<()> {
-        // The "bind HYKB to continue" dialog (shown after an email login to an
-        // unbound account) recorded the player's decision.
+
+
         let email_bind = self.email_bind_choice.lock().unwrap().take();
         if let Some(bind) = email_bind {
             if bind {
-                // Bind the freshly-authenticated session to a HYKB account, then
-                // finish as a normal login. Reuse the "hykb-login" action so the
-                // success path (set user, dismiss) is shared.
+
+
+
                 self.start("hykb-login", async move {
                     let cred = obtain_hykb_credential().await?.ok_or_err()?;
                     Client::bind_hykb(cred.uid, &cred.access_token).await?;
                     Ok(Some(Client::get_me().await?))
                 });
             } else {
-                // Cancelled: the email login already obtained tokens, so drop them
-                // and return to the method picker rather than leaving an unbound,
-                // half-logged-in session.
+
+
+
                 get_data_mut().me = None;
                 get_data_mut().tokens = None;
                 save_data()?;
@@ -803,32 +803,32 @@ impl Login {
                 self.hykb_task = None;
             }
         }
-        // The choice dialog records its result here; pick it up and start the
-        // matching follow-up request, reusing `task` so the success path is shared.
+
+
         let choice = self.hykb_choice.lock().unwrap().take();
         if let Some(choice) = choice {
             match choice {
                 HykbChoice::Register => {
                     if let Some(token) = self.hykb_pending_token.take() {
-                        // Let the player choose their own username before creating
-                        // the account via the in-app panel (prefilled with their
-                        // HYKB nickname). The token is kept until the name is submitted.
+
+
+
                         self.hykb_reg_token = Some(token);
                         self.t_hykb_name = self.hykb_nick.clone().unwrap_or_default();
                         self.show_reg_name(t);
                     }
                 }
                 HykbChoice::Claim => {
-                    // Keep the pending token; reveal the email form so the user can
-                    // enter the credentials of the account they want to claim. The
-                    // login button submits the claim while the token is set.
+
+
+
                     if self.hykb_pending_token.is_some() {
                         self.show_form(t);
                     }
                 }
                 HykbChoice::Cancel => {
-                    // Backed out of register/claim: drop the pending identity and
-                    // return to the method-choice panel.
+
+
                     self.hykb_pending_token = None;
                     self.hykb_nick = None;
                     self.show_picker(t);
@@ -848,7 +848,16 @@ impl Login {
                     let mut wr = Ui::dialog_rect();
                     wr.y -= 0.03;
                     wr.h += 0.06;
-                    ui.fill_path(&wr.rounded(0.01), ui.background());
+                    rounded_rect_shadow(
+                        ui,
+                        wr,
+                        &ShadowConfig {
+                            elevation: 0.012,
+                            radius: 0.02,
+                            base: 0.7,
+                        },
+                    );
+                    ui.fill_path(&wr.rounded(0.02), Color::new(0.10, 0.12, 0.17, 0.97));
                     ui.scissor(wr, |ui| {
                         let p = (if self.start_time.is_nan() {
                             if self.in_reg {
@@ -882,7 +891,7 @@ impl Login {
                         let mut r = Rect::new(wr.x + pad, wr.bottom() - h - 0.04, (wr.w - pad) / 2. - pad, h);
                         self.btn_to_login.render_text(ui, r, t, tl!("back-login"), 0.66, false);
                         r.x += r.w + pad;
-                        self.btn_reg.render_text(ui, r, t, tl!("register"), 0.66, false);
+                        self.btn_reg.render_text(ui, r, t, tl!("register"), 0.66, true);
 
                         ui.dy(wr.h);
                         let r = ui.text(tl!("login")).pos(wr.x + 0.045, wr.y + 0.037).size(1.1).draw_using(&BOLD_FONT);
@@ -911,19 +920,19 @@ impl Login {
 
                         let h = 0.09;
                         let pad = 0.05;
-                        // Under the anti-addiction build, self-service email
-                        // registration is disabled: only offer login.
+
+
                         #[cfg(feature = "hykb")]
                         {
                             let r = Rect::new(wr.x + pad, wr.bottom() - h - 0.04, wr.w - pad * 2., h);
-                            self.btn_login.render_text(ui, r, t, tl!("login"), 0.66, false);
+                            self.btn_login.render_text(ui, r, t, tl!("login"), 0.66, true);
                         }
                         #[cfg(not(feature = "hykb"))]
                         {
                             let mut r = Rect::new(wr.x + pad, wr.bottom() - h - 0.04, (wr.w - pad) / 2. - pad, h);
                             self.btn_to_reg.render_text(ui, r, t, tl!("register"), 0.66, false);
                             r.x += r.w + pad;
-                            self.btn_login.render_text(ui, r, t, tl!("login"), 0.66, false);
+                            self.btn_login.render_text(ui, r, t, tl!("login"), 0.66, true);
                         }
                     });
                 });
@@ -974,7 +983,7 @@ impl Login {
                 let bh = 0.13;
                 let gap = 0.028;
                 let bw = wr.w - pad * 2.;
-                // HYKB login — brand green with the popcorn logo.
+
                 let r = Rect::new(wr.x + pad, wr.bottom() - bh * 2. - gap - 0.05, bw, bh);
                 let green = Color::from_rgba(0x5f, 0xb8, 0x78, 255);
                 self.btn_method_hykb.render_shadow(ui, r, t, |ui, path| {
@@ -996,7 +1005,7 @@ impl Login {
                         .color(Color::from_hex_rgb(0xffc107))
                         .draw();
                 });
-                // Email login — neutral dark with the envelope icon.
+
                 let r = Rect::new(wr.x + pad, r.bottom() + gap, bw, bh);
                 self.btn_method_email.render_shadow(ui, r, t, |ui, path| {
                     ui.fill_path(&path, semi_black(0.4));

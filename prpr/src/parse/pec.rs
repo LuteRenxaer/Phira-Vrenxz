@@ -251,7 +251,7 @@ pub fn parse_pec(source: &str, extra: ChartExtra) -> Result<Chart> {
                         _ => unreachable!(),
                     };
                     let position_x = it.take_f32()? / 1024.;
-                    // TODO we don't understand..
+
                     let above = it.take_usize()? == 1;
                     let fake = match it.take_usize()? {
                         0 => false,

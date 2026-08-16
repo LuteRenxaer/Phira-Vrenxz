@@ -78,7 +78,6 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 
-// Things that need to be reloaded for chart info updates
 type LocalTuple = (String, ChartInfo, AudioClip, Illustration);
 
 static CONFIRM_CKSUM: AtomicBool = AtomicBool::new(false);
@@ -126,7 +125,7 @@ fn find_unresolved_mentions(intro: &str) -> Vec<(usize, usize, String)> {
         .captures_iter(intro)
         .filter_map(|cap| {
             if cap.get(2).is_some() {
-                // Already has #id — resolved
+
                 return None;
             }
             let m = cap.get(0)?;
@@ -247,7 +246,7 @@ impl Downloading {
                 Ok((chart, tuple)) => {
                     self.info = chart.info.clone();
                     if let Some(local_path) = &self.local_path {
-                        // update
+
                         SongScene::global_update_chart_info(local_path, self.info.clone())?;
                     } else {
                         NEED_UPDATE.store(true, Ordering::Relaxed);
@@ -396,7 +395,7 @@ pub struct SongScene {
 
     open_web_btn: DRectButton,
 
-    // Imported chart for overwriting
+
     overwrite_from: Option<String>,
     overwrite_task: Option<Task<Result<LocalTuple>>>,
 
@@ -661,7 +660,7 @@ impl SongScene {
                                 *prog.lock().unwrap() = Some(count.min(size) as f32 / size as f32);
                             }
                             if prog_wk.strong_count() == 1 {
-                                // cancelled
+
                                 break;
                             }
                         }
@@ -688,7 +687,7 @@ impl SongScene {
                     serde_yaml::to_writer(dir.create("info.yml")?, &info)?;
 
                     if prog_wk.strong_count() == 0 {
-                        // cancelled
+
                         drop(dir);
                         tokio::fs::remove_dir_all(&path).await?;
                     }
@@ -1094,11 +1093,11 @@ impl SongScene {
                         config,
                         fs,
                         player,
-                        None, // get_size_fn
+                        None,
                         upload_fn,
                         update_fn,
                         save_fn,
-                        None, // preload
+                        None,
                     )
                     .await
                     .map(|it| NextScene::Overlay(Box::new(it)))
@@ -1125,18 +1124,18 @@ impl SongScene {
                     .map(|it| NextScene::Overlay(Box::new(it)))
                 }
             } else {
-                // ✅ LoadingScene::new 参数顺序：get_size_fn 在 upload_fn 之前
+
                 LoadingScene::new(
                     mode,
                     info,
                     config,
                     fs,
                     player,
-                    None, // get_size_fn
+                    None,
                     upload_fn,
                     update_fn,
                     save_fn,
-                    None, // preload
+                    None,
                 )
                 .await
                 .map(|it| NextScene::Overlay(Box::new(it)))
@@ -1514,8 +1513,8 @@ impl SongScene {
     fn save_edit(&mut self) {
         let Some(edit) = &self.info_edit else { unreachable!() };
         let info = edit.info.clone();
-        // Offline moderation of locally-edited chart metadata. Cloud uploads are
-        // checked server-side, but this text is written to the local info.yml.
+
+
         {
             let mut texts = vec![
                 info.name.as_str(),
@@ -1582,8 +1581,8 @@ impl SongScene {
         let intro = self.info_edit.as_ref().unwrap().info.intro.clone();
         self.autocomplete_task = Some(Task::new(async move {
             let unresolved = find_unresolved_mentions(&intro);
-            // Resolve each mention (bail on first failure), then apply right-to-left
-            // so earlier byte offsets stay valid.
+
+
             let mut resolved: Vec<(usize, usize, String)> = Vec::new();
             for (start, end, name) in unresolved {
                 let name_owned = name.clone();
@@ -1592,13 +1591,13 @@ impl SongScene {
                 let Some(user) = matched else {
                     bail!(tl!("collab-autocomplete-failed", "name" => name));
                 };
-                // Replacement: insert `#id` right after `@name`, keep the rest of
-                // the original match (bracket/role if any).
+
+
                 let suffix = &intro[start + 1 + name.len()..end];
                 let new_text = format!("@{}#{}{}", name, user.id, suffix);
                 resolved.push((start, end, new_text));
             }
-            // Apply right-to-left so replacement lengths don't shift pending offsets.
+
             let mut result = intro.into_bytes();
             for (start, end, new_text) in resolved.into_iter().rev() {
                 result.splice(start..end, new_text.into_bytes());
@@ -2888,7 +2887,7 @@ impl Scene for SongScene {
                 ui.dx(-r.w - 0.025);
 
                 if self.local_path.as_ref().is_none_or(|it| !it.starts_with(':')) {
-                    // TODO cache
+
                     let is_fav = if let Some(fav) = self.is_fav {
                         fav
                     } else {

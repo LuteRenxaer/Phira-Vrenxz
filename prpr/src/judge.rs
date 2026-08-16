@@ -97,7 +97,7 @@ pub struct FlickTracker {
 
 impl FlickTracker {
     pub fn new(_dpi: u32, time: f32, point: Point) -> Self {
-        // TODO maybe a better approach?
+
         let dpi = 275;
         Self {
             threshold: FLICK_SPEED_THRESHOLD * dpi as f32 / 386.,
@@ -121,13 +121,13 @@ impl FlickTracker {
             if self.stopped && !self.flicked {
                 self.flicked = delta.magnitude() / dt >= self.threshold * 2.;
             }
-            // if speed < self.threshold || self.stopped {
-            // self.stopped = delta.magnitude() / dt < self.threshold * 5.;
-            // self.flicked = self.threshold <= speed;
-            // if self.flicked {
-            // warn!("new flick!");
-            // }
-            // }
+
+
+
+
+
+
+
         }
         self.last_delta = Some(delta.normalize());
         self.last_time = time;
@@ -139,7 +139,7 @@ pub enum JudgeStatus {
     NotJudged,
     PreJudge,
     Judged,
-    Hold(bool, f64, f64, bool, f64), // perfect, at, diff, pre-judge, up-time
+    Hold(bool, f64, f64, bool, f64),
 }
 
 #[repr(u8)]
@@ -269,8 +269,8 @@ type Judgements = Vec<(f64, u32, u32, Result<Judgement, bool>)>;
 
 #[repr(C)]
 pub struct Judge {
-    // notes of each line in order
-    // LinkedList::drain_filter is unstable...
+
+
     pub notes: Vec<(Vec<u32>, usize)>,
     pub trackers: HashMap<u64, FlickTracker>,
     pub last_time: f64,
@@ -420,7 +420,7 @@ impl Judge {
         let uptime = get_uptime();
 
         let t = res.time;
-        // TODO optimize
+
         let mut touches: HashMap<u64, Touch> = {
             let mut touches = touches();
             let btn = MouseButton::Left;
@@ -563,7 +563,7 @@ impl Judge {
             }
         };
         let mut judgements = Vec::new();
-        // clicks & flicks
+
         for (id, touch) in touches.iter().enumerate() {
             let click = touch.phase == TouchPhase::Started;
             let flick =
@@ -628,10 +628,10 @@ impl Judge {
                     continue;
                 }
                 if click {
-                    // click & hold
+
                     let note = &mut line.notes[id as usize];
                     if matches!(note.kind, NoteKind::Flick) {
-                        continue; // to next loop
+                        continue;
                     }
                     if dt <= LIMIT_GOOD || matches!(note.kind, NoteKind::Hold { .. }) {
                         match note.kind {
@@ -647,15 +647,15 @@ impl Judge {
                             _ => unreachable!(),
                         };
                     } else {
-                        // prevent extra judgements
+
                         if matches!(note.judge, JudgeStatus::NotJudged) {
-                            // keep the note after bad judgement
+
                             line.notes[id as usize].judge = JudgeStatus::PreJudge;
                             judgements.push((Judgement::Bad, line_id, id, None));
                         }
                     }
                 } else {
-                    // flick
+
                     line.notes[id as usize].judge = JudgeStatus::PreJudge;
                     if let Some(tracker) = self.trackers.get_mut(&touch.id) {
                         tracker.flicked = false;
@@ -664,7 +664,7 @@ impl Judge {
             }
         }
         for _ in 0..keys_down {
-            // find the earliest not judged click / hold note
+
             if let Some((line_id, id)) = chart
                 .lines
                 .iter()
@@ -746,7 +746,7 @@ impl Judge {
                 if !matches!(note.judge, JudgeStatus::NotJudged) {
                     continue;
                 }
-                // process miss
+
                 let dt = (t - note.time) / spd;
                 if dt > LIMIT_BAD {
                     note.judge = JudgeStatus::Judged;
@@ -775,7 +775,7 @@ impl Judge {
                 }
             }
         }
-        // process pre-judge
+
         for (line_id, (line, (idx, st))) in chart.lines.iter_mut().zip(self.notes.iter()).enumerate() {
             line.object.set_time(t);
             for id in &idx[*st..] {
@@ -789,7 +789,7 @@ impl Judge {
                         }
                     }
                 }
-                // TODO adjust
+
                 let ghost_t = t + LIMIT_GOOD;
                 if matches!(note.kind, NoteKind::Click) {
                     if ghost_t < note.time {

@@ -318,8 +318,8 @@ fn render_about(ui: &mut Ui, mut r: Rect, icon: &SafeTexture) -> (f32, f32) {
     ui.fill_path(&ir.rounded(0.02), (**icon, ir));
 
     let (first, text) = (
-        "phirLte",
-        "版本号：V1.2.55\n二次修改内容：\n1. 更改ui\n2. 添加中文数字\n3. 添加新设置功能\n4. AutoPlay文本可以自定义\n\n原版开发：PhirLie\n运营维护：Lute_RencaiDY\n测试人员：\n洋洋酱～\n几何邻屿",
+        "phirLie",
+        "版本号：V1.2.84\n更新内容：\n1. 更改ui\n2. 添加新设置功能\n3.修复铺面库闪退的bug\n4.移除了cmd窗口\n\n原版开发：Phira\n运营维护：Lute_RencaiDY\n测试人员：\n洋洋酱～\n几何邻屿\n\n如果你是从其他地方下载,请加入\nPhirLie/Phi Launcher官方群\nqq:1103288774",
     );
 
     let tr = ui.text(first)
@@ -329,7 +329,7 @@ fn render_about(ui: &mut Ui, mut r: Rect, icon: &SafeTexture) -> (f32, f32) {
         .draw();
 
     let max_text_width = r.w * 0.9;
-    ui.text(text)
+    let text_rect = ui.text(text)
         .pos(ct.x, tr.bottom() + 0.06)
         .size(0.5)
         .multiline()
@@ -338,7 +338,7 @@ fn render_about(ui: &mut Ui, mut r: Rect, icon: &SafeTexture) -> (f32, f32) {
         .anchor(0.5, 0.)
         .draw();
 
-    (ow, r.bottom())
+    (ow, text_rect.bottom())
 }
 
 
@@ -454,6 +454,7 @@ struct GeneralList {
     #[cfg(not(target_env = "ohos"))]
     lowq_btn: DRectButton,
     prefer_reduced_motion_btn: DRectButton,
+    show_startup_screen_btn: DRectButton,
     insecure_btn: DRectButton,
     enable_anys_btn: DRectButton,
     anys_gateway_btn: DRectButton,
@@ -495,6 +496,7 @@ impl GeneralList {
             #[cfg(not(target_env = "ohos"))]
             lowq_btn: DRectButton::new(),
             prefer_reduced_motion_btn: DRectButton::new(),
+            show_startup_screen_btn: DRectButton::new(),
             insecure_btn: DRectButton::new(),
             enable_anys_btn: DRectButton::new(),
             anys_gateway_btn: DRectButton::new(),
@@ -592,6 +594,10 @@ impl GeneralList {
         if self.prefer_reduced_motion_btn.touch(touch, t) {
             data.prefer_reduced_motion ^= true;
             PREFER_REDUCED_MOTION.store(data.prefer_reduced_motion, Ordering::Relaxed);
+            return Ok(Some(true));
+        }
+        if self.show_startup_screen_btn.touch(touch, t) {
+            data.show_startup_screen ^= true;
             return Ok(Some(true));
         }
         if self.insecure_btn.touch(touch, t) {
@@ -774,6 +780,10 @@ impl GeneralList {
             render_switch(ui, rr, t, &mut self.prefer_reduced_motion_btn, data.prefer_reduced_motion);
         }
         item! {
+            render_title(ui, tl!("item-startup-screen"), Some(tl!("item-startup-screen-sub")));
+            render_switch(ui, rr, t, &mut self.show_startup_screen_btn, data.show_startup_screen);
+        }
+        item! {
             render_title(ui, tl!("item-fxaa"), Some(tl!("item-fxaa-sub")));
             render_switch(ui, rr, t, &mut self.fxaa_btn, config.fxaa);
         }
@@ -839,6 +849,8 @@ struct AudioList {
     audio_buffer_size_btn: DRectButton,
     custom_bgm_btn: DRectButton,
     reset_bgm_btn: DRectButton,
+    custom_startup_bgm_btn: DRectButton,
+    reset_startup_bgm_btn: DRectButton,
     cali_task: LocalTask<Result<OffsetPage>>,
     next_page: Option<NextPage>,
 }
@@ -857,6 +869,8 @@ impl AudioList {
             audio_buffer_size_btn: DRectButton::new(),
             custom_bgm_btn: DRectButton::new(),
             reset_bgm_btn: DRectButton::new(),
+            custom_startup_bgm_btn: DRectButton::new(),
+            reset_startup_bgm_btn: DRectButton::new(),
 
             cali_task: None,
             next_page: None,
@@ -918,6 +932,15 @@ impl AudioList {
             show_message(tl!("item-custom-bgm-reset")).ok();
             return Ok(Some(true));
         }
+        if self.custom_startup_bgm_btn.touch(touch, t) {
+            request_file("custom_startup_bgm");
+            return Ok(Some(false));
+        }
+        if self.reset_startup_bgm_btn.touch(touch, t) {
+            get_data_mut().custom_startup_bgm_path = None;
+            show_message(tl!("item-custom-startup-bgm-reset")).ok();
+            return Ok(Some(true));
+        }
         Ok(None)
     }
 
@@ -939,6 +962,10 @@ impl AudioList {
                 data.custom_bgm_path = Some(file);
                 BGM_VOLUME_UPDATED.store(true, Ordering::Relaxed);
                 show_message(tl!("item-custom-bgm-set")).ok();
+                return Ok(true);
+            } else if id == "custom_startup_bgm" {
+                get_data_mut().custom_startup_bgm_path = Some(file);
+                show_message(tl!("item-custom-startup-bgm-set")).ok();
                 return Ok(true);
             } else {
                 return_file(id, file);
@@ -1014,6 +1041,23 @@ impl AudioList {
             render_title(ui, tl!("item-reset-bgm"), None);
             self.reset_bgm_btn.render_text(ui, rr, t, tl!("item-reset-bgm-btn"), 0.5, true);
         }
+        item! {
+            let bgm_name = if let Some(path) = &data.custom_startup_bgm_path {
+                let path = std::path::Path::new(path);
+                path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("custom_startup_bgm")
+                    .to_string()
+            } else {
+                tl!("item-custom-startup-bgm-default").to_string()
+            };
+            render_title(ui, tl!("item-custom-startup-bgm"), Some(tl!("item-custom-startup-bgm-sub")));
+            self.custom_startup_bgm_btn.render_text(ui, rr, t, bgm_name, 0.4, false);
+        }
+        item! {
+            render_title(ui, tl!("item-reset-startup-bgm"), None);
+            self.reset_startup_bgm_btn.render_text(ui, rr, t, tl!("item-reset-startup-bgm-btn"), 0.5, true);
+        }
         (w, h)
     }
 
@@ -1022,7 +1066,7 @@ impl AudioList {
     }
 }
 
-// ========== ChartList ==========
+
 
 struct ChartList {
     show_acc_btn: DRectButton,
@@ -1246,16 +1290,14 @@ impl ChartList {
     }
 }
 
-// ================================================================
-// 修改后的 DebugList —— 包含自定义崩溃功能（含标题）
-// ================================================================
+
 
 struct DebugList {
     chart_debug_btn: DRectButton,
     touch_debug_btn: DRectButton,
     crash_btn: DRectButton,
 
-    // 自定义崩溃相关
+
     custom_title_btn: DRectButton,
     custom_code_btn: DRectButton,
     custom_reason_btn: DRectButton,
@@ -1306,25 +1348,25 @@ impl DebugList {
             self.crash_requested = true;
             return Ok(Some(false));
         }
-        // 自定义标题
+
         if self.custom_title_btn.touch(touch, t) {
             let current = config.custom_crash_title.clone();
             request_input("custom_crash_title", InputBox::new().default_text(&current));
             return Ok(Some(false));
         }
-        // 自定义代码
+
         if self.custom_code_btn.touch(touch, t) {
             let current = config.custom_crash_code.to_string();
             request_input("custom_crash_code", InputBox::new().default_text(&current));
             return Ok(Some(false));
         }
-        // 自定义原因
+
         if self.custom_reason_btn.touch(touch, t) {
             let current = config.custom_crash_reason.clone();
             request_input("custom_crash_reason", InputBox::new().default_text(&current));
             return Ok(Some(false));
         }
-        // 触发自定义崩溃
+
         if self.custom_crash_btn.touch(touch, t) {
             self.custom_crash_requested = true;
             return Ok(Some(false));
@@ -1371,7 +1413,7 @@ impl DebugList {
         let data = get_data();
         let config = &data.config;
 
-        // 原有的调试开关
+
         item! {
             render_title(ui, tl!("item-chart-debug"), Some(tl!("item-chart-debug-sub")));
             render_switch(ui, rr, t, &mut self.chart_debug_btn, config.chart_debug);
@@ -1385,12 +1427,12 @@ impl DebugList {
             self.crash_btn.render_text(ui, rr, t, "崩溃", 0.5, true);
         }
 
-        // ---- 自定义崩溃区域 ----
+
         ui.dy(0.04);
         h += 0.04;
         h += render_section_title(ui, "自定义崩溃");
 
-        // 标题
+
         item! {
             let title_display = if config.custom_crash_title.is_empty() {
                 "(默认)".to_string()
@@ -1401,14 +1443,14 @@ impl DebugList {
             self.custom_title_btn.render_text(ui, rr, t, "修改", 0.5, true);
         }
 
-        // 代码
+
         item! {
             let code_display = format!("当前代码: {}", config.custom_crash_code);
             render_title(ui, "错误代码", Some(code_display.into()));
             self.custom_code_btn.render_text(ui, rr, t, "修改", 0.5, true);
         }
 
-        // 原因
+
         item! {
             let reason_display = if config.custom_crash_reason.is_empty() {
                 "(空)".to_string()
@@ -1420,7 +1462,7 @@ impl DebugList {
             self.custom_reason_btn.render_text(ui, rr, t, "修改", 0.5, true);
         }
 
-        // 触发按钮
+
         item! {
             render_title(ui, "触发自定义崩溃", Some("使用上述设置的代码和原因触发崩溃".into()));
             self.custom_crash_btn.render_text(ui, rr, t, "触发", 0.5, true);

@@ -1,6 +1,6 @@
-# 🔥 phirLte
+# 🔥 phirLie
 
-**phirLte** 是一款社区驱动的节奏游戏，是 [Phira](https://github.com/TeamFlos/phira) 的分支，玩法受 Phigros启发。
+**phirLie** 是一款社区驱动的节奏游戏，是 [Phira](https://github.com/TeamFlos/phira) 的分支，玩法受 Phigros启发。
 
 基于 Rust 开发，继承 Phira 核心功能并新增以下特性：
 
@@ -11,13 +11,13 @@
 - **自定义水印** – 在游戏画面添加自定义文字
 - **全新 UI** – 现代卡片式视觉风格
 
-phirLte 是 Phira 的分支，玩法受 Phigros（Pigeon Games）启发。感谢两个项目的灵感与贡献。
+phirLie 是 Phira 的分支，玩法受 Phigros（Pigeon Games）启发。感谢两个项目的灵感与贡献。
 
 ---
 
 ## 📥 下载
 
-> 即将发布。预编译版本将在 [Releases](https://github.com/LuteRenxaer/phirLte/releases) 提供。
+> 即将发布。预编译版本将在 [Releases](https://github.com/LuteRenxaer/phirLie/releases) 提供。
 
 ---
 

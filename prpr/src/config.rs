@@ -52,8 +52,6 @@ impl Mods {
     }
 }
 
-// ─── 默认值函数 ──────────────────────────────────────────────────────
-
 fn default_custom_crash_code() -> u32 {
     888
 }
@@ -111,7 +109,7 @@ pub struct Config {
     pub volume_music: f32,
     pub volume_sfx: f32,
 
-    // ── 自定义崩溃信息 ──
+
     #[serde(default = "default_custom_crash_code")]
     pub custom_crash_code: u32,
     #[serde(default = "default_custom_crash_reason")]
@@ -119,7 +117,7 @@ pub struct Config {
     #[serde(default = "default_custom_crash_title")]
     pub custom_crash_title: String,
 
-    // for compatibility
+
     autoplay: Option<bool>,
 }
 
@@ -132,7 +130,7 @@ impl Default for Config {
             full_screen_judge: false,
             combo_text_debug: false,
             custom_combo_text: "COMBO".to_string(),
-            custom_watermark: "phirLte".to_string(),
+            custom_watermark: "phirLie".to_string(),
             aspect_ratio: None,
             audio_buffer_size: None,
             chart_debug: false,
@@ -180,7 +178,7 @@ impl Config {
         }
         #[cfg(target_env = "ohos")]
         {
-            // Due to the fucking poor performance of the Maloon GPU, the sample count must be set to 1.
+
             self.sample_count = 1;
         }
     }

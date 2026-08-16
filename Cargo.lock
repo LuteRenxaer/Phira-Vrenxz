@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "PhirLie"
-version = "1.2.0"
+version = "1.2.84"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -19,6 +19,7 @@ dependencies = [
  "daachorse",
  "dashmap 6.2.1",
  "dotenv-build",
+ "fastblur",
  "fluent",
  "fluent-syntax",
  "futures-util",
@@ -69,7 +70,7 @@ dependencies = [
 
 [[package]]
 name = "PhirLie-main"
-version = "1.2.0"
+version = "1.2.84"
 dependencies = [
  "PhirLie",
 ]
@@ -3314,7 +3315,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "phirLte"
+name = "phirLie"
 version = "1.2.1"
 dependencies = [
  "PhirLie",
@@ -3496,7 +3497,7 @@ dependencies = [
 
 [[package]]
 name = "prpr"
-version = "1.2.0"
+version = "1.2.84"
 dependencies = [
  "anyhow",
  "async-trait",

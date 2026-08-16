@@ -126,7 +126,7 @@ pub struct LibraryPage {
     filter_show_tag: bool,
 
     fav_btn: DRectButton,
-    // None = 显示全部 || show all,      Some(folder_name) = 过滤指定收藏夹 || filter by folder
+
     current_fav_index: Option<usize>,
     sync_fav_task: Option<Task<Result<Option<Collection>>>>,
     force_sync_to_cloud: Arc<AtomicBool>,
@@ -484,19 +484,19 @@ fn present_export_picker(path: String) {
     }
 
     define_class! {
-        // SAFETY:
-        // - The superclass NSObject does not have any subclassing requirements.
-        // - `PickerDelegate` does not implement `Drop`.
+
+
+
         #[unsafe(super = NSObject)]
         #[thread_kind = MainThreadOnly]
         struct PickerDelegate;
 
-        // SAFETY: `NSObjectProtocol` has no safety requirements.
+
         unsafe impl NSObjectProtocol for PickerDelegate {}
 
-        // SAFETY: `UIDocumentPickerDelegate` has no safety requirements.
+
         unsafe impl UIDocumentPickerDelegate for PickerDelegate {
-            // SAFETY: The signature is correct.
+
             #[unsafe(method(documentPicker:didPickDocumentsAtURLs:))]
             fn did_pick_documents_at_urls(&self, _controller: &UIDocumentPickerViewController, _urls: &NSArray<NSURL>) {
                 show_message(tl!("exported")).ok();
@@ -1104,7 +1104,7 @@ impl Page for LibraryPage {
                         self.manage_fav_menu.set_options(options);
                         self.multi_operation_menu.set_selected(usize::MAX);
                     } else {
-                        // Do nothing
+
                     }
                 }
                 "multi-delete" => {

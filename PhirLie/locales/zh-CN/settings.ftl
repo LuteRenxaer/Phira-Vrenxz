@@ -68,6 +68,14 @@ item-custom-bgm-reset = 已恢复默认 BGM
 item-reset-bgm = 恢复默认 BGM
 item-reset-bgm-btn = 恢复
 
+item-custom-startup-bgm = 自定义启动画面音乐
+item-custom-startup-bgm-sub = 选择本地音频文件作为启动画面 BGM
+item-custom-startup-bgm-default = 默认（login.mp3）
+item-custom-startup-bgm-set = 启动画面 BGM 已设置
+item-custom-startup-bgm-reset = 已恢复默认启动画面 BGM
+item-reset-startup-bgm = 恢复默认启动画面 BGM
+item-reset-startup-bgm-btn = 恢复
+
 item-custom-bg = 自定义主页背景
 item-custom-bg-sub = 选择本地图片作为主界面背景
 item-custom-bg-default = 默认
@@ -96,6 +104,8 @@ item-interactive = 交互模式
 item-interactive-sub = 音符与判定线的交互效果
 item-prefer-reduced-motion = 减少动画效果
 item-prefer-reduced-motion-sub = 减少动画和视觉特效
+item-startup-screen = 显示启动画面
+item-startup-screen-sub = 进入主页前显示启动画面（含语言选择）
 item-speed = 速度
 item-note-size = 音符大小
 
@@ -111,7 +121,7 @@ item-combo-text = Combo 显示文本
 item-combo-text-default = COMBO
 item-combo-text-edit = 修改
 item-watermark = 自定义水印
-item-watermark-default = phirLte
+item-watermark-default = phirLie
 item-watermark-edit = 修改
 
 load-cali-failed = 加载音频失败

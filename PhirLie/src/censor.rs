@@ -56,7 +56,7 @@ impl CensorManager {
     /// Initialize (or return) the singleton with a specific cache path.
     /// If already initialized, the passed path is ignored (first caller wins).
     pub async fn init(url: String) -> Result<&'static CensorManager> {
-        // get_or_try_init leaves the cell empty on error, so a failed init retries.
+
         INSTANCE.get_or_try_init(|| async move { Self::new(url).await }).await
     }
 
@@ -117,7 +117,7 @@ async fn fetch_build_cache(path: &Path, url: &str) -> Result<Matcher> {
     match fetch_words(url).await {
         Ok(words) => {
             let ac = build_matcher(&words)?;
-            // A cache write failure only slows the next cold start; not fatal.
+
             if let Err(e) = write_cache(path, &ac) {
                 tracing::warn!("failed to write censor cache: {e:#}");
             } else {
@@ -208,8 +208,8 @@ fn load_cache(path: &Path) -> Result<Matcher> {
     anyhow::ensure!(raw[CACHE_MAGIC.len()] == CACHE_VERSION, "cache version mismatch (found {}, expected {CACHE_VERSION})", raw[CACHE_MAGIC.len()]);
 
     let serialized = zstd::decode_all(&raw[header_len..]).context("failed to zstd-decompress cache")?;
-    // SAFETY: magic and version were validated above, so these bytes were written
-    // by this program under the current format.
+
+
     let (ac, rest) = unsafe { CharwiseDoubleArrayAhoCorasick::deserialize_unchecked(&serialized) };
     anyhow::ensure!(rest.is_empty(), "cache has trailing bytes after automaton");
     tracing::debug!("loaded censor automaton from cache ({} states)", ac.num_states());

@@ -1,6 +1,6 @@
-# 🔥 phirLte
+# 🔥 phirLie
 
-**phirLte** is a community-driven rhythm game, forked from Phira and inspired by Phigros.
+**phirLie** is a community-driven rhythm game, forked from Phira and inspired by Phigros.
 
 Built with Rust, it inherits Phira's core while adding new features:
 
@@ -11,13 +11,13 @@ Built with Rust, it inherits Phira's core while adding new features:
 - **Custom Watermark** – add your own text overlay
 - **Redesigned UI** – modern card-style visual improvements
 
-phirLte is a fork of Phira, inspired by Phigros (Pigeon Games). Special thanks to both projects.
+phirLie is a fork of Phira, inspired by Phigros (Pigeon Games). Special thanks to both projects.
 
 ---
 
 ## 📥 Download
 
-> Coming soon. Pre-built binaries will be available in [Releases](https://github.com/LuteRenxaer/phirLte/releases).
+> Coming soon. Pre-built binaries will be available in [Releases](https://github.com/LuteRenxaer/phirLie/releases).
 
 ---
 

@@ -33,7 +33,7 @@ impl VelocityTracker {
 
     pub fn push(&mut self, time: f32, position: Point) {
         if self.movements.len() == Self::RECORD_MAX {
-            // TODO optimize
+
             self.movements.pop_front();
         }
         self.movements.push_back((time, position));
@@ -75,9 +75,9 @@ impl VelocityTracker {
         if denom == 0.0 {
             return Vector::default();
         }
-        // let a = (s_x2y * s_xx - s_xy * s_xx2) / denom;
+
         let b = (s_xy * s_x2x2 - s_x2y * s_xx2) / denom;
-        // let c = (sum_y - b * sum_x - a * sum_x2) / n;
+
         #[allow(clippy::let_and_return)]
         b
     }

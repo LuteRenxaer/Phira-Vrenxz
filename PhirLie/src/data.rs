@@ -1,4 +1,4 @@
-﻿use crate::{
+use crate::{
     client::{Character, Chart, LocalCollection, Ptr, User},
     dir,
 };
@@ -99,7 +99,11 @@ fn default_anys_gateway() -> String {
     "https://anys.mivik.moe".to_string()
 }
 
-#[derive(Default, Serialize, Deserialize)]
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Serialize, Deserialize)]
 #[serde(default)]
 pub struct Data {
     pub me: Option<User>,
@@ -113,7 +117,7 @@ pub struct Data {
     pub respacks: Vec<String>,
     pub respack_id: usize,
     pub accept_invalid_cert: bool,
-    // for compatibility
+
     pub read_tos_and_policy: bool,
     pub terms_modified: Option<String>,
     pub ignored_version: Option<semver::Version>,
@@ -133,6 +137,19 @@ pub struct Data {
     #[serde(default)]
     pub custom_background_path: Option<String>,
 
+    /// Show the startup screen (login screen) before the main menu.
+    #[serde(default = "default_true")]
+    pub show_startup_screen: bool,
+
+    /// Custom startup screen background music path (local file).
+    /// None falls back to the built-in `login.mp3`.
+    #[serde(default)]
+    pub custom_startup_bgm_path: Option<String>,
+
+    /// 玩家是否已主动选择过初始语言。选择过一次后,启动页不再弹出语言选择。
+    #[serde(default)]
+    pub has_chosen_language: bool,
+
     #[serde(default, rename = "collections")]
     collections_legacy: Vec<LocalCollection>,
     #[serde(default)]
@@ -145,6 +162,40 @@ pub struct Data {
 
     #[serde(skip)]
     collection_cache: DashMap<Uuid, Arc<LocalCollection>>,
+}
+
+impl Default for Data {
+    fn default() -> Self {
+        Self {
+            me: None,
+            charts: Vec::new(),
+            local_records: HashMap::new(),
+            config: Config::default(),
+            message_check_time: None,
+            language: None,
+            theme: 0,
+            tokens: None,
+            respacks: Vec::new(),
+            respack_id: 0,
+            accept_invalid_cert: false,
+            read_tos_and_policy: false,
+            terms_modified: None,
+            ignored_version: None,
+            character: None,
+            enable_anys: false,
+            anys_gateway: default_anys_gateway(),
+            prefer_reduced_motion: false,
+            custom_bgm_path: None,
+            custom_background_path: None,
+            show_startup_screen: true,
+            custom_startup_bgm_path: None,
+            has_chosen_language: false,
+            collections_legacy: Vec::new(),
+            collection_uuids: Vec::new(),
+            import_scan_retry: HashMap::new(),
+            collection_cache: DashMap::new(),
+        }
+    }
 }
 
 impl Data {
@@ -216,7 +267,7 @@ impl Data {
                 warn!("skip startup import scan after retry limit reached: {filename}");
                 continue;
             }
-            // Persist retry count before parsing so crashes during parsing still consume one retry.
+
             bump_retry(&mut self.import_scan_retry, &filename);
             persist_retry_state(self);
             let Ok(mut fs) = prpr::fs::fs_from_file(&path) else {
@@ -256,7 +307,7 @@ impl Data {
                 warn!("skip startup import scan after retry limit reached: {filename}");
                 continue;
             }
-            // Persist retry count before parsing so crashes during parsing still consume one retry.
+
             bump_retry(&mut self.import_scan_retry, &filename);
             persist_retry_state(self);
             let Ok(mut fs) = prpr::fs::fs_from_file(&path) else {
@@ -293,7 +344,7 @@ impl Data {
         self.respack_id = self.respack_id.min(self.respacks.len());
         if let Some(res_pack_path) = &mut self.config.res_pack_path {
             if res_pack_path.starts_with('/') {
-                // for compatibility
+
                 *res_pack_path = "chart.zip".to_owned();
             }
         }

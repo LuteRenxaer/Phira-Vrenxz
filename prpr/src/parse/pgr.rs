@@ -87,7 +87,7 @@ macro_rules! validate_events {
 
 fn parse_speed_events(r: f64, mut pgr: Vec<PgrSpeedEvent>, max_time: f64) -> Result<(AnimFloat, AnimFloat)> {
     validate_events!(pgr);
-    //assert_eq!(pgr[0].start_time, 0.0);
+
     if pgr[0].start_time != 0. {
         pgr[0].start_time = 0.
     }
@@ -179,7 +179,7 @@ fn parse_move_events_fv1(r: f64, mut pgr: Vec<PgrEvent>) -> Result<AnimVector> {
 }
 
 fn parse_notes(r: f64, mut pgr: Vec<PgrNote>, _speed: &mut AnimFloat, height: &mut AnimFloat, above: bool) -> Result<Vec<Note>> {
-    // is_sorted is unstable...
+
     if pgr.is_empty() {
         return Ok(Vec::new());
     }

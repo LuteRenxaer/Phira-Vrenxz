@@ -77,7 +77,7 @@ impl ShadowConfig {
 }
 
 pub fn rounded_rect_shadow(ui: &mut Ui, r: Rect, config: &ShadowConfig) {
-    // r.y += elevation * 0.5;
+
     let mat = *SHADOW_MATERIAL;
     let gr = ui.rect_to_global(r);
     mat.set_uniform("rect", vec4(gr.x, gr.y, gr.right(), gr.bottom()));

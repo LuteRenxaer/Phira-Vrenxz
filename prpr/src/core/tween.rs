@@ -99,7 +99,7 @@ fn bounce(x: f32) -> f32 {
 #[rustfmt::skip]
 pub static TWEEN_FUNCTIONS: [fn(f32) -> f32; 33] = [
 	|_| 0.,			|_| 1.,			|x| x,
-	/* In */		/* Out */		/* InOut */
+
 	f1!(sine),		f2!(sine),		f3!(sine),
 	f1!(quad),		f2!(quad),		f3!(quad),
 	f1!(cubic),		f2!(cubic),		f3!(cubic),
@@ -128,7 +128,7 @@ macro_rules! i1 {
 
 macro_rules! i2 {
     ($fn:ident) => {
-        // I(x) = x + \int_1^{1-x} f(u)du = x + I(1-x) - I(1)
+
         |x| x + $fn(1. - x) - $fn(1.)
     };
 }
@@ -148,8 +148,8 @@ macro_rules! i3 {
 
 #[inline]
 fn int_sine(x: f32) -> f32 {
-    // f(x) = 1 - cos(x * PI / 2)
-    // I(x) = x - sin(x * PI / 2) * (2 / PI)
+
+
     x - (x * PI / 2.).sin() * (2. / PI)
 }
 
@@ -175,16 +175,16 @@ fn int_quint(x: f32) -> f32 {
 
 #[inline]
 fn int_expo(x: f32) -> f32 {
-    // f(x) = 2^(10x - 10)
-    // I(x) = (2^(10x - 10) - 2^(-10)) / (10 * ln(2))
+
+
     let ln2 = std::f32::consts::LN_2;
     ((2.0_f32).powf(10. * x - 10.) - (2.0_f32).powf(-10.)) / (10. * ln2)
 }
 
 #[inline]
 fn int_circ(x: f32) -> f32 {
-    // f(x) = 1 - sqrt(1 - x^2)
-    // I(x) = x - 0.5 * (x * sqrt(1 - x^2) + arcsin(x))
+
+
     x - 0.5 * (x * (1. - x * x).sqrt() + x.asin())
 }
 
@@ -192,8 +192,8 @@ fn int_circ(x: f32) -> f32 {
 fn int_back(x: f32) -> f32 {
     const C1: f32 = 1.70158;
     const C3: f32 = C1 + 1.;
-    // f(x) = C3 * x^3 - C1 * x^2
-    // I(x) = (C3/4 * x - C1/3) * x^3
+
+
     (C3 * x / 4. - C1 / 3.) * x * x * x
 }
 
@@ -253,7 +253,7 @@ fn int_bounce(x: f32) -> f32 {
 #[rustfmt::skip]
 pub static INT_TWEEN_FUNCTIONS:[fn(f32) -> f32; 33] =[
     |_| 0.,				|x| x,			|x| x * x / 2.,
-    /* In */			/* Out */			/* InOut */
+
     i1!(int_sine),		i2!(int_sine),		i3!(int_sine),
     i1!(int_quad),		i2!(int_quad),		i3!(int_quad),
     i1!(int_cubic),		i2!(int_cubic),		i3!(int_cubic),
@@ -361,7 +361,6 @@ impl IntClampedTween {
     }
 }
 
-// TODO assuming monotone, but actually they're not (e.g. Back tween)
 pub struct ClampedTween(pub TweenId, pub Range<f32>, pub Range<f32>);
 impl TweenFunction for ClampedTween {
     fn y(&self, x: f32) -> f32 {
@@ -413,8 +412,6 @@ impl TweenFunction for GeneralIntTween {
         self
     }
 }
-
-// https://github.com/gre/bezier-easing
 
 const SAMPLE_TABLE_SIZE: usize = 21;
 const SAMPLE_STEP: f32 = 1. / (SAMPLE_TABLE_SIZE - 1) as f32;
@@ -610,13 +607,13 @@ impl Tweenable for String {
             let x_len = x.chars().count();
             let y_len = y.chars().count();
             if y.starts_with(x) {
-                // x in y
+
                 let take_num = ((y_len - x_len) as f32 * t).floor() as usize + x_len;
                 let mut text = x.clone();
                 text.push_str(&y.chars().skip(x_len).take(take_num - x_len).collect::<String>());
                 text
             } else if x.starts_with(y) {
-                // y in x
+
                 let take_num = ((x_len - y_len) as f32 * (1. - t)).round() as usize + y_len;
                 let mut text = y.clone();
                 text.push_str(&x.chars().skip(y_len).take(take_num - y_len).collect::<String>());

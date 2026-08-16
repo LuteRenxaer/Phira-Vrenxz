@@ -293,7 +293,7 @@ impl GameScene {
         .await
         .context("Failed to load resources")?;
 
-        // Prepare extra sfx from chart.hitsounds
+
         chart.hitsounds.drain().for_each(|(name, clip)| {
             if let Ok(clip) = res.create_sfx(clip) {
                 res.extra_sfxs.insert(name, clip);
@@ -418,7 +418,7 @@ impl GameScene {
                 ui.fill_circle(pause_center.x, pause_center.y, 0.05, Color::new(1., 1., 1., 0.5));
             }
 
-            ui.text("PHIRLTE v1.2.5")
+            ui.text("PHIRLIE v1.2.5")
                 .pos(pause_center.x + 0.08, pause_center.y)
                 .anchor(0., 0.5)
                 .size(0.4)
@@ -430,7 +430,7 @@ impl GameScene {
             let legacy_aui = !res.info.use_attach_ui_fix.unwrap_or_default();
             let unit_h = if legacy_aui { ui.text("0").measure_using(&PGR_FONT).h } else { 0. };
 
-            // score
+
             let h = 0.07;
             let score_top = top + eps * 2.2 - (1. - p) * 0.4;
             let score_right = 1. - margin;

@@ -123,8 +123,8 @@ walkdir = { workspace = true }
 walkdir = { workspace = true }
 
 [package.metadata.android.signing.release]
-keystore = "../phirLte-release.keystore"
-alias = "phirLte"
+keystore = "../phirLie-release.keystore"
+alias = "phirLie"
 password = "278913"
 
 icon = "../assets/icon.png"   # 或者 "./icon.png" 取决于文件位置

@@ -174,9 +174,26 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
             }
             let index = glyphs.partition_point(|it| end(it) <= bounds.max.x - w);
             let st = if index == 0 { 0. } else { end(&glyphs[index - 1]) };
-            let byte_index = if index == 0 { 0 } else { glyphs[index - 1].byte_index };
-            // Round to char boundary
-            let byte_index = text[..byte_index].char_indices().next_back().map_or(0, |(i, _)| i);
+            let byte_index = if index == 0 {
+                0
+            } else {
+                let glyph = &glyphs[index - 1];
+                // glyph_brush reports `byte_index` relative to the sub-`Text` the glyph
+                // belongs to (`section.text[glyph.section_index]`), not the whole
+                // string. When the text is split across fonts the sub-texts are
+                // contiguous slices of `text`, so translate the index into the full
+                // string before slicing, otherwise the slice may land inside a
+                // multi-byte UTF-8 char and panic.
+                section.text[..glyph.section_index].iter().map(|it| it.text.len()).sum::<usize>() + glyph.byte_index
+            };
+            // Defensive: clamp and round down to a char boundary, so a future
+            // glyph_brush version reporting a non-boundary index cannot panic.
+            let byte_index = text
+                .char_indices()
+                .map(|(i, _)| i)
+                .take_while(|&i| i <= byte_index.min(text.len()))
+                .last()
+                .unwrap_or(0);
             return (
                 section.with_text(vec![
                     Text::new(&text[..byte_index]).with_scale(scale).with_color(self.color),
@@ -223,14 +240,7 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
         }
         self.ui
             .with((Matrix::new_scaling(1. / s) * self.scale).append_translation(&Vector::new(rect.x, rect.y)), |ui| {
-                /* ui.apply(|ui| {
-                    let tr = Matrix::identity();
-                    if let Some(painter) = painter {
-                        painter.submit(tr, ui.alpha);
-                    } else {
-                        ui.text_painter.submit(tr, ui.alpha);
-                    }
-                }); */
+
                 if let Some(painter) = painter {
                     painter.submit(ui.transform, ui.alpha);
                 } else {
@@ -290,7 +300,7 @@ impl TextPainter {
         let mut brush = GlyphBrushBuilder::using_fonts(fonts).build();
         let dim = *TEXTURE_DIM;
         brush.resize_texture(dim, dim);
-        // TODO optimize
+
         let cache_texture = Self::new_cache_texture(brush.texture_dimensions());
         Self {
             brush,

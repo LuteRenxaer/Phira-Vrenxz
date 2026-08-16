@@ -22,6 +22,12 @@ pub use unlock::UnlockScene;
 mod profile;
 pub use profile::ProfileScene;
 
+mod startup;
+pub use startup::StartupLoadingScene;
+
+mod login_scene;
+pub use login_scene::LoginScene;
+
 use crate::{
     client::{Client, UserManager},
     data::LocalChart,
@@ -143,13 +149,13 @@ pub fn check_read_tos_and_policy(change_just_accepted: bool, strict: bool) -> bo
     if get_data().terms_modified.is_some() && !strict {
         return true;
     }
-    // Verified against the server this session and still accepted: don't prompt.
+
     if get_data().terms_modified.is_some() && TOS_VERIFIED.load(Ordering::Relaxed) {
         return true;
     }
     match TERMS.get() {
         Some(Some((terms, modified))) => {
-            // The player already accepted exactly this version — don't re-prompt.
+
             if get_data().terms_modified.as_deref() == Some(modified.as_str()) {
                 return true;
             }
@@ -231,16 +237,16 @@ pub fn dispatch_tos_task() -> Option<bool> {
             drop(tos_task);
             match result {
                 Ok(Some(res)) => {
-                    // New or changed policy: cache it and require (re-)acceptance.
+
                     info!("terms and policy loaded");
                     get_data_mut().terms_modified = None;
                     let _ = save_data();
                     let _ = TERMS.set(Some(res));
                 }
                 Ok(None) => {
-                    // Not modified: whatever the player accepted before is still
-                    // current. Mark the session verified so we neither refetch nor
-                    // prompt, and resume anything waiting on the TOS gate.
+
+
+
                     info!("terms and policy unchanged");
                     if get_data().terms_modified.is_some() {
                         TOS_VERIFIED.store(true, Ordering::Relaxed);
@@ -269,9 +275,9 @@ pub fn load_tos_and_policy(show_loading: bool) {
         let modified = get_data().terms_modified.clone();
         let loading = show_loading.then(|| FullLoadingView::begin_text(ttl!("loading_tos_policy")));
         *guard = Some(Task::new(async move {
-            // Always send If-Modified-Since so an unchanged, already-accepted
-            // policy comes back as "not modified" (304) and we can skip the
-            // prompt instead of re-fetching the full terms every time.
+
+
+
             let ret = Client::fetch_terms(modified.as_deref()).await.context("failed to fetch terms");
             drop(loading);
             JUST_LOADED_TOS.store(true, Ordering::Relaxed);
@@ -471,13 +477,13 @@ pub fn render_release_to_refresh(ui: &mut Ui, cx: f32, off: f32) {
 
 #[cfg(test)]
 mod tests {
-    // #[tokio::test]
-    // #[ignore = "Chart parsing test"]
-    // async fn test_parse_chart() -> Result<()> {
-    //     // Put the chart in PhirLie(workspace, not crate)/test which is ignored by git
-    //     let mut fs = fs_from_path("../../../test")?;
-    //     let info = load_info(fs.as_mut()).await?;
-    //     let _chart = prpr::scene::GameScene::load_chart(fs.deref_mut(), &info).await?;
-    //     Ok(())
-    // }
+
+
+
+
+
+
+
+
+
 }

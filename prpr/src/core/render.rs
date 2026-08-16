@@ -4,7 +4,6 @@ use macroquad::{
 };
 use miniquad::{gl::GLuint, RenderPass, Texture, TextureFormat};
 
-// TODO: doc
 pub struct MSRenderTarget {
     dim: (u32, u32),
     fbo: GLuint,

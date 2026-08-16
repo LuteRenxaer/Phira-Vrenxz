@@ -1,4 +1,4 @@
-﻿#[cfg(target_os = "android")]
+#[cfg(target_os = "android")]
 use android_activity::AndroidApp;
 
 #[cfg(target_os = "android")]
@@ -10,11 +10,11 @@ fn android_main(_app: AndroidApp) {
     android_logger::init_once(
         Config::default()
             .with_max_level(LevelFilter::Info)
-            .with_tag("phirLte"),
+            .with_tag("phirLie"),
     );
 
-    log::info!("PhirLte starting");
-    // 什么都不做，让 macroquad 的 android_main 接管
+    log::info!("PhirLie starting");
+    PhirLie::quad_main();
 }
 
 #[cfg(target_os = "android")]

@@ -183,12 +183,12 @@ impl FavoritesPage {
         page
     }
 
-    // 根据当前收藏夹数据重建文件夹列表 || Rebuild folder list from current data
+
     fn rebuild_folders(&mut self) {
         let data = get_data();
         let mut folders = Vec::new();
 
-        // "显示全部谱面"卡片 || "Show all charts" card
+
         folders.push(FolderItem {
             index: None,
             name: tl!("show-all").to_string(),
@@ -598,7 +598,7 @@ impl Page for FavoritesPage {
                     let col_id = col.id;
                     self.set_cover_task = Some(Task::new(async move {
                         if let Some(col_id) = col_id {
-                            // Collection is synced, update cloud directly
+
                             let resp: Collection =
                                 recv_raw(Client::request(Method::PATCH, format!("/collection/{col_id}")).json(&CollectionPatch::Cover(chart_id)))
                                     .await?
@@ -606,8 +606,8 @@ impl Page for FavoritesPage {
                                     .await?;
                             Ok(Ok(resp))
                         } else {
-                            // Collection is not synced, fetch chart
-                            // illustration and set as cover locally
+
+
                             let chart = Ptr::<Chart>::new(chart_id).fetch().await?;
                             Ok(Err(chart.illustration.clone()))
                         }

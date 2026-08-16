@@ -199,9 +199,9 @@ impl ChartsView {
             return Ok(true);
         }
         if self.scroll.touch(touch, t) {
-            // Scroll took over the gesture (user is scrolling, not clicking / long-pressing).
-            // Clear any pending long-touch state so a fast flick doesn't leave a stale
-            // start time behind that later gets misjudged as a long click.
+
+
+
             if let Some(charts) = &mut self.charts {
                 for item in charts.iter_mut() {
                     item.long_touch.reset();
@@ -500,7 +500,7 @@ impl ChartsView {
 
                             let item = &mut charts[id as usize];
 
-                            // Phigros-style card with rounded corners
+
                             let card_r = r.feather(-0.005);
                             let card_path = card_r.rounded(CARD_CORNER_RADIUS);
 
@@ -517,7 +517,7 @@ impl ChartsView {
                                     }
 
                                     chart.illu.notify();
-                                    // Phigros-style: cover image fills the card with rounded corners
+
                                     ui.fill_path(&card_path, semi_black(c.a));
                                     ui.fill_path(&card_path, chart.illu.shading(card_r, t));
 
@@ -533,7 +533,7 @@ impl ChartsView {
                                         }
                                     }
 
-                                    // Phigros-style gradient overlay at bottom
+
                                     ui.fill_path(&card_path, (semi_black(0.0 * c.a), (0., 0.), semi_black(0.85 * c.a), (0., ch * 0.6)));
 
                                     let info = &chart.info;
@@ -543,7 +543,7 @@ impl ChartsView {
                                         write!(&mut level, " Lv.{}", info.difficulty as i32).unwrap();
                                     }
 
-                                    // Phigros-style difficulty badge at top-right
+
                                     let mut level_text = ui
                                         .text(level)
                                         .pos(card_r.right() - 0.012, card_r.y + 0.012)
@@ -563,7 +563,7 @@ impl ChartsView {
                                     );
                                     level_text.draw();
 
-                                    // Phigros-style song title at bottom
+
                                     ui.text(&info.name)
                                         .pos(card_r.x + 0.015, card_r.bottom() - 0.015)
                                         .max_width(card_r.w - 0.03)

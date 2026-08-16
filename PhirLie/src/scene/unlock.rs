@@ -82,9 +82,9 @@ impl UnlockScene {
             let (w, h) = (image.width(), image.height());
             let size = w as usize * h as usize;
             let blurred_rgb = image.to_rgb8();
-            // let mut vec = unsafe { Vec::from_raw_parts(std::mem::transmute(blurred_rgb.as_mut_ptr()), size, size) };
-            // fastblur::gaussian_blur(&mut vec, w as _, h as _, 50.);
-            // std::mem::forget(vec);
+
+
+
             let mut blurred = Vec::with_capacity(size * 4);
             for input in blurred_rgb.chunks_exact(3) {
                 blurred.extend_from_slice(input);

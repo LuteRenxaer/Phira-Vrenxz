@@ -23,7 +23,7 @@ impl L10nGlobal {
         let locale_lang = sys_locale::get_locale().unwrap_or_else(|| String::from(FALLBACK_LANG));
         let locale_lang: LanguageIdentifier = locale_lang.parse().unwrap_or_else(|_| {
             warn!("Invalid locale detected, defaulting to `{}`", FALLBACK_LANG);
-            // Debug log: send lang tag to log
+
             warn!("Locale detected: {:?}", locale_lang);
             fallback_langid!()
         });

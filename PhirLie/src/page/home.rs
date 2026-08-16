@@ -66,6 +66,7 @@ pub struct HomePage {
 
     need_back: bool,
     sf: SFader,
+    enter_time: f32,
 
     board_task: Option<Task<Result<Option<DynamicImage>>>>,
     board_last_time: f32,
@@ -89,7 +90,7 @@ pub struct HomePage {
     char_fetch_task: Option<Task<Result<Character>>>,
     char_illu: Option<SafeTexture>,
     char_illu_task: Option<Task<Result<DynamicImage>>>,
-    // progress of character screen
+
     char_screen_p: Anim<f32>,
     char_btn: RectButton,
     char_text_start: f32,
@@ -143,6 +144,7 @@ impl HomePage {
 
             need_back: false,
             sf: SFader::new(),
+            enter_time: f32::NAN,
 
             board_task: None,
             board_last_time: f32::NEG_INFINITY,
@@ -266,44 +268,69 @@ impl HomePage {
         }));
     }
 
+    fn appear(&self, rt: f32, delay: f32, duration: f32) -> f32 {
+        if self.enter_time.is_nan() || get_data().prefer_reduced_motion {
+            return 1.;
+        }
+        let p = ((rt - self.enter_time - delay) / duration).clamp(0., 1.);
+        1. - (1. - p).powi(3)
+    }
+
     fn render_not_char(&mut self, ui: &mut Ui, s: &mut SharedState) {
         let t = s.t;
+        let rt = s.rt;
 
         let pad = 0.04;
-        // play button
+
+        // 先计算各按钮的出现动画参数(x/y 偏移 + 透明度)
+        let p_play = self.appear(rt, 0.0, 0.28);
+        let p_msg = self.appear(rt, 0.0, 0.26);
+        let p_set = self.appear(rt, 0.0, 0.26);
+        let p_res = self.appear(rt, 0.0, 0.26);
+        let (dx_play, dy_play) = (-0.22 * (1. - p_play), 0.06 * (1. - p_play));
+        let (dx_msg, dy_msg) = (-0.22 * (1. - p_msg), 0.05 * (1. - p_msg));
+        let (dx_set, dy_set) = (0.18 * (1. - p_set), 0.05 * (1. - p_set));
+        let (dx_res, dy_res) = (0.18 * (1. - p_res), 0.05 * (1. - p_res));
+
         let r = Rect::new(-0.83, -0.33, 0.83, 0.45);
         let mat = self.btn_play_3d.now(ui, r, t);
         ui.with_gl(mat, |ui| {
             s.render_fader(ui, |ui| {
-                let rad = self.btn_play.config.radius;
-                self.btn_play.render_shadow(ui, r, t, |ui, path| {
-                    ui.fill_path(&path, semi_black(0.4));
-                    if let Some(cur) = &self.board_tex {
-                        let p = (t - self.board_last_time) / BOARD_TRANSIT_TIME;
-                        if p > 1. {
-                            self.board_tex_last = None;
-                            ui.fill_path(&path, (**cur, r));
-                        } else if let Some(last) = &self.board_tex_last {
-                            let (cur, last) = if self.board_dir { (last, cur) } else { (cur, last) };
-                            let p = 1. - (1. - p).powi(3);
-                            let p = if self.board_dir { 1. - p } else { p };
-                            clip_rounded_rect(ui, r, rad, |ui| {
-                                let mut nr = r;
-                                nr.h = r.h * (1. - p);
-                                ui.fill_rect(nr, (**last, nr));
+                ui.scope(|ui| {
+                    ui.dx(dx_play);
+                    ui.dy(dy_play);
+                    ui.alpha(p_play, |ui| {
+                        let rad = self.btn_play.config.radius;
+                        self.btn_play.render_shadow(ui, r, t, |ui, path| {
+                            ui.fill_path(&path, semi_black(0.4));
+                            if let Some(cur) = &self.board_tex {
+                                let p = (t - self.board_last_time) / BOARD_TRANSIT_TIME;
+                                if p > 1. {
+                                    self.board_tex_last = None;
+                                    ui.fill_path(&path, (**cur, r));
+                                } else if let Some(last) = &self.board_tex_last {
+                                    let (cur, last) = if self.board_dir { (last, cur) } else { (cur, last) };
+                                    let p = 1. - (1. - p).powi(3);
+                                    let p = if self.board_dir { 1. - p } else { p };
+                                    clip_rounded_rect(ui, r, rad, |ui| {
+                                        let mut nr = r;
+                                        nr.h = r.h * (1. - p);
+                                        ui.fill_rect(nr, (**last, nr));
 
-                                nr.h = r.h * p;
-                                nr.y = r.bottom() - nr.h;
-                                ui.fill_rect(nr, (**cur, nr));
-                            });
-                        } else {
-                            ui.fill_path(&path, (**cur, r, ScaleType::CropCenter, semi_white(p)));
-                        }
-                    }
-                    ui.fill_path(&path, (semi_black(0.7), (r.x, r.y), Color::default(), (r.x + 0.6, r.y)));
-                    ui.text(tl!("play")).pos(r.x + pad, r.y + pad).draw();
-                    let r = Rect::new(r.x + 0.02, r.bottom() - 0.18, 0.17, 0.17);
-                    ui.fill_rect(r, (*self.icons.play, r, ScaleType::Fit, semi_white(0.6)));
+                                        nr.h = r.h * p;
+                                        nr.y = r.bottom() - nr.h;
+                                        ui.fill_rect(nr, (**cur, nr));
+                                    });
+                                } else {
+                                    ui.fill_path(&path, (**cur, r, ScaleType::CropCenter, semi_white(p)));
+                                }
+                            }
+                            ui.fill_path(&path, (semi_black(0.7), (r.x, r.y), Color::default(), (r.x + 0.6, r.y)));
+                            ui.text(tl!("play")).pos(r.x + pad, r.y + pad).draw();
+                            let r = Rect::new(r.x + 0.02, r.bottom() - 0.18, 0.17, 0.17);
+                            ui.fill_rect(r, (*self.icons.play, r, ScaleType::Fit, semi_white(0.6)));
+                        });
+                    });
                 });
             });
         });
@@ -316,19 +343,31 @@ impl HomePage {
 
         let r_res = Rect::new(right_x, bottom_y, btn_size, btn_size);
         s.render_fader(ui, |ui| {
-            self.btn_respack.render_shadow(ui, r_res, t, |ui, path| {
-                ui.fill_path(&path, semi_black(0.2));
-                let ir = r_res.feather(-0.02);
-                ui.fill_rect(ir, (*self.icons.respack, ir, ScaleType::Fit));
+            ui.scope(|ui| {
+                ui.dx(dx_res);
+                ui.dy(dy_res);
+                ui.alpha(p_res, |ui| {
+                    self.btn_respack.render_shadow(ui, r_res, t, |ui, path| {
+                        ui.fill_path(&path, semi_black(0.2));
+                        let ir = r_res.feather(-0.02);
+                        ui.fill_rect(ir, (*self.icons.respack, ir, ScaleType::Fit));
+                    });
+                });
             });
         });
 
         let r_set = Rect::new(r_res.right() + 0.02, bottom_y, btn_size, btn_size);
         s.render_fader(ui, |ui| {
-            self.btn_settings.render_shadow(ui, r_set, t, |ui, path| {
-                ui.fill_path(&path, semi_black(0.2));
-                let ir = r_set.feather(-0.02);
-                ui.fill_rect(ir, (*self.icons.settings, ir, ScaleType::Fit));
+            ui.scope(|ui| {
+                ui.dx(dx_set);
+                ui.dy(dy_set);
+                ui.alpha(p_set, |ui| {
+                    self.btn_settings.render_shadow(ui, r_set, t, |ui, path| {
+                        ui.fill_path(&path, semi_black(0.2));
+                        let ir = r_set.feather(-0.02);
+                        ui.fill_rect(ir, (*self.icons.settings, ir, ScaleType::Fit));
+                    });
+                });
             });
         });
 
@@ -336,14 +375,20 @@ impl HomePage {
 
         let r_msg = Rect::new(left_x, bottom_y, btn_size, btn_size);
         s.render_fader(ui, |ui| {
-            self.btn_message.render_shadow(ui, r_msg, t, |ui, path| {
-                ui.fill_path(&path, semi_black(0.2));
-                let ir = r_msg.feather(-0.02);
-                if self.has_new {
-                    let dot = Rect::new(ir.right() - 0.03, ir.y - 0.01, 0.035, 0.035);
-                    ui.fill_path(&dot.rounded(0.0175), RED);
-                }
-                ui.fill_rect(ir, (*self.icons.msg, ir, ScaleType::Fit));
+            ui.scope(|ui| {
+                ui.dx(dx_msg);
+                ui.dy(dy_msg);
+                ui.alpha(p_msg, |ui| {
+                    self.btn_message.render_shadow(ui, r_msg, t, |ui, path| {
+                        ui.fill_path(&path, semi_black(0.2));
+                        let ir = r_msg.feather(-0.02);
+                        if self.has_new {
+                            let dot = Rect::new(ir.right() - 0.03, ir.y - 0.01, 0.035, 0.035);
+                            ui.fill_path(&dot.rounded(0.0175), RED);
+                        }
+                        ui.fill_rect(ir, (*self.icons.msg, ir, ScaleType::Fit));
+                    });
+                });
             });
         });
     }
@@ -351,13 +396,16 @@ impl HomePage {
 
 impl Page for HomePage {
     fn label(&self) -> Cow<'static, str> {
-        "PHIRLTE".into()
+        "PHIRLIE".into()
     }
 
     fn enter(&mut self, s: &mut SharedState) -> Result<()> {
         if self.need_back {
             self.sf.enter(s.t);
             self.need_back = false;
+        }
+        if self.enter_time.is_nan() {
+            self.enter_time = s.rt;
         }
         self.fetch_has_new();
         Ok(())
@@ -610,44 +658,60 @@ impl Page for HomePage {
 
     fn render(&mut self, ui: &mut Ui, s: &mut SharedState) -> Result<()> {
         let t = s.t;
+        let rtime = s.rt;
+
+        // 删掉切进主页时的向上移动画（Fader 页面滑动），仅保留淡入
+        let old_distance = s.fader.distance;
+        if s.fader.transiting() {
+            s.fader.distance = 0.;
+        }
 
         self.render_not_char(ui, s);
 
+        let p_user = self.appear(rtime, 0.0, 0.26);
+        let (dx_user, dy_user) = (0.18 * (1. - p_user), -0.05 * (1. - p_user));
+
         s.render_fader(ui, |ui| {
-            let rad = 0.05;
-            let ct = (0.92, -ui.top + 0.08);
-            self.btn_user.config.radius = rad;
-            let r = Rect::new(ct.0, ct.1, 0., 0.).feather(rad);
-            self.btn_user.build(ui, t, r, |ui, _| {
-                ui.avatar(
-                    ct.0,
-                    ct.1,
-                    r.w / 2.,
-                    t,
-                    get_data()
-                        .me
-                        .as_ref()
-                        .map(|user| UserManager::opt_avatar(user.id, &self.icons.user))
-                        .unwrap_or(Err(self.icons.user.clone())),
-                );
+            ui.scope(|ui| {
+                ui.dx(dx_user);
+                ui.dy(dy_user);
+                ui.alpha(p_user, |ui| {
+                    let rad = 0.05;
+                    let ct = (0.92, -ui.top + 0.08);
+                    self.btn_user.config.radius = rad;
+                    let r = Rect::new(ct.0, ct.1, 0., 0.).feather(rad);
+                    self.btn_user.build(ui, t, r, |ui, _| {
+                        ui.avatar(
+                            ct.0,
+                            ct.1,
+                            r.w / 2.,
+                            t,
+                            get_data()
+                                .me
+                                .as_ref()
+                                .map(|user| UserManager::opt_avatar(user.id, &self.icons.user))
+                                .unwrap_or(Err(self.icons.user.clone())),
+                        );
+                    });
+                    let rtx = ct.0 - rad - 0.02;
+                    if let Some(me) = &get_data().me {
+                        ui.text(&me.name).pos(rtx, r.center().y + 0.002).anchor(1., 1.).size(0.6).draw();
+                        ui.text(format!("RKS {:.2}", me.rks))
+                            .pos(rtx, r.center().y + 0.008)
+                            .anchor(1., 0.)
+                            .size(0.4)
+                            .color(semi_white(0.6))
+                            .draw();
+                    } else {
+                        ui.text(tl!("not-logged-in"))
+                            .pos(rtx, r.center().y)
+                            .anchor(1., 0.5)
+                            .no_baseline()
+                            .size(0.6)
+                            .draw();
+                    }
+                });
             });
-            let rt = ct.0 - rad - 0.02;
-            if let Some(me) = &get_data().me {
-                ui.text(&me.name).pos(rt, r.center().y + 0.002).anchor(1., 1.).size(0.6).draw();
-                ui.text(format!("RKS {:.2}", me.rks))
-                    .pos(rt, r.center().y + 0.008)
-                    .anchor(1., 0.)
-                    .size(0.4)
-                    .color(semi_white(0.6))
-                    .draw();
-            } else {
-                ui.text(tl!("not-logged-in"))
-                    .pos(rt, r.center().y)
-                    .anchor(1., 0.5)
-                    .no_baseline()
-                    .size(0.6)
-                    .draw();
-            }
 
             #[cfg(feature = "hykb")]
             {
@@ -669,6 +733,7 @@ impl Page for HomePage {
         }
         self.sf.render(ui, t);
 
+        s.fader.distance = old_distance;
         Ok(())
     }
 

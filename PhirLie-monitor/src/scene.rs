@@ -421,20 +421,20 @@ impl Scene for MainScene {
                         self.client = Some(Arc::new(res.client));
                         self.selected_chart = res.chart;
                         self.token = Some(res.token);
-                        // self.scene_task = launch_task(
-                        //     self.selected_chart.as_ref().unwrap().0,
-                        //     self.client.as_ref().map(Arc::clone).unwrap(),
-                        //     self.client
-                        //         .as_ref()
-                        //         .unwrap()
-                        //         .blocking_state()
-                        //         .unwrap()
-                        //         .users
-                        //         .values()
-                        //         .cloned()
-                        //         .filter(|it| !it.monitor)
-                        //         .collect(),
-                        // )?;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                     }
                 }
             }
@@ -555,19 +555,7 @@ impl Scene for MainScene {
 
         let width = 2.;
 
-        /* let pad = 0.01;
-        let r = Rect::new(width - 1., -ui.top, 2. - width, ui.top * 2.).feather(-pad);
-        ui.fill_rect(r, semi_black(0.4));
-        let r = r.feather(-pad);
-        let mut pos = r.bottom();
-        for (index, msg) in self.messages.iter().enumerate().rev() {
-            if pos < r.y {
-                self.messages.drain(..=index);
-                break;
-            }
-            let r = ui.text(msg).pos(r.x, pos).anchor(0., 1.).multiline().max_width(r.w).size(0.34).draw();
-            pos = r.y - pad;
-        }*/
+        
 
         let r = Rect::new(-1., -ui.top, width, ui.top * 2.);
         ui.fill_rect(r, semi_white(0.4));

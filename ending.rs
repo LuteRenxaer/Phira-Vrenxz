@@ -45,7 +45,7 @@ pub struct EndingScene {
     challenge_rank: u32,
     autoplay: bool,
     speed: f32,
-    next: u8, // 0 -> none, 1 -> pop, 2 -> exit
+    next: u8,
     update_state: Option<RecordUpdateState>,
     rated: bool,
 

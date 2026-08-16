@@ -80,7 +80,7 @@ async fn the_main() -> Result<()> {
     let config: Config = (|| -> Result<Config> { Ok(serde_yaml::from_reader(File::open("monitor-config.yml")?)?) })().context("读取配置失败")?;
 
     let mut main = Main::new(Box::new(MainScene::new(config.clone()).await?), TimeManager::default(), None).await?;
-    // main.viewport = Some((0, 100, 500, 500));
+
 
     let tm = TimeManager::default();
     let mut fps_time = -1;

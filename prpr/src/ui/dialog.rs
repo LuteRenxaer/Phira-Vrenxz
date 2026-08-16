@@ -1,9 +1,14 @@
 prpr_l10n::tl_file!("dialog");
 
-use super::{DRectButton, RectButton, Scroll, Ui};
-use crate::{core::BOLD_FONT, ext::RectExt, scene::show_message};
+use super::{DRectButton, RectButton, Scroll, Ui, PREFER_REDUCED_MOTION};
+use crate::{
+    core::BOLD_FONT,
+    ext::{draw_parallelogram, draw_parallelogram_ex, semi_white, PARALLELOGRAM_SLOPE},
+    scene::show_message,
+};
 use anyhow::Error;
 use macroquad::prelude::*;
+use std::sync::atomic::Ordering;
 
 const WIDTH_RADIO: f32 = 0.5;
 const HEIGHT_RATIO: f32 = 0.7;
@@ -22,6 +27,7 @@ pub struct Dialog {
     text_btn: RectButton,
 
     h: Option<f32>,
+    enter_time: f32,
 
     scroll: Scroll,
     window_rect: Option<Rect>,
@@ -39,6 +45,7 @@ impl Default for Dialog {
             text_btn: RectButton::new(),
 
             h: None,
+            enter_time: f32::NAN,
 
             scroll: Scroll::new(),
             window_rect: None,
@@ -164,12 +171,23 @@ impl Dialog {
     }
 
     pub fn render(&mut self, ui: &mut Ui, t: f32) {
-        ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 0.6));
+        if self.enter_time.is_nan() {
+            self.enter_time = t;
+        }
+        let p = if PREFER_REDUCED_MOTION.load(Ordering::Relaxed) {
+            1.
+        } else {
+            ((t - self.enter_time) / 0.22).clamp(0., 1.)
+        };
+        let ease = 1. - (1. - p).powi(3);
+
+        // 遮罩淡入
+        ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 0.62 * ease));
 
         let mh = ui.top * 2. * HEIGHT_RATIO;
-        let s = 0.02;
-        let pad = 0.02;
+        let pad = 0.03;
         let bh = 0.09;
+        let s = 0.02;
 
         if self.h.is_none() {
             self.h = Some(
@@ -181,58 +199,100 @@ impl Dialog {
                     .h
                     + ui.text(&self.title).size(0.95).no_baseline().measure().h
                     + bh
-                    + 0.22)
+                    + 0.28)
                     .min(mh),
             );
         }
-        let mut wr = Rect::new(0., 0., 2. * WIDTH_RADIO, self.h.unwrap());
-        wr.x = -wr.w / 2.;
-        wr.y = -wr.h / 2.;
-        self.window_rect = Some(ui.rect_to_global(wr));
-        ui.fill_path(&wr.rounded(0.01), ui.background());
+        let h = self.h.unwrap();
+        // 弹出:轻微缩放
+        let scale = 0.94 + 0.06 * ease;
+        let ww = 2. * WIDTH_RADIO * scale;
+        let wh = h * scale;
+        let wr = Rect::new(-ww / 2., -wh / 2., ww, wh);
+        // 点击外部关闭用的矩形(最终尺寸)
+        self.window_rect = Some(ui.rect_to_global(Rect::new(-WIDTH_RADIO, -h / 2., 2. * WIDTH_RADIO, h)));
 
+        // 主体平行四边形:顶部略亮、底部略暗,带阴影
+        draw_parallelogram_ex(
+            wr,
+            None,
+            Color::new(0.20, 0.23, 0.29, 0.97 * ease),
+            Color::new(0.09, 0.11, 0.15, 0.97 * ease),
+            true,
+        );
+        // 描边
+        draw_parallelogram(wr, None, Color::new(1., 1., 1., 0.09 * ease), false);
+        // 顶部高亮线
+        let l = wr.h * PARALLELOGRAM_SLOPE;
+        ui.fill_rect(Rect::new(wr.x + l, wr.y, wr.w - l, 0.004), Color::new(1., 1., 1., 0.12 * ease));
+
+        // 内容安全区域(避开左侧斜切)
+        let content_x = wr.x + l + pad;
+        let content_w = wr.w - l - pad * 2.;
+
+        // 标题
+        let tr = ui
+            .text(&self.title)
+            .pos(content_x, wr.y + pad)
+            .anchor(0., 0.)
+            .size(0.95)
+            .max_width(content_w)
+            .no_baseline()
+            .color(WHITE)
+            .draw_using(&BOLD_FONT);
+
+        // 消息(可滚动)
+        let scroll_top = wr.y + pad + tr.h + s * 2.;
+        let scroll_h = wr.bottom() - bh - s - scroll_top;
         ui.scope(|ui| {
-            let s = 0.01;
-            let pad = 0.02;
-            let mut h = 0.;
-            macro_rules! dy {
-                ($val:expr) => {{
-                    let dy = $val;
-                    h += dy;
-                    ui.dy(dy);
-                }};
-            }
-            dy!(wr.y + s * 3.);
-            let r = ui
-                .text(&self.title)
-                .pos(wr.x + pad * 2., 0.)
-                .anchor(0., 0.)
-                .size(0.95)
-                .max_width(wr.w - pad * 2.)
-                .no_baseline()
-                .draw_using(&BOLD_FONT);
-            dy!(r.h + s * 2.);
-            self.scroll.size((wr.w - pad * 2., wr.bottom() - h - bh - s * 2.));
-            ui.dx(wr.x + pad);
+            ui.dx(content_x);
+            ui.dy(scroll_top);
+            self.scroll.size((content_w - pad, scroll_h));
             self.scroll.render(ui, |ui| {
                 let r = ui
                     .text(&self.message)
-                    .pos(pad, 0.)
+                    .pos(0., 0.)
                     .size(0.5)
-                    .max_width(wr.w - pad * 3.)
+                    .max_width(content_w - pad)
                     .multiline()
+                    .color(semi_white(0.85))
                     .draw();
                 self.text_btn.set(ui, r);
                 (r.w, r.h + 0.04)
             });
         });
-        ui.scope(|ui| {
-            let bw = (wr.w - pad * (self.buttons.len() + 1) as f32) / self.buttons.len() as f32;
-            let mut r = Rect::new(wr.x + pad, wr.bottom() - s - bh, bw, bh);
-            for (text, btn) in self.buttons.iter().zip(self.rect_buttons.iter_mut()) {
-                btn.render_text(ui, r, t, text, 0.5, true);
-                r.x += bw + pad;
-            }
-        });
+
+        // 按钮:平行四边形斜切 + 右侧高亮条
+        // 按钮位于窗口底部,而底部边从 wr.x 收斜到 wr.right() - l,
+        // 所以按底部安全区排列,避免右下角探出窗口斜切边缘。
+        let n = self.buttons.len();
+        let area_x = wr.x + pad;
+        let area_w = wr.w - l - pad * 2.;
+        let bw = (area_w - pad * (n as f32 - 1.)) / n as f32;
+        let mut r = Rect::new(area_x, wr.bottom() - bh - s, bw, bh);
+        for (text, btn) in self.buttons.iter().zip(self.rect_buttons.iter_mut()) {
+            btn.inner.set(ui, r);
+            let pressed = btn.inner.touching();
+            let v = if pressed { 0.30 } else { 0.16 };
+            let bg = Color::new(v, v, v + 0.05, 0.9 * ease);
+            draw_parallelogram(r, None, bg, true);
+            let ss = 0.05;
+            draw_parallelogram(
+                Rect::new(r.x + r.w * (1. - ss), r.y, r.w * ss, r.h),
+                None,
+                Color::new(1., 1., 1., 0.9 * ease),
+                false,
+            );
+            let ct = r.center();
+            ui.text(text)
+                .pos(ct.x, ct.y)
+                .anchor(0.5, 0.5)
+                .no_baseline()
+                .size(0.5)
+                .color(WHITE)
+                .max_width(r.w)
+                .draw();
+            r.x += bw + pad;
+        }
     }
 }

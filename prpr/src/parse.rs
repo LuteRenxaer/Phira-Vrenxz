@@ -22,7 +22,7 @@ pub struct ParseWarnings {
 pub(crate) fn process_lines(v: &mut [crate::core::JudgeLine]) {
     use crate::ext::NotNanExt;
     let mut times = Vec::new();
-    // TODO optimize using k-merge sort
+
     let sorts = v
         .iter()
         .map(|line| {
@@ -50,7 +50,7 @@ pub(crate) fn process_lines(v: &mut [crate::core::JudgeLine]) {
     let mut mt = Vec::new();
     if !times.is_empty() {
         for i in 0..(times.len() - 1) {
-            // since times are generated in the same way, theoretically we can compare them directly
+
             if times[i] == times[i + 1] && (i == 0 || times[i - 1] != times[i]) {
                 mt.push(*times[i]);
             }
@@ -75,7 +75,7 @@ pub(crate) fn process_lines(v: &mut [crate::core::JudgeLine]) {
 pub const RPE_TWEEN_MAP: [crate::core::TweenId; 30] = {
     use crate::core::{easing_from as e, TweenMajor::*, TweenMinor::*};
     [
-        2, 2, // linear
+        2, 2,
         e(Sine, Out), e(Sine, In),
         e(Quad, Out), e(Quad, In),
         e(Sine, InOut), e(Quad, InOut),

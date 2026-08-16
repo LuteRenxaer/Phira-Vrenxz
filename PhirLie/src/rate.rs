@@ -216,7 +216,7 @@ impl RateDialog {
                 });
             });
         }
-        // TODO magical. removing this line will make the title disappear.
+
         ui.text("").draw_using(&BOLD_FONT);
     }
 }

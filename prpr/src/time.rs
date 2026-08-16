@@ -39,8 +39,8 @@ impl TimeManager {
     }
 
     pub fn new(speed: f64, adjust_time: bool) -> Self {
-        // we use performance.now() on web since audioContext.currentTime is not stable
-        // and may cause serious latency problem
+
+
         #[cfg(target_arch = "wasm32")]
         let get_time_fn = {
             let perf = web_sys::window().unwrap().performance().unwrap();

@@ -50,7 +50,7 @@ pub struct EndingScene {
     player_rks: Option<f32>,
     autoplay: bool,
     speed: f32,
-    next: u8, // 0 -> none, 1 -> pop, 2 -> exit
+    next: u8,
     update_state: Option<RecordUpdateState>,
     rated: bool,
     upload_fn: Option<UploadFn>,

@@ -58,6 +58,8 @@ item-use-keyboard = Use Keyboard
 item-use-keyboard-sub = Enable keyboard input for gameplay. Scores cannot be uploaded when enabled.
 item-prefer-reduced-motion = Prefer Reduced Motion
 item-prefer-reduced-motion-sub = Reduce animations and visual effects
+item-startup-screen = Show Startup Screen
+item-startup-screen-sub = Show the startup screen before the main menu (includes language selection)
 item-speed = Speed
 item-note-size = Note Size
 
@@ -72,7 +74,7 @@ item-combo-text = Combo Display Text
 item-combo-text-default = COMBO
 item-combo-text-edit = Edit
 item-watermark = Custom Watermark
-item-watermark-default = phirLte
+item-watermark-default = phirLie
 item-watermark-edit = Edit
 
 load-cali-failed = Failed to load calibration audio.

@@ -232,7 +232,6 @@ pub enum ChartType {
     Integrated,
 }
 
-// srange name, isn't it?
 pub struct Fader {
     pub distance: f32,
     start_time: f32,
@@ -351,7 +350,7 @@ impl Fader {
             let p = self.progress_scaled(t, 1.6);
             let tp = tp + h * p - h / 2.;
             let mut x = -0.87;
-            if s == "PHIRLTE" {
+            if s == "PHIRLIE" {
                 x -= ui.back_rect().w;
             }
             for c in s.chars() {
@@ -365,7 +364,7 @@ impl Fader {
                     .w
                     + 0.012;
             }
-            if s == "PHIRLTE" {
+            if s == "PHIRLIE" {
                 ui.text("v1.2.5")
                     .pos(x + 0.01, tp + h - 0.027)
                     .anchor(0., 1.)

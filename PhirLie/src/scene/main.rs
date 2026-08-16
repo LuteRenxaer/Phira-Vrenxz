@@ -1,4 +1,4 @@
-﻿use super::{import_chart, L10N_LOCAL};
+use super::{import_chart, L10N_LOCAL};
 use crate::{
     charts_view::NEED_UPDATE,
     data::LocalChart,
@@ -74,7 +74,7 @@ pub struct MainScene {
     mp_moved: bool,
     mp_save_pos_at: Option<Instant>,
 
-    // batch import
+
     batch_import_confirm: Arc<AtomicBool>,
     batch_import: Option<(String, ExportInfo)>,
     batch_import_task: Option<Task<Result<()>>>,
@@ -89,7 +89,7 @@ enum ImportChart {
 }
 
 impl MainScene {
-    // shall be call exactly once
+
     pub async fn new(fallback: FontArc) -> Result<Self> {
         Self::init().await?;
 
@@ -111,7 +111,7 @@ impl MainScene {
         #[cfg(not(closed))]
         let bgm = {
             let bgm_data = if let Some(custom_path) = &get_data().custom_bgm_path {
-                // Try to load custom BGM from local file
+
                 match std::fs::read(custom_path) {
                     Ok(data) => data,
                     Err(err) => {
@@ -142,7 +142,7 @@ impl MainScene {
     }
 
     async fn init() -> Result<()> {
-        // init button hitsound
+
         macro_rules! load_sfx {
             ($name:ident, $path:literal) => {{
                 let clip = AudioClip::new(load_file($path).await?)?;
@@ -688,7 +688,7 @@ impl Scene for MainScene {
         let s = &mut self.state;
         s.update(tm);
 
-        // 1. page
+
         if s.fader.transiting() {
             let pos = self.pages.len() - 2;
             let old = s.fader.distance;
@@ -701,7 +701,7 @@ impl Scene for MainScene {
         self.pages.last_mut().unwrap().render(ui, s)?;
         s.fader.sub = false;
 
-        // 2. title
+
         if s.fader.transiting() {
             let pos = self.pages.len() - 2;
             s.fader.reset();
@@ -709,7 +709,7 @@ impl Scene for MainScene {
         }
         s.fader.for_sub(|f| f.render_title(ui, s.t, &self.pages.last().unwrap().label()));
 
-        // 3. back
+
         if self.pages.len() >= 2 {
             let r = ui.back_rect();
             self.btn_back.set(ui, r);

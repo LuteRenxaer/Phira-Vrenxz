@@ -100,7 +100,7 @@ impl Triple {
     }
 }
 
-#[derive(Default)] // the default is a dummy
+#[derive(Default)]
 pub struct BpmList {
     /// (beats, time, bpm)
     /// time in seconds

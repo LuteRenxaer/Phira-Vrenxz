@@ -165,8 +165,8 @@ fn show_inputbox(config: InputBox, backend: &dyn Backend) {
             INPUT_TEXT.lock().unwrap().1 = Some(text);
         }
         Ok(None) => {
-            // User cancelled; report it under the pending request's id so the
-            // caller can react (e.g. return to the previous screen).
+
+
             let id = INPUT_TEXT.lock().unwrap().0.clone();
             *INPUT_CANCELLED.lock().unwrap() = id;
         }
@@ -237,19 +237,19 @@ pub fn request_file(id: impl Into<String>) {
             }
 
             define_class! {
-                // SAFETY:
-                // - The superclass NSObject does not have any subclassing requirements.
-                // - `Delegate` does not implement `Drop`.
+
+
+
                 #[unsafe(super = NSObject)]
                 #[thread_kind = MainThreadOnly]
                 struct PickerDelegate;
 
-                // SAFETY: `NSObjectProtocol` has no safety requirements.
+
                 unsafe impl NSObjectProtocol for PickerDelegate {}
 
-                // SAFETY: `UIDocumentPickerDelegate` has no safety requirements.
+
                 unsafe impl UIDocumentPickerDelegate for PickerDelegate {
-                    // SAFETY: The signature is correct.
+
                     #[unsafe(method(documentPicker:didPickDocumentsAtURLs:))]
                     fn did_pick_documents_at_urls(&self, controller: &UIDocumentPickerViewController, urls: &NSArray<NSURL>) {
                         use objc2_foundation::{NSData, NSDataReadingOptions, NSTemporaryDirectory};
@@ -321,7 +321,7 @@ pub fn request_file(id: impl Into<String>) {
                 .presentViewController_animated_completion(&picker, true, None);
         } else if #[cfg(target_env = "ohos")] {
             miniquad::native::call_request_callback(format!(r#"{{"action": "chooseFile", "isPhoto": {}}}"#, is_photo));
-        } else { // desktop
+        } else {
             CHOSEN_FILE.lock().unwrap().1 = rfd::FileDialog::new().pick_file().map(|it| it.display().to_string());
         }
     }
@@ -526,8 +526,8 @@ impl Main {
             set_camera(&ui.camera());
             let mut gl = unsafe { get_internal_gl() };
             gl.flush();
-            // gl.quad_gl.render_pass(None);
-            // gl.quad_gl.viewport(None);
+
+
             BILLBOARD.with(|it| {
                 let mut guard = it.borrow_mut();
                 let t = guard.1.now() as f32;
@@ -573,6 +573,18 @@ impl Main {
 
     pub fn should_exit(&self) -> bool {
         self.should_exit
+    }
+
+    /// Push the crash screen on top of the current scene after a panic was
+    /// caught on the main thread, so the app shows a proper crash UI instead of
+    /// aborting. Any dialog that was open when the panic happened is dismissed
+    /// so it cannot keep rendering over the crash screen.
+    pub fn enter_crash_scene(&mut self, code: CrashCode, title: String) -> Result<()> {
+        DIALOG.with(|it| *it.borrow_mut() = None);
+        let mut scene = CrashScene::new(code, title);
+        scene.enter(&mut self.tm, self.target_chooser.choose())?;
+        self.scenes.push(Box::new(scene));
+        Ok(())
     }
 }
 
