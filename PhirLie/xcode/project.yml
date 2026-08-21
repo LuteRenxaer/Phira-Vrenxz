@@ -5,6 +5,7 @@ options:
     iOS: "14.0"
   createIntermediateGroups: true
   groupSortPosition: top
+  objectVersion: 56
 
 settings:
   base:
