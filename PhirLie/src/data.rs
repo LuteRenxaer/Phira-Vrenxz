@@ -162,6 +162,14 @@ pub struct Data {
 
     #[serde(skip)]
     collection_cache: DashMap<Uuid, Arc<LocalCollection>>,
+
+    #[serde(default)]
+    pub xcsim_account: crate::xcsim::XCSimAccount,
+
+    #[serde(default)]
+    pub xcsim_api_url: Option<String>,
+    #[serde(default)]
+    pub xcsim_download_url: Option<String>,
 }
 
 impl Default for Data {
@@ -194,6 +202,9 @@ impl Default for Data {
             collection_uuids: Vec::new(),
             import_scan_retry: HashMap::new(),
             collection_cache: DashMap::new(),
+            xcsim_account: Default::default(),
+            xcsim_api_url: None,
+            xcsim_download_url: None,
         }
     }
 }

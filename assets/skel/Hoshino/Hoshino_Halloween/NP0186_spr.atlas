@@ -1,0 +1,53 @@
+NP0186_spr.png
+size:4096,4096
+filter:Linear,Linear
+00_defualt
+bounds:530,3920,190,99
+offsets:0,3,190,102
+NP0186
+bounds:3222,2269,996,872
+offsets:506,1106,1542,1978
+rotate:90
+NP0186_1
+bounds:1920,2,1542,1277
+offsets:0,0,1542,1978
+rotate:90
+NP0186_glow
+bounds:3111,913,983,1335
+offsets:0,472,983,1807
+diorama_back_glow
+bounds:2260,1635,2384,1115
+offsets:0,0,2384,2552
+rotate:90
+diorama_back_glow_2
+bounds:849,829,1233,1578
+offsets:200,974,2384,2552
+rotate:270
+diorama_back_glow_3
+bounds:2,150,1127,1341
+offsets:1219,944,2384,2552
+diorama_front
+bounds:2,1473,2309,2546
+eyeglow_blue
+bounds:721,3941,85,78
+eyeglow_yellow
+bounds:808,3948,72,71
+fronthair
+bounds:2,3830,240,189
+halo 1
+bounds:3236,3745,802,274
+offsets:0,4,806,280
+halo 1_glow
+bounds:244,3859,298,160
+offsets:4,5,306,170
+halo 2
+bounds:2142,3875,284,144
+offsets:4,2,288,146
+halo 2_glow
+bounds:721,2097,824,298
+offsets:0,4,825,304
+symbol
+bounds:3703,3476,391,361
+offsets:4,0,395,365
+symbol_base_glow
+bounds:1990,3837,150,182

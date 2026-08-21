@@ -125,6 +125,9 @@ pub fn fs_from_path(path: &str) -> Result<Box<dyn FileSystem + Send + Sync + 'st
     if let Some(name) = path.strip_prefix(':') {
         let (name, diff) = name.split_once(':').unwrap();
         Ok(Box::new(AssetsChartFileSystem(name.to_owned(), diff.to_owned())))
+    } else if let Some(name) = path.strip_prefix("builtin:") {
+        let full_path = format!("assets/Level/{name}");
+        fs::fs_from_file(Path::new(&full_path))
     } else {
         fs::fs_from_file(Path::new(&format!("{}/{path}", dir::charts()?)))
     }

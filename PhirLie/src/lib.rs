@@ -19,10 +19,12 @@ mod popup;
 mod rate;
 mod resource;
 mod scene;
+mod spine_model;
 mod tabs;
 mod tags;
 mod threed;
 mod uml;
+mod xcsim;
 
 use anyhow::Result;
 use data::Data;
@@ -132,6 +134,24 @@ pub fn save_data() -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+extern "C" {
+    fn FindWindowW(lpClassName: *const u16, lpWindowName: *const u16) -> *mut std::ffi::c_void;
+    fn ShowWindow(hWnd: *mut std::ffi::c_void, nCmdShow: i32) -> bool;
+}
+
+pub fn set_fullscreen_mode(fullscreen: bool) {
+    macroquad::window::set_fullscreen(fullscreen);
+    #[cfg(target_os = "windows")]
+    unsafe {
+        let class: Vec<u16> = "Shell_TrayWnd\0".encode_utf16().collect();
+        let hwnd = FindWindowW(class.as_ptr(), std::ptr::null());
+        if !hwnd.is_null() {
+            ShowWindow(hwnd, if fullscreen { 0 } else { 5 });
+        }
+    }
+}
+
 mod dir {
     use anyhow::Result;
 
@@ -189,6 +209,20 @@ mod dir {
 
 async fn the_main() -> Result<()> {
     log::register();
+
+    // 设置全局 panic hook，捕获所有线程的 panic
+    std::panic::set_hook(Box::new(|info| {
+        let message = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            (*s).to_owned()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            format!("{:?}", info.payload())
+        };
+        let location = info.location().map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
+        error!("panic occurred: {} at {}", message, location.unwrap_or_else(|| "unknown".to_string()));
+    }));
+
     #[cfg(target_env = "ohos")]
     {
         *DATA_PATH.lock().unwrap() = Some("/data/storage/el2/base".to_owned());
@@ -263,6 +297,11 @@ async fn the_main() -> Result<()> {
 
     let mut paused = false;
 
+    #[cfg(target_os = "windows")]
+    if get_data().config.fullscreen_mode {
+        set_fullscreen_mode(true);
+    }
+
     'app: loop {
         let frame_start = tm.real_time();
         if !last_frame_start.is_nan() {
@@ -291,6 +330,12 @@ async fn the_main() -> Result<()> {
                 }
             }
             if !paused {
+                if is_key_pressed(KeyCode::F11) {
+                    let data = get_data_mut();
+                    data.config.fullscreen_mode = !data.config.fullscreen_mode;
+                    set_fullscreen_mode(data.config.fullscreen_mode);
+                    let _ = save_data();
+                }
                 main.update()?;
                 main.render(&mut painter)?;
             }
@@ -303,8 +348,9 @@ async fn the_main() -> Result<()> {
                 let message = panic_message(&*payload);
                 error!("caught panic on main thread: {message}");
                 if !CRASH_SCENE_SHOWN.swap(true, Ordering::SeqCst) {
+                    let crash_code = CrashCode::from_panic_message(&message);
                     let entered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        main.enter_crash_scene(CrashCode::UnexpectedPanic { message }, "游戏发生意外崩溃".to_owned())
+                        main.enter_crash_scene(crash_code, ttl!("crash-unexpected").into_owned())
                     }));
                     match entered {
                         Ok(Ok(())) => {}
@@ -648,4 +694,18 @@ pub fn on_background() {
 #[cfg(target_os = "android")]
 pub extern "C" fn android_main(app: &mut macroquad::Window) {
     quad_main();
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub unsafe extern "C" fn Java_quad_1native_QuadNative_preprocessInput(
+    _: *mut std::ffi::c_void,
+    _: *const std::ffi::c_void,
+    #[allow(dead_code)] motionEvent: ndk_sys::AInputEvent,
+    #[allow(dead_code)] f: jni::sys::jfloat,
+    #[allow(dead_code)] f2: jni::sys::jfloat,
+    #[allow(dead_code)] z: jni::sys::jboolean,
+    #[allow(dead_code)] z2: jni::sys::jboolean,
+) {
+
 }

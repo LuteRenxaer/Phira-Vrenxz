@@ -1,4 +1,4 @@
-﻿use super::{draw_background, ending::RecordUpdateState, game::GameMode, GameScene, NextScene, Scene};
+use super::{draw_background, ending::RecordUpdateState, game::GameMode, GameScene, NextScene, Scene};
 use crate::{
     config::Config,
     core::Resource,
@@ -311,7 +311,13 @@ impl Scene for LoadingScene {
                 .draw();
             y += line_h;
 
-            let diff_text = format!("Lv. {:.1}", self.info.difficulty);
+            let mut diff_text = self.info.level.clone();
+            if !diff_text.contains("Lv.") {
+                use std::fmt::Write;
+                if self.info.difficulty > 0. {
+                    write!(&mut diff_text, " Lv.{:.1}", self.info.difficulty).unwrap();
+                }
+            }
             ui.text(&diff_text)
                 .pos(0., y)
                 .anchor(0.5, 0.)

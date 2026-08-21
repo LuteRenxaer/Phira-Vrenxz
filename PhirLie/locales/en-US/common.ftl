@@ -39,3 +39,5 @@ contains-banned-words = Your input contains banned words. Please check and submi
 
 hykb-not-bound-logout = Your account is not bound to a 3839 Games account; you have been logged out.
 hykb-login-cancelled = 3839 Games login cancelled.
+
+crash-unexpected = Unexpected game crash

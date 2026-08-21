@@ -1,5 +1,6 @@
-name: "Phigros Official"
-author: PigeonGames
+name: "PhirLie"
+author: 几何邻屿
 hitFx: [5, 6]
 holdAtlas: [50, 50]
 holdAtlasMH: [50, 95]
+description: 绘制和音效都由几何邻屿完成

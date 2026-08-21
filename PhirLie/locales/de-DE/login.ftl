@@ -44,3 +44,11 @@ hykb-other-login-not-bound = Dieses Konto ist nicht mit einem 3839-Games-Konto v
 hykb-bind-required-title = Du musst dein Konto mit einem 3839-Games-Konto verknüpfen
 hykb-bind-required = Dieses Konto ist noch nicht mit 3839 Games verknüpft; du musst es verknüpfen, bevor du dich im Spiel anmelden kannst.
 hykb-bind-required-confirm = Link zu 3839 Games
+
+startup-select-language = Sprache wählen
+startup-tap-to-continue = Tippen zum Fortfahren
+startup-tip = Tipp: { $tip }
+
+startup-load-failed = Start fehlgeschlagen
+startup-loading = Laden...
+

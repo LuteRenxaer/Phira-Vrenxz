@@ -116,3 +116,152 @@ about-content =
   { $localization }
 
   And many more voluntary chart reviewers. For a full list please refer to https://phira.moe/staff .
+
+custom-section-appearance = Appearance
+custom-ui-scale = UI Scale
+custom-show-score = Show Score
+custom-show-combo = Show Combo
+custom-show-acc = Show Accuracy
+custom-show-character = Show Character
+custom-accent-color = Accent Color
+custom-edit = Edit
+custom-section-ui-position = UI Position
+custom-score-x = Score X Offset
+custom-score-y = Score Y Offset
+custom-combo-x = Combo X Offset
+custom-combo-y = Combo Y Offset
+custom-section-text = Custom Text
+custom-watermark = Custom Watermark
+custom-combo-text = Custom Combo Text
+custom-autoplay-text = Autoplay Display Text
+custom-section-background = Custom Background
+custom-select-bg = Select Background Image
+custom-reset-bg = Reset Background
+custom-reset = Reset
+custom-default-bg = Default Background
+custom-section-music = Custom Music
+custom-home-bgm = Home BGM
+custom-reset-home-bgm = Reset Home BGM
+custom-startup-bgm = Startup BGM
+custom-reset-startup-bgm = Reset Startup BGM
+custom-default-music = Default Music
+custom-section-crash = Custom Crash
+custom-crash-title = Crash Title
+custom-crash-code = Crash Code
+custom-crash-reason = Crash Reason
+custom-trigger-crash = Trigger Custom Crash
+custom-trigger-crash-sub = Trigger crash with above settings
+custom-trigger = Trigger
+custom-not-set = Not set
+custom-current-code = Current code: { $code }
+custom-bg-set = Background set
+custom-bg-reset = Background reset
+custom-bgm-set = BGM set
+custom-bgm-reset = BGM reset
+custom-startup-bgm-set = Startup BGM set
+custom-startup-bgm-reset = Startup BGM reset
+old-home-restart = Restart to apply
+home-ui = Home UI
+old-home-style = Old Home Style
+play-button-x = Play Button X
+play-button-y = Play Button Y
+menu-buttons-x = Menu Buttons X
+menu-buttons-y = Menu Buttons Y
+item-crash-btn = Fun - Crash Button
+item-crash-btn-sub = Click to trigger crash page (error code 951)
+item-crash = Crash
+custom-tab = Custom
+
+section-basic = Basic
+section-network = Network
+section-display = Display
+section-storage = Storage & Reset
+
+item-fxaa = FXAA Anti-Aliasing
+item-fxaa-sub = Enable FXAA anti-aliasing to improve image quality
+item-roman-numerals = Roman Numerals
+item-roman-numerals-sub = Use Roman numerals to display difficulty level
+item-chinese-numerals = Chinese Numerals
+item-chinese-numerals-sub = Use Chinese numerals to display difficulty level
+item-reset-settings = Reset to Default
+item-reset-settings-sub = Restore all settings to default values
+item-reset-settings-btn = Reset
+item-reset-settings-done = Settings reset to default
+
+item-custom-bgm = Custom Background Music
+item-custom-bgm-sub = Select a local audio file as home BGM (restart to apply)
+item-custom-bgm-default = Default
+item-custom-bgm-set = Custom BGM set
+item-custom-bgm-reset = Default BGM restored
+item-reset-bgm = Reset Default BGM
+item-reset-bgm-btn = Reset
+
+item-custom-startup-bgm = Custom Startup Music
+item-custom-startup-bgm-sub = Select a local audio file as startup BGM
+item-custom-startup-bgm-default = Default (login.mp3)
+item-custom-startup-bgm-set = Startup BGM set
+item-custom-startup-bgm-reset = Default startup BGM restored
+item-reset-startup-bgm = Reset Default Startup BGM
+item-reset-startup-bgm-btn = Reset
+
+item-custom-bg = Custom Home Background
+item-custom-bg-sub = Select a local image as home background
+item-custom-bg-default = Default
+item-custom-bg-set = Custom background set
+item-custom-bg-reset = Default background restored
+item-reset-bg = Reset Default Background
+item-reset-bg-btn = Reset
+
+item-particle = Particle Effects
+item-particle-sub = Enable particle effects in gameplay
+item-disable-effect = Disable Effects
+item-disable-effect-sub = Disable all visual effects to improve performance
+item-interactive = Interactive Mode
+item-interactive-sub = Interaction effects between notes and judgment line
+
+tutorial = Tutorial
+tutorial-desc = Tap to enter the built-in tutorial chart
+tutorial-loading = Loading...
+tutorial-start = Start Tutorial
+tutorial-load-failed = Failed to load tutorial
+
+about-update-log =
+  Version: V1.3.0beta3
+  Update notes:
+  1. Added UI scale feature, scales menu UI/fonts/touch, background not scaled
+  2. Show score enabled by default, disabled by default on low resolution
+  3. Profile page beautified, parallelogram style, shadows removed
+  4. Fixed input box copy/paste not working
+  5. Chart export supports pez format
+  6. Support batch downloading charts
+  7. Added disable character feature, character and character page buttons hidden when disabled
+  8. Added character portrait (2D model) on home page, can pat head with random voice lines
+  9. New character config page, import custom models, configure name/expression/voice/position/scale/pet area
+  10. Replaced original input box with in-game input box
+  11. Added old home style mode, switchable legacy background and music
+  12. New custom section in settings, adjust UI position/home UI offset/accent color etc.
+  13. Redesigned pause screen, ending.rs style layout
+  14. Fixed Spine multi-texture model compatibility and expression stacking
+  15. Settings menu bar scrollable, character config panel scrollable
+  16. Fixed video playback/chart unlock animation crashes
+  17. Fixed drag/flick keyboard judgment, IME stuck issues
+
+  Original development: Prpr, Phira
+  Operations & maintenance: Lute_Rencai
+  Testers:
+  Yangyangjiang~
+  Jihe Linyu
+  DVD
+  Development:
+  Lute_Rencai
+  Jihe Linyu
+  Bug QA:
+  Jihe Linyu
+  Art:
+  Jihe Linyu
+  Lute_Rencai
+  Blue Archive
+
+  If you downloaded this from elsewhere, please join the
+  PhirLie/Phi Launcher official group
+  QQ: 1103288774

@@ -1,0 +1,56 @@
+hoshino_spr.png
+	size: 2048, 2048
+	filter: Linear, Linear
+00_default
+	bounds: 1735, 1788, 251, 200
+	rotate: 90
+01_normal
+	bounds: 1418, 1132, 251, 199
+02_respond
+	bounds: 1165, 944, 251, 186
+03_smile
+	bounds: 1524, 1788, 251, 209
+	rotate: 90
+04_embarrased
+	bounds: 1165, 1185, 251, 199
+05_serious
+	bounds: 1673, 406, 251, 169
+06_shout
+	bounds: 1418, 952, 243, 178
+07_difficult 1
+	bounds: 1321, 1386, 252, 199
+08_difficult 2
+	bounds: 1778, 1534, 252, 199
+	rotate: 90
+09_difficult 3
+	bounds: 1419, 399, 252, 176
+10_shy 1
+	bounds: 1524, 1587, 252, 199
+11_shy 2
+	bounds: 1671, 1135, 252, 196
+12_shout 2
+	bounds: 1165, 577, 252, 182
+13_worry
+	bounds: 1418, 761, 252, 184
+14_ calm smile
+	bounds: 1671, 947, 252, 186
+15_trick 1
+	bounds: 1165, 399, 252, 176
+16_trick 2
+	bounds: 1672, 577, 252, 183
+17_boring
+	bounds: 1672, 762, 252, 183
+eyeclose
+	bounds: 1575, 1333, 251, 199
+halo 1
+	bounds: 1165, 1526, 513, 154
+	rotate: 90
+halo 2
+	bounds: 1828, 1428, 211, 104
+halo 3
+	bounds: 1321, 1686, 155, 78
+hoshino
+	bounds: 2, 42, 1161, 1997
+object_fronthair
+	bounds: 1321, 1766, 273, 201
+	rotate: 90

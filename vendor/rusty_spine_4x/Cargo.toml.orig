@@ -1,0 +1,36 @@
+[package]
+name = "rusty_spine"
+version = "0.8.0"
+edition = "2021"
+description = "Spine runtime for Rust (and wasm!) transpiled from the official C Runtime."
+homepage = "https://github.com/jabuwu/rusty_spine"
+repository = "https://github.com/jabuwu/rusty_spine"
+readme = "readme.md"
+license-file = "LICENSE"
+exclude = [
+    "assets/*",
+]
+
+[dependencies]
+libc = { version = "0.2", optional = true }
+mint = { version = "0.5", optional = true }
+
+[dev-dependencies]
+miniquad = "0.3.16"
+image = { version = "0.24", default-features = false, features = [ "png", "webp", "jpeg" ] }
+glam = "0.23"
+cosmic-text = "0.9"
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[features]
+default = [ "draw_functions", "mint" ]
+draw_functions = []
+
+[workspace]
+resolver = "2"
+members = [
+    "transpiler",
+    "ci"
+]

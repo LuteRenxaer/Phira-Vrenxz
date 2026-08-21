@@ -22,3 +22,11 @@ action-failed =
        *[other] _
     }
 email-sent = 인증 이메일이 전송되었습니다. 인증 후 로그인해주세요.
+
+startup-select-language = 언어 선택
+startup-tap-to-continue = 탭하여 계속
+startup-tip = 팁: { $tip }
+
+startup-load-failed = 시작 실패
+startup-loading = 로딩 중...
+

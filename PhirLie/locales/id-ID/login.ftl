@@ -22,3 +22,11 @@ action-failed =
        *[other] _
     }
 email-sent = Email verifikasi telah dikirim, mohon cek email anda untuk memverifikasi.
+
+startup-select-language = Pilih Bahasa
+startup-tap-to-continue = Ketuk untuk lanjutkan
+startup-tip = Tips: { $tip }
+
+startup-load-failed = Gagal memulai
+startup-loading = Memuat...
+

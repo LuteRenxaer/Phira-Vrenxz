@@ -1,0 +1,153 @@
+
+NP0217_spr.png
+size: 1053,1087
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+00_default
+  rotate: false
+  xy: 662, 190
+  size: 131, 93
+  orig: 142, 103
+  offset: 5, 5
+  index: -1
+00_eyeclose
+  rotate: false
+  xy: 668, 3
+  size: 128, 91
+  orig: 140, 102
+  offset: 6, 5
+  index: -1
+01_normal
+  rotate: false
+  xy: 398, 9
+  size: 142, 102
+  orig: 142, 102
+  offset: 0, 0
+  index: -1
+02_respond
+  rotate: false
+  xy: 530, 144
+  size: 130, 95
+  orig: 142, 105
+  offset: 6, 5
+  index: -1
+03_smile
+  rotate: false
+  xy: 542, 48
+  size: 124, 94
+  orig: 135, 104
+  offset: 6, 5
+  index: -1
+04_embarassed
+  rotate: false
+  xy: 536, 285
+  size: 130, 95
+  orig: 142, 106
+  offset: 6, 5
+  index: -1
+05_serious
+  rotate: false
+  xy: 798, 4
+  size: 131, 90
+  orig: 142, 101
+  offset: 5, 5
+  index: -1
+06_depressed
+  rotate: false
+  xy: 398, 113
+  size: 130, 107
+  orig: 142, 118
+  offset: 6, 5
+  index: -1
+07
+  rotate: false
+  xy: 399, 241
+  size: 135, 95
+  orig: 146, 106
+  offset: 5, 5
+  index: -1
+08
+  rotate: false
+  xy: 668, 288
+  size: 131, 92
+  orig: 142, 104
+  offset: 5, 6
+  index: -1
+09
+  rotate: false
+  xy: 795, 196
+  size: 123, 90
+  orig: 134, 102
+  offset: 5, 6
+  index: -1
+10
+  rotate: false
+  xy: 267, 222
+  size: 130, 114
+  orig: 142, 124
+  offset: 6, 5
+  index: -1
+11
+  rotate: false
+  xy: 668, 96
+  size: 130, 92
+  orig: 142, 103
+  offset: 6, 5
+  index: -1
+12
+  rotate: false
+  xy: 800, 106
+  size: 131, 88
+  orig: 142, 99
+  offset: 6, 5
+  index: -1
+13
+  rotate: false
+  xy: 801, 291
+  size: 131, 89
+  orig: 142, 100
+  offset: 6, 5
+  index: -1
+14
+  rotate: false
+  xy: 920, 201
+  size: 130, 88
+  orig: 142, 99
+  offset: 6, 5
+  index: -1
+Halo_01
+  rotate: false
+  xy: 2, 2
+  size: 254, 160
+  orig: 264, 171
+  offset: 5, 6
+  index: -1
+Halo_02
+  rotate: false
+  xy: 2, 164
+  size: 263, 172
+  orig: 279, 187
+  offset: 7, 8
+  index: -1
+NP0217
+  rotate: false
+  xy: 507, 382
+  size: 544, 703
+  orig: 567, 1411
+  offset: 0, 705
+  index: -1
+NP0217C
+  rotate: false
+  xy: 2, 338
+  size: 503, 747
+  orig: 567, 1411
+  offset: 64, 2
+  index: -1
+fronthair
+  rotate: false
+  xy: 258, 29
+  size: 138, 133
+  orig: 148, 144
+  offset: 5, 6
+  index: -1

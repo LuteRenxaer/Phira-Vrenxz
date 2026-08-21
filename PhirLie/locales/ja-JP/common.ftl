@@ -11,3 +11,5 @@ switch-on = オン
 switch-off = オフ
 
 list-empty = まだ何もありません
+
+crash-unexpected = ゲームが予期せずクラッシュしました

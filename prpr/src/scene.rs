@@ -16,15 +16,18 @@ mod loading;
 pub use loading::{BasicPlayer, LoadingScene, SaveFn, UpdateFn, UploadFn};
 
 use crate::{
-    ext::{draw_image, screen_aspect, LocalTask, SafeTexture, ScaleType},
+    core::BOLD_FONT,
+    ext::{
+        draw_image, screen_aspect, semi_black, semi_white, RectExt, LocalTask,
+        SafeTexture, ScaleType,
+    },
     judge::Judge,
     time::TimeManager,
-    ui::{BillBoard, Dialog, Message, MessageHandle, MessageKind, TextPainter, Ui},
+    ui::{message_sound, BillBoard, Dialog, DRectButton, Message, MessageHandle, MessageKind, TextPainter, Ui},
 };
 use anyhow::{Error, Result};
 use cfg_if::cfg_if;
 use inputbox::{
-    backend::{default_backend, Backend},
     InputBox,
 };
 use macroquad::prelude::*;
@@ -53,6 +56,7 @@ thread_local! {
     pub static BILLBOARD: RefCell<(BillBoard, TimeManager)> = RefCell::new((BillBoard::new(), TimeManager::default()));
     pub static DIALOG: RefCell<Option<Dialog>> = const { RefCell::new(None) };
     pub static FULL_LOADING: RefCell<Option<FullLoadingView>> = const { RefCell::new(None) };
+    pub static INPUT_DIALOG: RefCell<Option<InputDialog>> = const { RefCell::new(None) };
 }
 
 pub struct FullLoadingView {
@@ -124,6 +128,7 @@ impl MessageBuilder {
     }
 
     fn show(&mut self) -> MessageHandle {
+        message_sound();
         BILLBOARD.with(|it| {
             let mut guard = it.borrow_mut();
             let (msg, handle) = Message::new(std::mem::take(&mut self.content), guard.1.now() as _, self.duration, self.kind.clone());
@@ -159,29 +164,356 @@ pub static INPUT_CANCELLED: Mutex<Option<String>> = Mutex::new(None);
 #[cfg(not(target_arch = "wasm32"))]
 pub static CHOSEN_FILE: Mutex<(Option<String>, Option<String>)> = Mutex::new((None, None));
 
-fn show_inputbox(config: InputBox, backend: &dyn Backend) {
-    let result = config.show_with_async(backend, |result| match result {
-        Ok(Some(text)) => {
-            INPUT_TEXT.lock().unwrap().1 = Some(text);
-        }
-        Ok(None) => {
+pub struct InputDialog {
+    id: String,
+    title: String,
+    prompt: String,
+    text: String,
+    password: bool,
+    multiline: bool,
+    ok_label: String,
+    cancel_label: String,
+    ok_btn: DRectButton,
+    cancel_btn: DRectButton,
+    enter_time: f32,
+    cursor: usize,
+    cursor_timer: f32,
+    selection: Option<(usize, usize)>,
+}
 
+impl InputDialog {
+    fn new(id: String, config: InputBox) -> Self {
+        let password = matches!(config.mode, inputbox::InputMode::Password);
+        let multiline = matches!(config.mode, inputbox::InputMode::Multiline);
+        let text = config.default.to_string();
+        // 清空打开前累积的字符事件，避免自动输入一长串字符
+        while get_char_pressed().is_some() {}
+        Self {
+            id,
+            title: config.title.map(|s| s.to_string()).unwrap_or_default(),
+            prompt: config.prompt.map(|s| s.to_string()).unwrap_or_default(),
+            cursor: text.len(),
+            text,
+            password,
+            multiline,
+            ok_label: config.ok_label.map(|s| s.to_string()).unwrap_or_else(|| "OK".to_string()),
+            cancel_label: config.cancel_label.map(|s| s.to_string()).unwrap_or_else(|| "Cancel".to_string()),
+            ok_btn: DRectButton::new(),
+            cancel_btn: DRectButton::new(),
+            enter_time: f32::NAN,
+            cursor_timer: 0.,
+            selection: None,
+        }
+    }
 
-            let id = INPUT_TEXT.lock().unwrap().0.clone();
-            *INPUT_CANCELLED.lock().unwrap() = id;
+    fn confirm(&self) {
+        INPUT_TEXT.lock().unwrap().1 = Some(self.text.clone());
+        set_ime_enabled(false);
+    }
+
+    fn cancel(&self) {
+        *INPUT_CANCELLED.lock().unwrap() = Some(self.id.clone());
+        set_ime_enabled(false);
+    }
+
+    fn update_keyboard(&mut self) -> bool {
+        let ctrl = is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl);
+        if ctrl && is_key_pressed(KeyCode::A) {
+            self.selection = Some((0, self.text.len()));
+            self.cursor = self.text.len();
+            return true;
         }
-        Err(err) => {
-            warn!(?err, "failed to get input");
+        // 复制 (Ctrl+C)
+        if ctrl && is_key_pressed(KeyCode::C) {
+            if let Some((s, e)) = self.selection {
+                let text = self.text[s..e].to_string();
+                unsafe { get_internal_gl() }.quad_context.clipboard_set(&text);
+            }
+            return true;
         }
-    });
-    if let Err(err) = result {
-        warn!(?err, "failed to show input box");
+        // 剪切 (Ctrl+X)
+        if ctrl && is_key_pressed(KeyCode::X) {
+            if let Some((s, e)) = self.selection.take() {
+                let text = self.text[s..e].to_string();
+                unsafe { get_internal_gl() }.quad_context.clipboard_set(&text);
+                self.text.replace_range(s..e, "");
+                self.cursor = s;
+            }
+            return true;
+        }
+        // 粘贴 (Ctrl+V)
+        if ctrl && is_key_pressed(KeyCode::V) {
+            if let Some(clip) = unsafe { get_internal_gl() }.quad_context.clipboard_get() {
+                if let Some((s, e)) = self.selection.take() {
+                    self.text.replace_range(s..e, "");
+                    self.cursor = s;
+                }
+                self.text.insert_str(self.cursor, &clip);
+                self.cursor += clip.len();
+            }
+            return true;
+        }
+        let mut input = String::new();
+        while let Some(c) = get_char_pressed() {
+            if c == '\r' || c == '\n' {
+                if self.multiline {
+                    input.push('\n');
+                } else {
+                    self.confirm();
+                    return false;
+                }
+                continue;
+            }
+            if c == '\u{8}' || c == '\u{7f}' {
+                continue;
+            }
+            if c.is_control() && c != '\t' {
+                continue;
+            }
+            input.push(c);
+        }
+        if !input.is_empty() {
+            if let Some((s, e)) = self.selection.take() {
+                self.text.replace_range(s..e, "");
+                self.cursor = s;
+            }
+            let reversed: String = input.chars().rev().collect();
+            self.text.insert_str(self.cursor, &reversed);
+            self.cursor += input.len();
+        }
+        if is_key_pressed(KeyCode::Backspace) {
+            if let Some((s, e)) = self.selection.take() {
+                self.text.replace_range(s..e, "");
+                self.cursor = s;
+            } else if self.cursor > 0 {
+                let mut idx = self.cursor - 1;
+                while idx > 0 && !self.text.is_char_boundary(idx) {
+                    idx -= 1;
+                }
+                self.text.replace_range(idx..self.cursor, "");
+                self.cursor = idx;
+            }
+        }
+        if is_key_pressed(KeyCode::Delete) {
+            if let Some((s, e)) = self.selection.take() {
+                self.text.replace_range(s..e, "");
+                self.cursor = s;
+            } else if self.cursor < self.text.len() {
+                let mut idx = self.cursor + 1;
+                while idx < self.text.len() && !self.text.is_char_boundary(idx) {
+                    idx += 1;
+                }
+                self.text.replace_range(self.cursor..idx, "");
+            }
+        }
+        if is_key_pressed(KeyCode::Left) && self.cursor > 0 {
+            self.selection = None;
+            let mut idx = self.cursor - 1;
+            while idx > 0 && !self.text.is_char_boundary(idx) {
+                idx -= 1;
+            }
+            self.cursor = idx;
+        }
+        if is_key_pressed(KeyCode::Right) && self.cursor < self.text.len() {
+            self.selection = None;
+            let mut idx = self.cursor + 1;
+            while idx < self.text.len() && !self.text.is_char_boundary(idx) {
+                idx += 1;
+            }
+            self.cursor = idx;
+        }
+        if is_key_pressed(KeyCode::Home) {
+            self.selection = None;
+            self.cursor = 0;
+        }
+        if is_key_pressed(KeyCode::End) {
+            self.selection = None;
+            self.cursor = self.text.len();
+        }
+        if is_key_pressed(KeyCode::Enter) && !self.multiline {
+            self.confirm();
+            return false;
+        }
+        if is_key_pressed(KeyCode::Escape) {
+            self.cancel();
+            return false;
+        }
+        true
+    }
+
+    fn touch(&mut self, touch: &Touch, t: f32) -> bool {
+        if self.ok_btn.touch(touch, t) {
+            self.confirm();
+            return false;
+        }
+        if self.cancel_btn.touch(touch, t) {
+            self.cancel();
+            return false;
+        }
+        true
+    }
+
+    fn render(&mut self, ui: &mut Ui, t: f32) {
+        if self.enter_time.is_nan() {
+            self.enter_time = t;
+        }
+        self.cursor_timer += get_frame_time();
+
+        let p = ((t - self.enter_time) / 0.2).clamp(0., 1.);
+        let ease = 1. - (1. - p).powi(3);
+        ui.fill_rect(ui.screen_rect(), semi_black(0.55 * ease));
+
+        let w = 0.62;
+        let h = if self.multiline { 0.58 } else { 0.42 };
+        let scale = 0.92 + 0.08 * ease;
+        let wr = Rect::new(-w * scale / 2., -h * scale / 2., w * scale, h * scale);
+        let radius = 0.018;
+
+        ui.alpha(ease, |ui| {
+            ui.fill_path(&wr.rounded(radius), Color::new(0.14, 0.15, 0.2, 0.98));
+            ui.stroke_path(&wr.rounded(radius), 0.002, Color::new(1., 1., 1., 0.1));
+
+            let pad = 0.05;
+            let cx = wr.x + pad;
+            let cw = wr.w - pad * 2.;
+
+            ui.text(&self.title)
+                .pos(cx, wr.y + pad)
+                .size(0.48)
+                .color(WHITE)
+                .draw_using(&BOLD_FONT);
+
+            let mut y = wr.y + pad + 0.075;
+            if !self.prompt.is_empty() {
+                let r = ui
+                    .text(&self.prompt)
+                    .pos(cx, y)
+                    .size(0.32)
+                    .color(semi_white(0.65))
+                    .max_width(cw)
+                    .multiline()
+                    .draw();
+                y = r.bottom() + 0.03;
+            }
+
+            let input_h = if self.multiline { 0.2 } else { 0.075 };
+            let input_r = Rect::new(cx, y, cw, input_h);
+            ui.fill_path(&input_r.rounded(0.01), Color::new(0.08, 0.09, 0.13, 1.));
+            ui.stroke_path(&input_r.rounded(0.01), 0.002, Color::new(1., 1., 1., 0.12));
+
+            let display: String = if self.password {
+                self.text.chars().map(|_| '*').collect()
+            } else {
+                self.text.clone()
+            };
+            let before_cursor: String = if self.password {
+                self.text[..self.cursor].chars().map(|_| '*').collect()
+            } else {
+                self.text[..self.cursor].to_string()
+            };
+
+            let text_size = 0.38;
+            let text_x = input_r.x + 0.025;
+            let text_y = input_r.center().y;
+
+            if let Some((s, e)) = self.selection {
+                if s < e {
+                    let before_sel: String = if self.password {
+                        self.text[..s].chars().map(|_| '*').collect()
+                    } else {
+                        self.text[..s].to_string()
+                    };
+                    let sel_text: String = if self.password {
+                        self.text[s..e].chars().map(|_| '*').collect()
+                    } else {
+                        self.text[s..e].to_string()
+                    };
+                    let off_x = ui.text(&before_sel).size(text_size).measure().w;
+                    let sel_w = ui.text(&sel_text).size(text_size).measure().w;
+                    ui.fill_rect(
+                        Rect::new(text_x + off_x, input_r.y + 0.01, sel_w, input_r.h - 0.02),
+                        Color::new(0.2, 0.4, 0.8, 0.5),
+                    );
+                }
+            }
+
+            ui.text(&display)
+                .pos(text_x, text_y)
+                .anchor(0., 0.5)
+                .max_width(input_r.w - 0.05)
+                .size(text_size)
+                .color(WHITE)
+                .draw();
+
+            if (self.cursor_timer % 1.0) < 0.5 {
+                let cw0 = ui.text(&before_cursor).size(text_size).measure().w;
+                let cursor_x = text_x + cw0;
+                ui.fill_rect(
+                    Rect::new(cursor_x, input_r.y + 0.012, 0.0025, input_r.h - 0.024),
+                    Color::new(0.4, 0.6, 1., 1.),
+                );
+            }
+
+            let bh = 0.065;
+            let bw = 0.16;
+            let gap = 0.025;
+            let by = wr.bottom() - bh - pad;
+            let ok_r = Rect::new(cx + cw - bw, by, bw, bh);
+            let cancel_r = Rect::new(cx + cw - bw * 2. - gap, by, bw, bh);
+
+            self.cancel_btn.inner.set(ui, cancel_r);
+            ui.fill_path(&cancel_r.rounded(0.008), Color::new(0.2, 0.21, 0.27, 1.));
+            ui.text(&self.cancel_label)
+                .pos(cancel_r.center().x, cancel_r.center().y)
+                .anchor(0.5, 0.5)
+                .size(0.34)
+                .color(semi_white(0.85))
+                .draw();
+
+            self.ok_btn.inner.set(ui, ok_r);
+            ui.fill_path(&ok_r.rounded(0.008), Color::new(0.3, 0.5, 0.95, 1.));
+            ui.text(&self.ok_label)
+                .pos(ok_r.center().x, ok_r.center().y)
+                .anchor(0.5, 0.5)
+                .size(0.34)
+                .color(WHITE)
+                .draw_using(&BOLD_FONT);
+        });
     }
 }
 
+#[cfg(windows)]
+#[link(name = "imm32")]
+extern "system" {
+    fn GetActiveWindow() -> *mut std::ffi::c_void;
+    fn ImmGetContext(hwnd: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    fn ImmSetOpenStatus(himc: *mut std::ffi::c_void, fopen: i32);
+    fn ImmReleaseContext(hwnd: *mut std::ffi::c_void, himc: *mut std::ffi::c_void) -> i32;
+}
+
+#[cfg(windows)]
+fn set_ime_enabled(enabled: bool) {
+    unsafe {
+        let hwnd = GetActiveWindow();
+        if hwnd.is_null() {
+            return;
+        }
+        let himc = ImmGetContext(hwnd);
+        if himc.is_null() {
+            return;
+        }
+        ImmSetOpenStatus(himc, if enabled { 1 } else { 0 });
+        ImmReleaseContext(hwnd, himc);
+    }
+}
+
+#[cfg(not(windows))]
+fn set_ime_enabled(_enabled: bool) {}
+
 #[inline]
 pub fn request_input(id: impl Into<String>, mut config: InputBox) {
-    *INPUT_TEXT.lock().unwrap() = (Some(id.into()), None);
+    let id = id.into();
+    *INPUT_TEXT.lock().unwrap() = (Some(id.clone()), None);
     *INPUT_CANCELLED.lock().unwrap() = None;
     if config.title.is_none() {
         config = config.title(ttl!("input"));
@@ -195,7 +527,8 @@ pub fn request_input(id: impl Into<String>, mut config: InputBox) {
     if config.ok_label.is_none() {
         config = config.ok_label(ttl!("confirm"));
     }
-    show_inputbox(config, &*default_backend());
+    INPUT_DIALOG.with(|it| *it.borrow_mut() = Some(InputDialog::new(id, config)));
+    set_ime_enabled(true);
 }
 
 pub fn take_input() -> Option<(String, String)> {
@@ -485,13 +818,29 @@ impl Main {
                         false
                     } else {
                         drop(guard);
-                        self.tm.seek_to(t);
-                        match self.scenes.last_mut().unwrap().touch(&mut self.tm, touch) {
-                            Ok(val) => !val,
-                            Err(err) => {
-                                warn!(?err, "failed to handle touch");
-                                last_err = Some(err);
+                        let input_consumed = INPUT_DIALOG.with(|it| {
+                            let mut guard = it.borrow_mut();
+                            if let Some(dlg) = guard.as_mut() {
+                                if !dlg.touch(touch, t as _) {
+                                    drop(guard);
+                                    *it.borrow_mut() = None;
+                                }
+                                true
+                            } else {
                                 false
+                            }
+                        });
+                        if input_consumed {
+                            false
+                        } else {
+                            self.tm.seek_to(t);
+                            match self.scenes.last_mut().unwrap().touch(&mut self.tm, touch) {
+                                Ok(val) => !val,
+                                Err(err) => {
+                                    warn!(?err, "failed to handle touch");
+                                    last_err = Some(err);
+                                    false
+                                }
                             }
                         }
                     }
@@ -536,6 +885,17 @@ impl Main {
             DIALOG.with(|it| {
                 if let Some(dialog) = it.borrow_mut().as_mut() {
                     dialog.render(&mut ui, self.tm.now() as _);
+                }
+            });
+            INPUT_DIALOG.with(|it| {
+                let mut guard = it.borrow_mut();
+                if let Some(dlg) = guard.as_mut() {
+                    if !dlg.update_keyboard() {
+                        drop(guard);
+                        *it.borrow_mut() = None;
+                    } else {
+                        dlg.render(&mut ui, self.tm.now() as _);
+                    }
                 }
             });
             let remove = FULL_LOADING.with(|it| {

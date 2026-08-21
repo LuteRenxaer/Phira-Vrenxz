@@ -26,6 +26,11 @@ pub struct Tabs<T> {
     prev: usize,
 
     changed: bool,
+
+    scroll_y: f32,
+    scroll_vel: f32,
+    dragging: bool,
+    last_drag_y: f32,
 }
 
 impl<T> Tabs<T> {
@@ -55,6 +60,11 @@ impl<T> Tabs<T> {
             prev: 0,
 
             changed: false,
+
+            scroll_y: 0.,
+            scroll_vel: 0.,
+            dragging: false,
+            last_drag_y: 0.,
         }
     }
 
@@ -99,41 +109,95 @@ impl<T> Tabs<T> {
     }
 
     pub fn touch(&mut self, touch: &Touch, t: f32) -> bool {
+        let tab_area = Rect::new(Self::LEFT, -1.0, Self::WIDTH, 2.0);
+        match touch.phase {
+            TouchPhase::Started => {
+                if tab_area.contains(touch.position) {
+                    self.dragging = true;
+                    self.last_drag_y = touch.position.y;
+                    self.scroll_vel = 0.;
+                }
+            }
+            TouchPhase::Moved => {
+                if self.dragging {
+                    let dy = touch.position.y - self.last_drag_y;
+                    self.last_drag_y = touch.position.y;
+                    self.scroll_y += dy;
+                    self.scroll_vel = dy;
+                }
+            }
+            TouchPhase::Ended => {
+                self.dragging = false;
+            }
+            _ => {}
+        }
         for (index, item) in self.items.iter_mut().enumerate() {
             if item.btn.touch(touch) {
-                button_hit();
-                self.goto(t, index);
-                return true;
+                if self.scroll_vel.abs() < 0.01 {
+                    button_hit();
+                    self.goto(t, index);
+                    return true;
+                }
             }
         }
-
         false
     }
 
-    fn render_plain(&mut self, ui: &mut Ui, c: Color, first: bool) {
-        let mut r = Rect::new(Self::LEFT, -ui.top + 0.16, Self::WIDTH, 0.125);
-        for (index, item) in self.items.iter_mut().enumerate() {
-            if index == self.selected {
-                self.y_upper.alter_to(r.y);
-                self.y_lower.alter_to(r.bottom());
+    fn render_plain(&mut self, ui: &mut Ui, c: Color, first: bool, scroll_y: f32, use_clip: bool) {
+        let top = -ui.top + 0.16;
+        let bottom = ui.screen_rect().bottom() - 0.02;
+        let visible_h = bottom - top;
+        let total_h = self.items.len() as f32 * 0.125;
+        let max_scroll = (total_h - visible_h).max(0.);
+        self.scroll_y = self.scroll_y.clamp(-max_scroll, 0.);
+
+        let mut render_items = |ui: &mut Ui| {
+            let mut r = Rect::new(Self::LEFT, top + scroll_y, Self::WIDTH, 0.125);
+            for (index, item) in self.items.iter_mut().enumerate() {
+                if index == self.selected {
+                    self.y_upper.alter_to(r.y);
+                    self.y_lower.alter_to(r.bottom());
+                }
+                item.btn.set(ui, r);
+                if first {
+                    ui.fill_rect(r, semi_black(0.4 * c.a));
+                }
+                ui.text((item.title)())
+                    .pos(r.center().x, r.center().y)
+                    .anchor(0.5, 0.5)
+                    .no_baseline()
+                    .size(0.5)
+                    .color(c)
+                    .draw();
+                r.y += 0.125;
             }
-            item.btn.set(ui, r);
-            if first {
-                ui.fill_rect(r, semi_black(0.4 * c.a));
-            }
-            ui.text((item.title)())
-                .pos(r.center().x, r.center().y)
-                .anchor(0.5, 0.5)
-                .no_baseline()
-                .size(0.5)
-                .color(c)
-                .draw();
-            r.y += 0.125;
+        };
+
+        if first {
+            // 背景延伸到屏幕外（整个可见区域）
+            let bg = Rect::new(Self::LEFT, top - 1., Self::WIDTH, visible_h + 2.);
+            ui.fill_rect(bg, semi_black(0.4 * c.a));
+        }
+
+        if use_clip {
+            let clip = Rect::new(Self::LEFT - 0.02, top, Self::WIDTH + 0.04, visible_h);
+            ui.scissor(clip, render_items);
+        } else {
+            render_items(ui);
         }
     }
 
     pub fn render(&mut self, ui: &mut Ui, t: f32, cr: Rect, mut f: impl FnMut(&mut Ui, &mut T) -> Result<()>) -> Result<()> {
-        self.render_plain(ui, WHITE, true);
+        // 惯性滚动
+        if !self.dragging {
+            self.scroll_y += self.scroll_vel;
+            self.scroll_vel *= 0.9;
+            if self.scroll_vel.abs() < 0.0001 {
+                self.scroll_vel = 0.;
+            }
+        }
+        let scroll_y = self.scroll_y;
+        self.render_plain(ui, WHITE, true, scroll_y, true);
 
         let y_upper = self.y_upper.now(t);
         let y_lower = self.y_lower.now(t);
@@ -148,7 +212,7 @@ impl<T> Tabs<T> {
             },
         );
         ui.fill_path(&r.rounded(0.008), WHITE);
-        ui.scissor(r, |ui| self.render_plain(ui, BLACK, false));
+        ui.scissor(r, |ui| self.render_plain(ui, BLACK, false, scroll_y, false));
 
         ui.fill_path(&cr.rounded(0.005), semi_black(0.4));
         ui.scissor::<Result<()>>(cr, |ui| {

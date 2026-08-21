@@ -57,11 +57,11 @@ fn default_custom_crash_code() -> u32 {
 }
 
 fn default_custom_crash_reason() -> String {
-    "玩家自定义崩溃".to_string()
+    String::new()
 }
 
 fn default_custom_crash_title() -> String {
-    "哇!你的PhiLie崩溃啦!看来error先生愤怒了呢".to_string()
+    String::new()
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -74,8 +74,38 @@ pub struct Config {
     pub ap_fc_indicator: bool,
     pub full_screen_judge: bool,
     pub combo_text_debug: bool,
+    /// Global Arcaea-style judgement mode (disables score upload)
+    pub arcaea_judgement: bool,
+    /// Global FNF-style judgement mode (disables score upload)
+    pub fnf_judgement: bool,
     pub custom_combo_text: String,
     pub custom_watermark: String,
+    pub show_score: bool,
+    pub show_score_initialized: bool,
+    pub show_combo: bool,
+    pub custom_accent: String,
+    pub character_name: String,
+    pub character_model_path: Option<String>,
+    pub character_default_expr: u32,
+    pub character_pet_expr: u32,
+    pub character_voice_dir: Option<String>,
+    pub character_model_offset_x: f32,
+    pub character_model_offset_y: f32,
+    pub character_model_scale: f32,
+    pub character_pet_offset_x: f32,
+    pub character_pet_offset_y: f32,
+    pub character_pet_width: f32,
+    pub character_pet_height: f32,
+    pub show_character: bool,
+    pub score_offset_x: f32,
+    pub score_offset_y: f32,
+    pub combo_offset_x: f32,
+    pub combo_offset_y: f32,
+    pub home_play_offset_x: f32,
+    pub home_play_offset_y: f32,
+    pub home_menu_offset_x: f32,
+    pub home_menu_offset_y: f32,
+    pub old_home: bool,
     pub aspect_ratio: Option<f32>,
     pub audio_buffer_size: Option<u32>,
     pub chart_debug: bool,
@@ -129,8 +159,36 @@ impl Default for Config {
             ap_fc_indicator: true,
             full_screen_judge: false,
             combo_text_debug: false,
+            arcaea_judgement: false,
+            fnf_judgement: false,
             custom_combo_text: "COMBO".to_string(),
             custom_watermark: "phirLie".to_string(),
+            show_score: true,
+            show_score_initialized: false,
+            show_combo: true,
+            custom_accent: "#4C84FF".to_string(),
+            character_name: "星野(临战)".to_string(),
+            character_model_path: None,
+            character_default_expr: 0,
+            character_pet_expr: 25,
+            character_voice_dir: None,
+            character_model_offset_x: 0.,
+            character_model_offset_y: 0.,
+            character_model_scale: 0.00065,
+            character_pet_offset_x: 0.,
+            character_pet_offset_y: -0.650,
+            character_pet_width: 0.3,
+            character_pet_height: 0.3,
+            show_character: true,
+            score_offset_x: 0.0,
+            score_offset_y: 0.0,
+            combo_offset_x: 0.0,
+            combo_offset_y: 0.0,
+            home_play_offset_x: 0.0,
+            home_play_offset_y: 0.0,
+            home_menu_offset_x: 0.0,
+            home_menu_offset_y: 0.0,
+            old_home: false,
             aspect_ratio: None,
             audio_buffer_size: None,
             chart_debug: false,

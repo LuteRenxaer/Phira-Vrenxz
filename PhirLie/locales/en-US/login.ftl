@@ -48,3 +48,13 @@ hykb-other-login-not-bound = This account is not bound to a 3839 Games account a
 hykb-bind-required-title = 3839 Games binding required
 hykb-bind-required = This account is not bound to a 3839 Games account yet. Bind one to log in.
 hykb-bind-required-confirm = Bind 3839 Games
+
+startup-select-language = Select Language
+startup-tap-to-continue = Tap to continue
+startup-tip = Tip: { $tip }
+
+startup-load-failed = Startup failed
+startup-loading = Loading...
+
+
+startup-init-failed = Initialization failed

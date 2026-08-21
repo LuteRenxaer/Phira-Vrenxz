@@ -155,6 +155,7 @@ pub enum Judgement {
 #[derive(Default)]
 pub(crate) struct JudgeInner {
     diffs: Vec<f64>,
+    perfect_diffs: Vec<f64>,
 
     combo: u32,
     max_combo: u32,
@@ -162,13 +163,17 @@ pub(crate) struct JudgeInner {
     num_of_notes: u32,
     early_kind: [u32; 4],
     late_kind: [u32; 4],
+
+    arcaea_mode: bool,
+    fnf_mode: bool,
 }
 
 #[cfg(not(closed))]
 impl JudgeInner {
-    pub fn new(num_of_notes: u32) -> Self {
+    pub fn new(num_of_notes: u32, arcaea_mode: bool, fnf_mode: bool) -> Self {
         Self {
             diffs: Vec::new(),
+            perfect_diffs: Vec::new(),
 
             combo: 0,
             max_combo: 0,
@@ -176,6 +181,9 @@ impl JudgeInner {
             num_of_notes,
             early_kind: [0; 4],
             late_kind: [0; 4],
+
+            arcaea_mode,
+            fnf_mode,
         }
     }
 
@@ -183,6 +191,9 @@ impl JudgeInner {
         use Judgement::*;
         if matches!(what, Judgement::Good) {
             self.diffs.push(diff);
+        }
+        if matches!(what, Judgement::Perfect) {
+            self.perfect_diffs.push(diff);
         }
         if diff < 0. {
             self.early_kind[what as usize] += 1;
@@ -208,6 +219,7 @@ impl JudgeInner {
         self.max_combo = 0;
         self.counts = [0; 4];
         self.diffs.clear();
+        self.perfect_diffs.clear();
         self.early_kind = [0; 4];
         self.late_kind = [0; 4];
     }
@@ -225,12 +237,38 @@ impl JudgeInner {
     }
 
     pub fn score(&self) -> u32 {
-        const TOTAL: u32 = 1000000;
-        if self.counts[0] == self.num_of_notes {
-            TOTAL
+        if self.fnf_mode {
+            // FNF-style scoring: fixed points per judgement
+            // Sick (Perfect): 350, Good: 200, Bad: 100, Miss: 0
+            const FNF_PERFECT: u32 = 350;
+            const FNF_GOOD: u32 = 200;
+            const FNF_BAD: u32 = 100;
+            self.counts[0] * FNF_PERFECT + self.counts[1] * FNF_GOOD + self.counts[2] * FNF_BAD
+        } else if self.arcaea_mode {
+            // Arcaea-style scoring: max 10,000,000 + note count
+            // Big Pure (Pure+): diff.abs() <= 25ms -> base + 1
+            // Small Pure: base
+            // Far (Good): base * 0.5
+            // Lost: 0
+            const ARCAEA_TOTAL: f64 = 10_000_000.;
+            const BIG_PURE_THRESHOLD: f64 = 0.025; // 25ms
+            if self.num_of_notes == 0 {
+                return 0;
+            }
+            let base = ARCAEA_TOTAL / self.num_of_notes as f64;
+            let big_pure = self.perfect_diffs.iter().filter(|d| d.abs() <= BIG_PURE_THRESHOLD).count() as f64;
+            let small_pure = (self.counts[0] as f64 - big_pure).max(0.);
+            let far = self.counts[1] as f64; // Good
+            let score = (big_pure * (base + 1.) + small_pure * base + far * base * 0.5).round();
+            score as u32
         } else {
-            let score = (0.9 * self.accuracy() + self.max_combo as f64 / self.num_of_notes as f64 * 0.1) * TOTAL as f64;
-            score.round() as u32
+            const TOTAL: u32 = 1000000;
+            if self.counts[0] == self.num_of_notes {
+                TOTAL
+            } else {
+                let score = (0.9 * self.accuracy() + self.max_combo as f64 / self.num_of_notes as f64 * 0.1) * TOTAL as f64;
+                score.round() as u32
+            }
         }
     }
 
@@ -316,7 +354,11 @@ impl Judge {
 
             key_down_count: 0,
 
-            inner: JudgeInner::new(chart.lines.iter().map(|it| it.notes.iter().filter(|it| !it.fake).count() as u32).sum()),
+            inner: JudgeInner::new(
+                chart.lines.iter().map(|it| it.notes.iter().filter(|it| !it.fake).count() as u32).sum(),
+                chart.arcaea_judgement,
+                chart.fnf_judgement,
+            ),
             judgements: RefCell::new(Vec::new()),
         }
     }
@@ -416,6 +458,12 @@ impl Judge {
         }
         const X_DIFF_MAX: f64 = 0.21 / (16. / 9.) * 2.;
         let spd = res.config.speed as f64;
+        // FNF判定窗口: Sick±45ms, Good±90ms, Bad±135ms
+        let (limit_perfect, limit_good, limit_bad) = if self.inner.fnf_mode {
+            (0.045, 0.09, 0.135)
+        } else {
+            (LIMIT_PERFECT, LIMIT_GOOD, LIMIT_BAD)
+        };
 
         let uptime = get_uptime();
 
@@ -572,7 +620,7 @@ impl Judge {
                 continue;
             }
             let t = time_of(touch);
-            let mut closest = (None, x_diff_max, LIMIT_BAD, LIMIT_BAD + (x_diff_max / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR);
+            let mut closest = (None, x_diff_max, limit_bad, limit_bad + (x_diff_max / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR);
             for (line_id, ((line, pos), (idx, st))) in chart.lines.iter_mut().zip(pos.iter()).zip(self.notes.iter_mut()).enumerate() {
                 let pos = if full_screen_judge {
                     pos[id].unwrap_or(Point::new(0.0, 0.0))
@@ -603,15 +651,15 @@ impl Judge {
                     }
                     if dt
                         > if matches!(note.kind, NoteKind::Click) {
-                            LIMIT_BAD - LIMIT_PERFECT * (dist - 0.9).max(0.)
+                            limit_bad - limit_perfect * (dist - 0.9).max(0.)
                         } else {
-                            LIMIT_GOOD
+                            limit_good
                         }
                     {
                         continue;
                     }
                     let dt = if matches!(note.kind, NoteKind::Flick | NoteKind::Drag) {
-                        dt + LIMIT_GOOD
+                        dt + limit_good
                     } else {
                         dt
                     };
@@ -633,16 +681,16 @@ impl Judge {
                     if matches!(note.kind, NoteKind::Flick) {
                         continue;
                     }
-                    if dt <= LIMIT_GOOD || matches!(note.kind, NoteKind::Hold { .. }) {
+                    if dt <= limit_good || matches!(note.kind, NoteKind::Hold { .. }) {
                         match note.kind {
                             NoteKind::Click => {
                                 note.judge = JudgeStatus::Judged;
-                                judgements.push((if dt <= LIMIT_PERFECT { Judgement::Perfect } else { Judgement::Good }, line_id, id, Some(t)));
+                                judgements.push((if dt <= limit_perfect { Judgement::Perfect } else { Judgement::Good }, line_id, id, Some(t)));
                             }
                             NoteKind::Hold { .. } => {
                                 note.hitsound.play(res);
-                                self.judgements.borrow_mut().push((t, line_id as _, id, Err(dt <= LIMIT_PERFECT)));
-                                note.judge = JudgeStatus::Hold(dt <= LIMIT_PERFECT, t, t, false, f64::INFINITY);
+                                self.judgements.borrow_mut().push((t, line_id as _, id, Err(dt <= limit_perfect)));
+                                note.judge = JudgeStatus::Hold(dt <= limit_perfect, t, t, false, f64::INFINITY);
                             }
                             _ => unreachable!(),
                         };
@@ -684,14 +732,14 @@ impl Judge {
             {
                 let note = &mut chart.lines[line_id].notes[id as usize];
                 let dt = (t - note.time).abs() / spd;
-                if dt <= if matches!(note.kind, NoteKind::Click) { LIMIT_BAD } else { LIMIT_GOOD } {
+                if dt <= if matches!(note.kind, NoteKind::Click) { limit_bad } else { limit_good } {
                     match note.kind {
                         NoteKind::Click => {
                             note.judge = JudgeStatus::Judged;
                             judgements.push((
-                                if dt <= LIMIT_PERFECT {
+                                if dt <= limit_perfect {
                                     Judgement::Perfect
-                                } else if dt <= LIMIT_GOOD {
+                                } else if dt <= limit_good {
                                     Judgement::Good
                                 } else {
                                     Judgement::Bad
@@ -703,8 +751,8 @@ impl Judge {
                         }
                         NoteKind::Hold { .. } => {
                             note.hitsound.play(res);
-                            self.judgements.borrow_mut().push((t, line_id as _, id, Err(dt <= LIMIT_PERFECT)));
-                            note.judge = JudgeStatus::Hold(dt <= LIMIT_PERFECT, t, (t - note.time) / spd, false, f64::INFINITY);
+                            self.judgements.borrow_mut().push((t, line_id as _, id, Err(dt <= limit_perfect)));
+                            note.judge = JudgeStatus::Hold(dt <= limit_perfect, t, (t - note.time) / spd, false, f64::INFINITY);
                         }
                         _ => unreachable!(),
                     };
@@ -719,7 +767,7 @@ impl Judge {
                 let note = &mut line.notes[*id as usize];
                 if let NoteKind::Hold { end_time, .. } = &note.kind {
                     if let JudgeStatus::Hold(.., ref mut pre_judge, ref mut up_time) = note.judge {
-                        if (*end_time - t) / spd <= LIMIT_BAD {
+                        if (*end_time - t) / spd <= limit_bad {
                             *pre_judge = true;
                             continue;
                         }
@@ -748,15 +796,15 @@ impl Judge {
                 }
 
                 let dt = (t - note.time) / spd;
-                if dt > LIMIT_BAD {
+                if dt > limit_bad {
                     note.judge = JudgeStatus::Judged;
                     judgements.push((Judgement::Miss, line_id, *id, None));
                     continue;
                 }
-                if -dt > LIMIT_BAD {
+                if -dt > limit_bad {
                     break;
                 }
-                if !matches!(note.kind, NoteKind::Drag) && (self.key_down_count == 0 || !matches!(note.kind, NoteKind::Flick)) {
+                if !matches!(note.kind, NoteKind::Drag | NoteKind::Flick) {
                     continue;
                 }
                 let dt = dt.abs();
@@ -767,7 +815,7 @@ impl Judge {
                     || pos.iter().any(|it| {
                         it.is_some_and(|it| {
                             let dx = (it.x - x).abs() as f64 / note.judge_area as f64;
-                            dx <= x_diff_max && dt <= (LIMIT_BAD - LIMIT_PERFECT * (dx - 0.9).max(0.))
+                            dx <= x_diff_max && dt <= (limit_bad - limit_perfect * (dx - 0.9).max(0.))
                         })
                     })
                 {
@@ -790,7 +838,7 @@ impl Judge {
                     }
                 }
 
-                let ghost_t = t + LIMIT_GOOD;
+                let ghost_t = t + limit_good;
                 if matches!(note.kind, NoteKind::Click) {
                     if ghost_t < note.time {
                         break;

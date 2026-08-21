@@ -1,0 +1,118 @@
+NP0179_spr.png
+size:2048,2048
+filter:Linear,Linear
+scale:0.88
+00_deuflat
+bounds:790,57,174,123
+01_normal
+bounds:790,57,174,123
+02_respond
+bounds:614,154,174,129
+03_smile
+bounds:438,164,174,135
+04_embarassed
+bounds:356,38,172,124
+05_serious
+bounds:2,22,176,117
+06_depressed
+bounds:180,141,174,127
+07_normal 2
+bounds:1330,92,174,124
+08_eyeclose 2
+bounds:1534,130,174,124
+09_sarcastic
+bounds:1906,181,174,135
+rotate:90
+10_think
+bounds:530,31,174,121
+11_damaged
+bounds:2,454,174,129
+rotate:90
+12_fury shout 1
+bounds:1154,192,174,145
+13_fury shout 2
+bounds:1730,210,174,145
+14_shout
+bounds:1359,218,173,147
+15_irritate 1
+bounds:2,142,176,126
+16_irritate 2
+bounds:910,182,172,143
+17_embarassed 2
+bounds:1710,84,173,124
+18_embarassed 3
+bounds:714,285,194,150
+19_shout 2
+bounds:1841,357,194,154
+20_surprised 1
+bounds:1555,256,173,149
+21_surprised 2
+bounds:959,1904,175,119
+22_surprised 3
+bounds:1555,407,194,155
+23_pure smile 1
+bounds:958,327,194,152
+24_pure smile 2
+bounds:1163,339,194,152
+25_smile 2
+bounds:2,1239,194,159
+26_calm smile
+bounds:438,301,194,150
+27_peaceful
+bounds:2,1080,194,157
+28_yawn
+bounds:1848,905,189,160
+rotate:90
+29_shy 1
+bounds:1359,367,194,154
+30_shy 2
+bounds:1777,1096,194,158
+31_shy 3
+bounds:1844,513,194,155
+rotate:90
+32_cry 1
+bounds:2,270,194,145
+33_cry 2
+bounds:242,270,194,149
+34_cry 3
+bounds:1809,1580,194,167
+rotate:90
+35_difficult 1
+bounds:2,630,194,155
+rotate:90
+36_difficult 2
+bounds:1847,709,194,155
+rotate:90
+37_difficult 3
+bounds:2,884,194,152
+rotate:90
+38_trick 1
+bounds:1769,1256,194,159
+39_trick 2
+bounds:1768,1417,194,161
+NP0179(defualt)
+bounds:2,959,1143,1064
+offsets:0,718,1143,1782
+NP0179(defualt)1
+bounds:137,392,719,824
+offsets:223,0,1143,1782
+rotate:270
+NP0202
+bounds:1069,927,742,1096
+offsets:0,686,844,1782
+NP02021
+bounds:1011,449,623,836
+offsets:221,0,844,1782
+rotate:270
+eyeclose
+bounds:1084,67,174,123
+fronthair_D
+bounds:1802,1776,247,198
+rotate:90
+halo 1
+bounds:925,1089,408,204
+halo 2
+bounds:1885,2,177,135
+rotate:90
+halo 3
+bounds:1136,1924,129,99

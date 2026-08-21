@@ -23,3 +23,11 @@ action-failed =
     }
 email-sent = รหัสยืนยันถูกส่งไปยัง email เรียบร้อย, กรุณายืนยันตัวตนเพื่อ login
 forget-password = ลืมรหัสผ่าน?
+
+startup-select-language = เลือกภาษา
+startup-tap-to-continue = แตะเพื่อดำเนินการต่อ
+startup-tip = เคล็ดลับ: { $tip }
+
+startup-load-failed = เริ่มต้นล้มเหลว
+startup-loading = กำลังโหลด...
+

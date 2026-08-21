@@ -1,6 +1,9 @@
 pub mod coll;
 pub use coll::CollectionPage;
 
+mod character;
+pub use character::CharacterPage;
+
 mod event;
 pub use event::EventPage;
 
@@ -104,8 +107,84 @@ pub fn load_local() -> Vec<ChartItem> {
             local_path: Some(it.local_path.clone()),
             illu: local_illustration(it.local_path.clone(), tex.clone(), false),
             chart_type: ChartType::Imported,
+            level_author: None,
+            xcsim_preview_url: None,
+            xcsim_illustration_url: None,
         })
         .collect()
+}
+
+pub fn load_builtin_task() -> Task<Result<Vec<ChartItem>>> {
+    Task::new(async move {
+        let tex = BLACK_TEXTURE.clone();
+        let level_dir = "assets/Level";
+        let mut charts = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(level_dir) {
+            for entry in entries.flatten() {
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                let full_path = entry.path();
+                if full_path.is_dir() {
+                    // 谱师文件夹：读取 Level.json
+                    let level_json_path = full_path.join("Level.json");
+                    if let Ok(content) = std::fs::read_to_string(&level_json_path) {
+                        if let Ok(level_data) = serde_json::from_str::<Vec<serde_json::Value>>(&content) {
+                            // 解析谱师信息
+                            let author = level_data.iter().find_map(|v| {
+                                let name = v.get("name")?.as_str()?;
+                                let terrace = v.get("terrace")?.as_str()?;
+                                let link = v.get("link")?.as_str()?;
+                                Some(LevelAuthor {
+                                    name: name.to_string(),
+                                    terrace: terrace.to_string(),
+                                    link: link.to_string(),
+                                })
+                            });
+                            // 找到 level 字段
+                            let level_list = level_data.iter().find_map(|v| v.get("level").and_then(|l| l.as_str()));
+                            if let Some(level_str) = level_list {
+                                for pez_name in level_str.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                                    let pez_path = full_path.join(pez_name);
+                                    if pez_path.exists() {
+                                        let path_str = format!("builtin:{}/{}", file_name, pez_name);
+                                        if let Ok(mut fs) = prpr::fs::fs_from_file(&pez_path) {
+                                            if let Ok(info) = prpr::fs::load_info(fs.deref_mut()).await {
+                                                charts.push(ChartItem {
+                                                    info: BriefChartInfo { id: None, ..info.into() },
+                                                    local_path: Some(path_str.clone()),
+                                                    illu: local_illustration(path_str, tex.clone(), false),
+                                                    chart_type: ChartType::Imported,
+                                                    level_author: author.clone(),
+                                                    xcsim_preview_url: None,
+                                                    xcsim_illustration_url: None,
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // 兼容旧结构：直接放文件
+                    let path_str = format!("builtin:{file_name}");
+                    if let Ok(mut fs) = prpr::fs::fs_from_file(&full_path) {
+                        if let Ok(info) = prpr::fs::load_info(fs.deref_mut()).await {
+                            charts.push(ChartItem {
+                                info: BriefChartInfo { id: None, ..info.into() },
+                                local_path: Some(path_str.clone()),
+                                illu: local_illustration(path_str, tex.clone(), false),
+                                chart_type: ChartType::Imported,
+                                level_author: None,
+                                xcsim_preview_url: None,
+                                xcsim_illustration_url: None,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        Ok(charts)
+    })
 }
 
 type IllustrationTask = Task<Result<(DynamicImage, Option<DynamicImage>)>>;
@@ -204,11 +283,21 @@ impl Illustration {
 }
 
 #[derive(Clone)]
+pub struct LevelAuthor {
+    pub name: String,
+    pub terrace: String,
+    pub link: String,
+}
+
+#[derive(Clone)]
 pub struct ChartItem {
     pub info: BriefChartInfo,
     pub local_path: Option<String>,
     pub illu: Illustration,
     pub chart_type: ChartType,
+    pub level_author: Option<LevelAuthor>,
+    pub xcsim_preview_url: Option<String>,
+    pub xcsim_illustration_url: Option<String>,
 }
 impl ChartItem {
     pub fn to_bare_ref(&self) -> ChartRef {
@@ -221,15 +310,19 @@ impl ChartItem {
             illu: Illustration::from_file_thumbnail(chart.illustration.clone()),
             local_path: None,
             chart_type: ChartType::Downloaded,
+            level_author: None,
+            xcsim_preview_url: None,
+            xcsim_illustration_url: None,
         }
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ChartType {
     Downloaded,
     Imported,
     Integrated,
+    XCSim,
 }
 
 pub struct Fader {
@@ -365,7 +458,7 @@ impl Fader {
                     + 0.012;
             }
             if s == "PHIRLIE" {
-                ui.text("v1.2.5")
+                ui.text("v1.3.0beta2")
                     .pos(x + 0.01, tp + h - 0.027)
                     .anchor(0., 1.)
                     .color(semi_white(0.4))
@@ -439,6 +532,7 @@ pub struct SharedState {
     pub rt: f32,
     pub fader: Fader,
     pub charts_local: Vec<ChartItem>,
+    pub charts_builtin: Vec<ChartItem>,
 
     pub icons: [SafeTexture; 8],
 }
@@ -482,6 +576,7 @@ impl SharedState {
             rt: 0.,
             fader: Fader::new(),
             charts_local: Vec::new(),
+            charts_builtin: Vec::new(),
 
             icons: Resource::load_icons().await?,
         })

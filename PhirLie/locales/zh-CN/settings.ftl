@@ -4,7 +4,7 @@ label = 设置
 general = 通用
 audio = 音频
 chart = 谱面
-debug = 调试
+debug = Debug
 about = 关于
 
 item-lang = 语言
@@ -163,3 +163,108 @@ about-content =
 
   以及许多志愿谱面审核员！完整列表参见 https://phira.moe/staff
 
+
+custom-section-appearance = 界面外观
+custom-ui-scale = UI 比例
+custom-show-score = 显示分数
+custom-show-combo = 显示连击
+custom-show-acc = 显示准确率
+custom-show-character = 显示角色
+custom-accent-color = 主题色
+custom-edit = 修改
+custom-section-ui-position = UI 位置
+custom-score-x = 分数水平偏移
+custom-score-y = 分数垂直偏移
+custom-combo-x = 连击水平偏移
+custom-combo-y = 连击垂直偏移
+custom-section-text = 自定义文本
+custom-watermark = 自定义水印
+custom-combo-text = 自定义连击文本
+custom-autoplay-text = Autoplay 显示文字
+custom-section-background = 自定义背景
+custom-select-bg = 选择背景图片
+custom-reset-bg = 重置背景
+custom-reset = 重置
+custom-default-bg = 默认背景
+custom-section-music = 自定义音乐
+custom-home-bgm = 主页背景音乐
+custom-reset-home-bgm = 重置主页音乐
+custom-startup-bgm = 开屏背景音乐
+custom-reset-startup-bgm = 重置开屏音乐
+custom-default-music = 默认音乐
+custom-section-crash = 自定义崩溃
+custom-crash-title = 崩溃标题
+custom-crash-code = 崩溃代码
+custom-crash-reason = 崩溃原因
+custom-trigger-crash = 触发自定义崩溃
+custom-trigger-crash-sub = 使用上述设置触发崩溃
+custom-trigger = 触发
+custom-not-set = 未设置
+custom-current-code = 当前代码: { $code }
+custom-bg-set = 背景已设置
+custom-bg-reset = 已重置背景
+custom-bgm-set = 背景音乐已设置
+custom-bgm-reset = 已重置背景音乐
+custom-startup-bgm-set = 开屏音乐已设置
+custom-startup-bgm-reset = 已重置开屏音乐
+old-home-restart = 重启后生效
+home-ui = 主页 UI
+old-home-style = 旧主页风格
+play-button-x = 游玩按钮 X
+play-button-y = 游玩按钮 Y
+menu-buttons-x = 菜单按钮 X
+menu-buttons-y = 菜单按钮 Y
+item-crash-btn = 整活 - 崩溃按钮
+item-crash-btn-sub = 点击后触发崩溃页面(错误代码951)
+item-crash = 崩溃
+custom-tab = 自定义
+
+tutorial = 新手教程
+tutorial-desc = 点击进入内置教学谱面
+tutorial-loading = 加载中...
+tutorial-start = 开始教程
+tutorial-load-failed = 加载新手教程失败
+
+about-update-log =
+  版本号：V1.3.0
+  更新内容：
+  1.新增UI比例功能，可缩放菜单UI/字体/触摸，背景不缩放
+  2.显示分数默认打开，低分辨率默认关闭
+  3.个人资料页面美化，平行四边形风格，去掉阴影
+  4.修复输入框无法复制粘贴的bug
+  5.导出谱面支持pez格式
+  6.支持批量下载谱面
+  7.新增关闭角色功能，关闭后角色消失包括角色页面按钮
+  8.主页添加立绘(2D模型)，可以摸摸头，还有随机语音
+  9.新增角色配置页面，可导入自定义模型，配置名字/表情/语音/位置/大小/抚摸区域
+  10.去掉原来的输入框，改成游戏内输入框
+  11.新增旧主页模式，可切换旧版背景和音乐
+  12.设置页新增自定义栏，可调整UI位置/主页UI偏移/主题色等
+  13.暂停界面重做，仿ending.rs布局
+  14.修复Spine多纹理模型兼容性和表情堆叠问题
+  15.设置菜单栏支持滚动，角色配置面板支持滚动
+  16.修复视频播放/谱面解锁动画闪退
+  17.修复drag/flick键盘判定、输入法卡键等问题
+  18.内置谱面
+  19.添加XC-SIM(需登录)
+  20.首个有APK的版本
+
+  原版开发：Prpr,Phira
+  运营维护：Lute_Rencai
+  测试人员：
+  洋洋酱～
+  几何邻屿
+  DVD
+  开发:
+  Lute_Rencai
+  几何邻屿
+  bug质检员:
+  几何邻屿
+  美术:
+  几何邻屿
+  Lute_Rencai
+  Blue Archive
+
+  如果你是从其他地方下载,请加入
+  PhirLie/Phi Launcher官方群
+  qq:1103288774

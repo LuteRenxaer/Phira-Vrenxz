@@ -1,0 +1,15 @@
+char-name = 名字: { $name }
+char-default-expr = 預設表情: { $expr }
+char-pet-expr = 撫摸表情: { $expr }
+char-model-scale = 模型大小
+char-model-x = 模型X
+char-model-y = 模型Y
+char-pet-x = 撫摸X
+char-pet-y = 撫摸Y
+char-pet-w = 撫摸寬
+char-pet-h = 撫摸高
+char-model = 模型: { $name }
+char-model-default = 模型: 預設
+char-voice = 語音: { $name }
+char-voice-default = 語音: 預設
+char-reset = 重設為預設

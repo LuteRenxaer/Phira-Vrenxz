@@ -1,4 +1,4 @@
-﻿prpr_l10n::tl_file!("respack");
+prpr_l10n::tl_file!("respack");
 
 use super::{Page, SharedState};
 use crate::{
@@ -13,7 +13,7 @@ use prpr::{
     core::{NoteStyle, ParticleEmitter, ResPackInfo, ResourcePack},
     ext::{create_audio_manger, poll_future, semi_black, semi_white, LocalTask, RectExt, SafeTexture, ScaleType},
     scene::{request_file, show_error, show_message},
-    ui::{DRectButton, Dialog, Scroll, Ui},
+    ui::{button_hit, list_switch, DRectButton, Dialog, Scroll, Ui},
 };
 use sasa::{AudioManager, PlaySfxParams, Sfx};
 use serde_yaml::Error;
@@ -160,12 +160,14 @@ impl Page for ResPackPage {
             return Ok(true);
         }
         if self.import_btn.touch(touch, t) {
+            button_hit();
             request_file("_import_respack");
             return Ok(true);
         }
         if self.items[self.index].load_task.is_none() {
             for (index, item) in self.items.iter_mut().enumerate() {
                 if item.btn.touch(touch, t) {
+                    list_switch();
                     self.index = index;
                     get_data_mut().respack_id = index;
                     save_data()?;
@@ -175,6 +177,7 @@ impl Page for ResPackPage {
             }
         }
         if self.info_btn.touch(touch, t) {
+            button_hit();
             let item = &self.items[self.index];
             let info = &item.loaded.as_ref().unwrap().info;
             Dialog::plain(
@@ -186,6 +189,7 @@ impl Page for ResPackPage {
             return Ok(true);
         }
         if self.delete_btn.touch(touch, t) {
+            button_hit();
             if self.index == 0 {
                 show_message(tl!("cant-delete-builtin")).error();
                 return Ok(true);
@@ -397,7 +401,6 @@ impl Page for ResPackPage {
                     self.last_round = irnd;
                 }
                 let name_r = Rect::new(cr.x + 0.05, cr.bottom() - 0.06, cr.w - 0.1, 0.05);
-                ui.fill_path(&name_r.rounded(0.005), semi_black(0.2));
                 ui.text(&item.name)
                     .pos(cr.x + 0.07, cr.bottom() - 0.05)
                     .anchor(0., 1.)

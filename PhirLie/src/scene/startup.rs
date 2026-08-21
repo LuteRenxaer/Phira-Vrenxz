@@ -1,7 +1,8 @@
 //! 加载主页的加载页。仿造 prpr 的 LoadingScene,只保留背景、Tip 和右下角的加载图标。
 
 use super::MainScene;
-use crate::blue_archive_tips::BLUE_ARCHIVE_TIPS;
+use crate::blue_archive_tips::random_tip;
+prpr_l10n::tl_file!("login");
 use prpr::{
     ext::{poll_future, semi_white, LocalTask},
     scene::{show_error, NextScene, Scene},
@@ -10,7 +11,6 @@ use prpr::{
 };
 use anyhow::Result;
 use macroquad::prelude::*;
-use ::rand::{seq::SliceRandom, thread_rng};
 
 const FADE_IN_TIME: f32 = 0.5;
 /// 主页加载完成后,加载页至少再显示这么久,避免一闪而过
@@ -21,13 +21,13 @@ pub struct StartupLoadingScene {
     ready_scene: Option<Box<dyn Scene>>,
     finish_time: f32,
     enter_time: f32,
-    tip: &'static str,
+    tip: String,
     error: Option<String>,
 }
 
 impl StartupLoadingScene {
     pub fn new(fallback: FontArc) -> Self {
-        let tip = BLUE_ARCHIVE_TIPS.choose(&mut thread_rng()).copied().unwrap_or("老师,欢迎回来!");
+        let tip = random_tip();
         Self {
             load_task: Some(Box::pin(async move { MainScene::new(fallback).await })),
             ready_scene: None,
@@ -58,7 +58,7 @@ impl Scene for StartupLoadingScene {
                     }
                     Err(err) => {
                         self.error = Some(format!("{err:#}"));
-                        show_error(err.context("初始化失败"));
+                        show_error(err.context(tl!("startup-init-failed").to_string()));
                     }
                 }
             }
@@ -67,7 +67,8 @@ impl Scene for StartupLoadingScene {
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
-        set_camera(&ui.camera());
+        // 背景使用原始比例，不随 UI 比例缩放
+        set_camera(&ui.bg_camera());
         let t = tm.now() as f32;
         let top = ui.top;
         let full = ui.screen_rect();
@@ -83,10 +84,13 @@ impl Scene for StartupLoadingScene {
             ),
         );
 
+        // UI 使用带比例的 camera
+        set_camera(&ui.camera());
+
         let alpha = ((t - self.enter_time) / FADE_IN_TIME).clamp(0., 1.);
         ui.alpha(alpha, |ui| {
             if let Some(err) = &self.error {
-                ui.text("启动失败")
+                ui.text(tl!("startup-load-failed"))
                     .pos(0., 0.)
                     .anchor(0.5, 0.5)
                     .no_baseline()
@@ -102,7 +106,7 @@ impl Scene for StartupLoadingScene {
                     .draw();
             } else {
                 // Tip(左下角)
-                ui.text(&format!("Tip: {}", self.tip))
+                ui.text(tl!("startup-tip", "tip" => &self.tip))
                     .pos(-0.95, top - 0.05)
                     .anchor(0., 1.)
                     .max_width(1.6)

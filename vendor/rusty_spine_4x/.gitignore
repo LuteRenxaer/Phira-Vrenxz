@@ -1,0 +1,7 @@
+/target
+/Cargo.lock
+/transpiler/out
+/transpiler/spine-runtimes
+/transpiler/target
+/transpiler/transpiler-target
+/doc

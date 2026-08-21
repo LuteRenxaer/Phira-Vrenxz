@@ -1,0 +1,478 @@
+﻿diff --git a/PhirLie/src/page/home.rs b/PhirLie/src/page/home.rs
+index 446452f..56c3b65 100644
+--- a/PhirLie/src/page/home.rs
++++ b/PhirLie/src/page/home.rs
+@@ -1,6 +1,6 @@
+ prpr_l10n::tl_file!("home");
+ use super::{
+-    load_font_with_cksum, set_bold_font, LibraryPage, NextPage, Page, ResPackPage, SFader, SettingsPage, SharedState,
++    load_font_with_cksum, set_bold_font, CharacterPage, LibraryPage, NextPage, Page, ResPackPage, SFader, SettingsPage, SharedState,
+     BOLD_FONT_CKSUM,
+ };
+ use super::message::MessagePage;
+@@ -25,23 +25,85 @@ use prpr::{
+     info::ChartInfo,
+     scene::{show_error, NextScene},
+     task::Task,
+-    ui::{clip_rounded_rect, ClipType, DRectButton, Dialog, FontArc, RectButton, Scroll, Ui},
++    ui::{clip_rounded_rect, ClipType, DRectButton, Dialog, FontArc, RectButton, Scroll, Ui, UI_AUDIO},
+ };
+ use prpr_l10n::LANG_IDENTS;
+ use reqwest::StatusCode;
++use sasa::{AudioClip, PlaySfxParams, Sfx};
+ use serde::Deserialize;
+ use std::{
+     borrow::Cow,
++    collections::HashMap,
+     sync::{atomic::Ordering, Arc},
+ };
+ use tap::Tap;
+ use tracing::{info, warn};
++use once_cell::sync::Lazy;
+ 
+ const BOARD_SWITCH_TIME: f32 = 4.;
+ const BOARD_TRANSIT_TIME: f32 = 1.2;
+ 
+ type BoldFontUpdateTask = Task<Result<Option<(FontArc, String)>>>;
+ 
++/// 模型文件夹名 → 语音角色名的映射（null 表示该角色无语音）。
++/// 从 assets/skel/models.json 加载，新增模型时只需在 JSON 中添加条目。
++static VOICE_MAP: Lazy<HashMap<String, Option<String>>> = Lazy::new(|| {
++    let json = include_str!("../../../assets/skel/models.json");
++    serde_json::from_str(json).unwrap_or_else(|e| {
++        warn!("failed to parse models.json: {e}");
++        HashMap::new()
++    })
++});
++
++/// 根据模型文件夹路径推断语音角色名。
++/// 1. 默认模型（None）→ Hoshino
++/// 2. 优先从 models.json 映射查找
++/// 3. 回退到硬编码推断（hoshino/shiroko/kuchinashi）
++/// 返回 None 表示该角色没有语音
++fn resolve_voice_character(model_path: Option<&str>) -> Option<String> {
++    let folder = match model_path {
++        None => return Some("Hoshino".to_string()),
++        Some(p) => std::path::Path::new(p)
++            .file_name()
++            .and_then(|n| n.to_str())
++            .unwrap_or("")
++            .to_string(),
++    };
++    // 优先从 JSON 映射查找
++    if let Some(mapped) = VOICE_MAP.get(&folder) {
++        return mapped.clone();
++    }
++    // 回退：硬编码推断
++    let lower = folder.to_lowercase();
++    if lower.contains("hoshino") {
++        Some("Hoshino".to_string())
++    } else if lower.contains("shiroko") {
++        Some("Shiroko".to_string())
++    } else if lower.contains("kuchinashi") {
++        None
++    } else if folder.is_empty() {
++        None
++    } else {
++        Some(folder)
++    }
++}
++
++/// 加载指定角色的语音文件（普通语音 + _mo 抚摸音效），从 voice_Line/{角色}/ 目录读取。
++async fn load_voice_files(voice_char: Option<&str>) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
++    let mut normal = Vec::new();
++    let mut pet = Vec::new();
++    let Some(prefix) = voice_char else { return (normal, pet); };
++    for i in 1..=5 {
++        if let Ok(data) = crate::load_file(&format!("voice_Line/{}/{}{}.mp3", prefix, prefix, i)).await {
++            normal.push(data);
++        }
++        if let Ok(data) = crate::load_file(&format!("voice_Line/{}/{}{}_mo.mp3", prefix, prefix, i)).await {
++            pet.push(data);
++        }
++    }
++    (normal, pet)
++}
++
+ #[derive(Deserialize)]
+ struct Version {
+     version: semver::Version,
+@@ -58,6 +120,7 @@ pub struct HomePage {
+     btn_settings: DRectButton,
+     btn_user: DRectButton,
+     btn_message: DRectButton,
++    btn_character: DRectButton,
+ 
+     next_page: Option<NextPage>,
+ 
+@@ -98,6 +161,22 @@ pub struct HomePage {
+     char_scroll: Scroll,
+     char_edit_btn: RectButton,
+ 
++    spine_model: Option<crate::spine_model::SpineModel>,
++    spine_raw_task: Option<Task<Result<crate::spine_model::SpineModelRawData>>>,
++    spine_alpha: Anim<f32>,
++    spine_petting: bool,
++    spine_anim_dirty: bool,
++    spine_touch_id: Option<u64>,
++    spine_loaded_path: Option<String>,
++
++    // 闲置语音：每60秒随机播放一个 voice_Line 目录下的音效
++    voice_sfx: Vec<(Sfx, f32)>,
++    // 抚摸头音效：文件名带 _mo 后缀
++    pet_sfx: Vec<(Sfx, f32)>,
++    voice_load_task: Option<Task<Result<(Vec<Vec<u8>>, Vec<Vec<u8>>)>>>,
++    voice_timer: f32,
++    voice_smile_timer: f32,
++
+     #[cfg(feature = "hykb")]
+     beian_btn: RectButton,
+ }
+@@ -131,11 +210,12 @@ impl HomePage {
+         let mut res = Self {
+             icons: Arc::clone(&icons),
+ 
+-            btn_play: DRectButton::new().with_delta(-0.01).no_sound(),
++            btn_play: DRectButton::new().with_delta(-0.01),
+             btn_respack: DRectButton::new().with_delta(-0.004).with_elevation(0.).no_sound(),
+             btn_settings: DRectButton::new().with_delta(-0.004).with_elevation(0.),
+             btn_user: DRectButton::new().with_delta(-0.003),
+             btn_message: DRectButton::new().with_delta(-0.004).with_elevation(0.),
++            btn_character: DRectButton::new().with_delta(-0.004).with_elevation(0.),
+ 
+             next_page: None,
+ 
+@@ -211,6 +291,36 @@ impl HomePage {
+             char_scroll: Scroll::new().use_clip(ClipType::Clip),
+             char_edit_btn: RectButton::new(),
+ 
++            spine_model: None,
++            spine_raw_task: {
++                let model_path = get_data().config.character_model_path.clone();
++                Some(Task::new(async move {
++                    if let Some(dir) = model_path {
++                        crate::spine_model::load_model_from_dir(&dir).await
++                    } else {
++                        crate::spine_model::load_default_model_data().await
++                    }
++                }))
++            },
++            spine_alpha: Anim::new(0.),
++            spine_petting: false,
++            spine_anim_dirty: true,
++            spine_touch_id: None,
++            spine_loaded_path: None,
++
++            voice_sfx: Vec::new(),
++            pet_sfx: Vec::new(),
++            voice_load_task: {
++                let model_path = get_data().config.character_model_path.clone();
++                let voice_char = resolve_voice_character(model_path.as_deref());
++                Some(Task::new(async move {
++                    let (normal, pet) = load_voice_files(voice_char.as_deref()).await;
++                    Ok((normal, pet))
++                }))
++            },
++            voice_timer: 0.,
++            voice_smile_timer: 0.,
++
+             #[cfg(feature = "hykb")]
+             beian_btn: RectButton::new(),
+         };
+@@ -292,7 +402,8 @@ impl HomePage {
+         let (dx_set, dy_set) = (0.18 * (1. - p_set), 0.05 * (1. - p_set));
+         let (dx_res, dy_res) = (0.18 * (1. - p_res), 0.05 * (1. - p_res));
+ 
+-        let r = Rect::new(-0.83, -0.33, 0.83, 0.45);
++        let config = &get_data().config;
++        let r = Rect::new(-0.83 + config.home_play_offset_x, -0.33 + config.home_play_offset_y, 0.83, 0.45);
+         let mat = self.btn_play_3d.now(ui, r, t);
+         ui.with_gl(mat, |ui| {
+             s.render_fader(ui, |ui| {
+@@ -337,9 +448,9 @@ impl HomePage {
+ 
+         let btn_size = 0.12;
+         let margin = 0.055;
+-        let bottom_y = ui.top - btn_size - margin;
++        let bottom_y = ui.top - btn_size - margin + config.home_menu_offset_y;
+ 
+-        let right_x = 0.95 - btn_size * 2.0 - 0.02;
++        let right_x = 0.95 - btn_size * 2.0 - 0.02 + config.home_menu_offset_x;
+ 
+         let r_res = Rect::new(right_x, bottom_y, btn_size, btn_size);
+         s.render_fader(ui, |ui| {
+@@ -371,7 +482,22 @@ impl HomePage {
+             });
+         });
+ 
+-        let left_x = -0.95;
++        let r_char = Rect::new(right_x - btn_size - 0.02, bottom_y, btn_size, btn_size);
++        s.render_fader(ui, |ui| {
++            ui.scope(|ui| {
++                ui.dx(dx_res);
++                ui.dy(dy_res);
++                ui.alpha(p_res, |ui| {
++                    self.btn_character.render_shadow(ui, r_char, t, |ui, path| {
++                        ui.fill_path(&path, semi_black(0.2));
++                        let ir = r_char.feather(-0.02);
++                        ui.fill_rect(ir, (*self.icons.character, ir, ScaleType::Fit));
++                    });
++                });
++            });
++        });
++
++        let left_x = -0.95 + config.home_menu_offset_x;
+ 
+         let r_msg = Rect::new(left_x, bottom_y, btn_size, btn_size);
+         s.render_fader(ui, |ui| {
+@@ -382,11 +508,11 @@ impl HomePage {
+                     self.btn_message.render_shadow(ui, r_msg, t, |ui, path| {
+                         ui.fill_path(&path, semi_black(0.2));
+                         let ir = r_msg.feather(-0.02);
++                        ui.fill_rect(ir, (*self.icons.msg, ir, ScaleType::Fit));
+                         if self.has_new {
+-                            let dot = Rect::new(ir.right() - 0.03, ir.y - 0.01, 0.035, 0.035);
++                            let dot = Rect::new(ir.right() - 0.025, ir.y - 0.015, 0.035, 0.035);
+                             ui.fill_path(&dot.rounded(0.0175), RED);
+                         }
+-                        ui.fill_rect(ir, (*self.icons.msg, ir, ScaleType::Fit));
+                     });
+                 });
+             });
+@@ -407,6 +533,29 @@ impl Page for HomePage {
+         if self.enter_time.is_nan() {
+             self.enter_time = s.rt;
+         }
++        // 角色模型配置变化时重新加载
++        let current_path = get_data().config.character_model_path.clone();
++        if self.spine_loaded_path != current_path {
++            self.spine_model = None;
++            let path = current_path.clone();
++            self.spine_raw_task = Some(Task::new(async move {
++                if let Some(dir) = path {
++                    crate::spine_model::load_model_from_dir(&dir).await
++                } else {
++                    crate::spine_model::load_default_model_data().await
++                }
++            }));
++            self.spine_anim_dirty = true;
++
++            // 同时重新加载对应角色的语音
++            let voice_char = resolve_voice_character(current_path.as_deref());
++            self.voice_sfx.clear();
++            self.pet_sfx.clear();
++            self.voice_load_task = Some(Task::new(async move {
++                let (normal, pet) = load_voice_files(voice_char.as_deref()).await;
++                Ok((normal, pet))
++            }));
++        }
+         self.fetch_has_new();
+         Ok(())
+     }
+@@ -438,6 +587,10 @@ impl Page for HomePage {
+                 self.next_page = Some(NextPage::Overlay(Box::new(SettingsPage::new(self.icons.icon.clone(), self.icons.lang.clone()))));
+                 return Ok(true);
+             }
++            if self.btn_character.touch(touch, t) {
++                self.next_page = Some(NextPage::Overlay(Box::new(CharacterPage::new())));
++                return Ok(true);
++            }
+             if self.btn_message.touch(touch, t) {
+                 self.next_page = Some(NextPage::Overlay(Box::new(MessagePage::new(
+                     Arc::clone(&self.icons),
+@@ -467,16 +620,171 @@ impl Page for HomePage {
+             let _ = open_url("https://beian.miit.gov.cn/#/home");
+             return Ok(true);
+         }
++
++        // Spine 模型头部触摸检测（抚摸头部切换动画）
++        if self.spine_model.is_some() {
++            let config = &get_data().config;
++            let model_cx = 0.50 + config.character_model_offset_x;
++            let model_cy = 0.48 + config.character_model_offset_y;
++            let head_rect = Rect::new(
++                model_cx + config.character_pet_offset_x - config.character_pet_width / 2.,
++                model_cy + config.character_pet_offset_y - config.character_pet_height / 2.,
++                config.character_pet_width,
++                config.character_pet_height,
++            );
++            let inside = head_rect.contains(touch.position);
++            match touch.phase {
++                TouchPhase::Started => {
++                    if inside {
++                        self.spine_touch_id = Some(touch.id);
++                        self.spine_petting = true;
++                        self.spine_anim_dirty = true;
++                        // 播放抚摸头音效（_mo），随机选一个
++                        if !self.pet_sfx.is_empty() {
++                            let idx = thread_rng().gen_range(0..self.pet_sfx.len());
++                            let (sfx, duration) = &mut self.pet_sfx[idx];
++                            if let Ok(()) = sfx.play(PlaySfxParams::default()) {
++                                self.voice_smile_timer = self.voice_smile_timer.max(*duration);
++                            }
++                        }
++                        return Ok(true);
++                    }
++                }
++                TouchPhase::Moved | TouchPhase::Stationary => {
++                    if self.spine_touch_id == Some(touch.id) {
++                        if self.spine_petting && !inside {
++                            self.spine_petting = false;
++                            self.spine_anim_dirty = true;
++                        } else if !self.spine_petting && inside {
++                            self.spine_petting = true;
++                            self.spine_anim_dirty = true;
++                        }
++                        return Ok(true);
++                    }
++                }
++                TouchPhase::Ended | TouchPhase::Cancelled => {
++                    if self.spine_touch_id == Some(touch.id) {
++                        self.spine_touch_id = None;
++                        self.spine_petting = false;
++                        self.spine_anim_dirty = true;
++                        return Ok(true);
++                    }
++                }
++            }
++        }
++
+         Ok(false)
+     }
+ 
+     fn update(&mut self, s: &mut SharedState) -> Result<()> {
+         let t = s.t;
++        let rtime = s.rt;
+         #[cfg(feature = "hykb")]
+         if get_data().me.is_none() {
+             self.login.force(t);
+         }
+         self.login.update(t)?;
++
++        // Spine 模型加载：先异步加载原始数据，再在主线程创建 GPU 资源
++        if let Some(task) = &mut self.spine_raw_task {
++            if let Some(res) = task.take() {
++                match res {
++                    Ok(data) => {
++                        match crate::spine_model::SpineModel::from_memory(
++                            &data.atlas_data, &data.skel_data, &data.textures, "Idle_01"
++                        ) {
++                            Ok(model) => {
++                                self.spine_model = Some(model);
++                                self.spine_loaded_path = get_data().config.character_model_path.clone();
++                                self.spine_alpha.goto(1., rtime, 0.6);
++                                if let Some(m) = &mut self.spine_model {
++                                    m.set_expression(get_data().config.character_default_expr);
++                                }
++                            }
++                            Err(err) => {
++                                warn!(?err, "failed to create spine model");
++                            }
++                        }
++                    }
++                    Err(err) => {
++                        warn!(?err, "failed to load spine model data");
++                    }
++                }
++                self.spine_raw_task = None;
++            }
++        }
++        // Spine 动画更新与表情切换
++        if let Some(model) = &mut self.spine_model {
++            model.update(get_frame_time());
++            let target_expr = if self.spine_petting || self.voice_smile_timer > 0. {
++                get_data().config.character_pet_expr
++            } else {
++                get_data().config.character_default_expr
++            };
++            if self.spine_anim_dirty {
++                model.set_expression(target_expr);
++                self.spine_anim_dirty = false;
++            }
++        }
++
++        // 闲置语音：加载完成后创建 Sfx，每60秒随机播放一个
++        if let Some(task) = &mut self.voice_load_task {
++            if let Some(res) = task.take() {
++                match res {
++                    Ok((normal_files, pet_files)) => {
++                        // 普通闲置语音
++                        for data in normal_files {
++                            match AudioClip::new(data) {
++                                Ok(clip) => {
++                                    let duration = clip.length() as f32;
++                                    match UI_AUDIO.with(|it| it.borrow_mut().create_sfx(clip, None)) {
++                                        Ok(sfx) => self.voice_sfx.push((sfx, duration)),
++                                        Err(e) => warn!("failed to create voice sfx: {e:?}"),
++                                    }
++                                }
++                                Err(e) => warn!("failed to create voice audio clip: {e:?}"),
++                            }
++                        }
++                        // 抚摸头音效
++                        for data in pet_files {
++                            match AudioClip::new(data) {
++                                Ok(clip) => {
++                                    let duration = clip.length() as f32;
++                                    match UI_AUDIO.with(|it| it.borrow_mut().create_sfx(clip, None)) {
++                                        Ok(sfx) => self.pet_sfx.push((sfx, duration)),
++                                        Err(e) => warn!("failed to create pet sfx: {e:?}"),
++                                    }
++                                }
++                                Err(e) => warn!("failed to create pet audio clip: {e:?}"),
++                            }
++                        }
++                    }
++                    Err(e) => warn!("failed to load voice files: {e:?}"),
++                }
++                self.voice_load_task = None;
++            }
++        }
++        // 闲置语音：每60秒随机播放一个
++        if !self.voice_sfx.is_empty() {
++            let dt = get_frame_time();
++            self.voice_timer += dt;
++            if self.voice_smile_timer > 0. {
++                self.voice_smile_timer -= dt;
++                if self.voice_smile_timer <= 0. {
++                    self.voice_smile_timer = 0.;
++                    self.spine_anim_dirty = true; // 语音结束，切回表情 00
++                }
++            }
++            if self.voice_timer >= 60. {
++                self.voice_timer = 0.;
++                let idx = thread_rng().gen_range(0..self.voice_sfx.len());
++                let (sfx, duration) = &mut self.voice_sfx[idx];
++                if let Ok(()) = sfx.play(PlaySfxParams::default()) {
++                    self.voice_smile_timer = *duration;
++                    self.spine_anim_dirty = true; // 播放开始，切到表情 25
++                }
++            }
++        }
+         let current_user = Some(get_data().me.as_ref().map_or(-1, |it| it.id));
+         self.char_scroll.update(t);
+         if self.char_last_user_id != current_user {
+@@ -666,6 +974,23 @@ impl Page for HomePage {
+             s.fader.distance = 0.;
+         }
+ 
++        // 渲染 Spine 模型（右侧，UI 层之下，先渲染所以按钮在上面）
++        if let Some(model) = &mut self.spine_model {
++            // 模型透明度 = 自身淡入动画 × 页面切换 fader 透明度，跟着 UI 一起渐变消失
++            let fader_p = s.fader.progress(rtime);
++            let fader_alpha = 1. - fader_p.abs();
++            let alpha = self.spine_alpha.now(rtime) * fader_alpha;
++            if alpha > 0.001 {
++                unsafe { get_internal_gl() }.flush();
++                let config = &get_data().config;
++                model.position = glam::Vec2::new(0.50 + config.character_model_offset_x, 0.48 + config.character_model_offset_y);
++                model.scale = config.character_model_scale;
++                model.alpha = alpha;
++                model.render();
++                unsafe { get_internal_gl() }.flush();
++            }
++        }
++
+         self.render_not_char(ui, s);
+ 
+         let p_user = self.appear(rtime, 0.0, 0.26);

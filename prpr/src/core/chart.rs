@@ -30,6 +30,11 @@ pub struct Chart {
     pub settings: ChartSettings,
     pub extra: ChartExtra,
 
+    /// Use Arcaea-style judgement and scoring (for XC-SIM charts)
+    pub arcaea_judgement: bool,
+    /// Use FNF-style judgement and scoring
+    pub fnf_judgement: bool,
+
     /// Line order according to z-index, lines with attach_ui will be removed from this list
     ///
     /// Store the index of the line in z-index ascending order
@@ -60,6 +65,9 @@ impl Chart {
             bpm_list: RefCell::new(bpm_list),
             settings,
             extra,
+
+            arcaea_judgement: false,
+            fnf_judgement: false,
 
             order,
             attach_ui,

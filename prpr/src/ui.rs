@@ -361,11 +361,16 @@ impl DRectButton {
     pub fn render_text_left<'a>(&mut self, ui: &mut Ui, r: Rect, t: f32, alpha: f32, text: impl Into<Cow<'a, str>>, size: f32, chosen: bool) {
         let oh = r.h;
         self.build(ui, t, r, |ui, path| {
-            ui.fill_path(&path, if chosen { WHITE } else { semi_black(0.4) });
+            if chosen {
+                ui.fill_path(&path, WHITE);
+            } else {
+                ui.fill_path(&path, Color::new(0.05, 0.07, 0.11, 0.55));
+                ui.stroke_path(&path, 0.0015, semi_white(0.2));
+            }
             ui.text(text)
-                .pos(r.x + 0.02, r.center().y)
+                .pos(r.x + 0.03, r.center().y)
                 .anchor(0., 0.5)
-                .max_width(r.w - 0.04)
+                .max_width(r.w - 0.06)
                 .no_baseline()
                 .size(size * r.h / oh)
                 .color(if chosen { Color::new(0.3, 0.3, 0.3, alpha) } else { semi_white(alpha) })
@@ -690,6 +695,15 @@ impl<'a> Ui<'a> {
     }
 
     pub fn camera(&self) -> Camera2D {
+        Camera2D {
+            zoom: vec2(1., -self.viewport.2 as f32 / self.viewport.3 as f32),
+            viewport: Some(self.viewport),
+            ..Default::default()
+        }
+    }
+
+    /// 不带 UI 比例的 camera，用于渲染背景等需要全屏显示的元素
+    pub fn bg_camera(&self) -> Camera2D {
         Camera2D {
             zoom: vec2(1., -self.viewport.2 as f32 / self.viewport.3 as f32),
             viewport: Some(self.viewport),
@@ -1399,6 +1413,10 @@ thread_local! {
     pub static UI_BTN_HITSOUND_LARGE: RefCell<Option<Sfx>> = const { RefCell::new(None) };
     pub static UI_BTN_HITSOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
     pub static UI_SWITCH_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
+    pub static UI_PLAY_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
+    pub static UI_BACK_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
+    pub static UI_SUSPEND_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
+    pub static UI_MESSAGE_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
 }
 
 pub fn button_hit() {
@@ -1419,6 +1437,38 @@ pub fn button_hit_large() {
 
 pub fn list_switch() {
     UI_SWITCH_SOUND.with(|it| {
+        if let Some(sfx) = it.borrow_mut().as_mut() {
+            let _ = sfx.play(PlaySfxParams::default());
+        }
+    });
+}
+
+pub fn play_sound() {
+    UI_PLAY_SOUND.with(|it| {
+        if let Some(sfx) = it.borrow_mut().as_mut() {
+            let _ = sfx.play(PlaySfxParams::default());
+        }
+    });
+}
+
+pub fn back_sound() {
+    UI_BACK_SOUND.with(|it| {
+        if let Some(sfx) = it.borrow_mut().as_mut() {
+            let _ = sfx.play(PlaySfxParams::default());
+        }
+    });
+}
+
+pub fn suspend_sound() {
+    UI_SUSPEND_SOUND.with(|it| {
+        if let Some(sfx) = it.borrow_mut().as_mut() {
+            let _ = sfx.play(PlaySfxParams::default());
+        }
+    });
+}
+
+pub fn message_sound() {
+    UI_MESSAGE_SOUND.with(|it| {
         if let Some(sfx) = it.borrow_mut().as_mut() {
             let _ = sfx.play(PlaySfxParams::default());
         }

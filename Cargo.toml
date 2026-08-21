@@ -1,12 +1,3 @@
-[package]
-name = "phirLie"
-version = "1.2.1"
-edition = "2021"
-
-[lib]
-name = "phira"
-crate-type = ["cdylib", "rlib"]
-
 [workspace]
 members = [
 	"prpr",
@@ -23,7 +14,7 @@ resolver = "2"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(closed)'] }
 
 [workspace.package]
-version = "1.2.84"
+version = "1.3.0"
 edition = "2021"
 license = "GPL-3.0-only"
 
@@ -76,32 +67,13 @@ prpr-avc = { path = "prpr-avc" }
 prpr-l10n = { path = "prpr-l10n" }
 sasa = { git = "https://github.com/Mivik/sasa", rev = "e76229b", default-features = false }
 
-[target.'cfg(target_os="android")'.dependencies]
-android-activity = { version = "0.6", features = ["native-activity"] }
-ndk = "0.7"
-ndk-sys = "0.5.0+25.2.9519653"
-ndk-context = "0.1"
-android_logger = "0.13"
-log = "0.4"
-macroquad = { git = "https://github.com/Mivik/prpr-macroquad", rev = "b2eab29", default-features = false }
-PhirLie = { path = "PhirLie", default-features = false }
-
+# ===== 性能优化配置 =====
 [profile.release]
 opt-level = 2
 strip = true
 
+# debug 模式下依赖包使用 O2 优化，避免加载资源/解码图片时卡顿
 [profile.dev.package."*"]
 opt-level = 2
 
-# ===== Android 打包配置 =====
-[package.metadata.android]
-apk_name = "phirLie"
-package = "com.lute.phirLie"
-assets = "assets"
-resources = "res"
-min_sdk_version = 30
-target_sdk_version = 30
-
-[package.metadata.android.application]
-icon = "@mipmap/ic_launcher"
-label = "phirLie"
+# [target] 配置已移除，若需要请移到 PhirLie/Cargo.toml

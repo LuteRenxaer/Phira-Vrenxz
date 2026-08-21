@@ -42,3 +42,5 @@ contains-banned-words = 你的输入包含违禁词，请检查后再提交
 
 hykb-not-bound-logout = 你的账号未绑定好游快爆，已退出登录
 hykb-login-cancelled = 已取消好游快爆登录
+
+crash-unexpected = 游戏发生意外崩溃

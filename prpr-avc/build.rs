@@ -6,5 +6,12 @@ fn main() {
     let libs_path = libs_path.display();
     println!("cargo:rustc-link-search={libs_path}");
 
+    #[cfg(target_os = "windows")]
+    {
+        println!("cargo:rustc-link-lib=bcrypt");
+        println!("cargo:rustc-link-lib=ole32");
+        println!("cargo:rustc-link-lib=user32");
+    }
+
     println!("cargo:rerun-if-changed={libs_path}");
 }

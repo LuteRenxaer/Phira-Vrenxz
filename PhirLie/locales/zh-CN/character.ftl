@@ -1,0 +1,25 @@
+char-name = 名字: { $name }
+char-default-expr = 默认表情: { $expr }
+char-pet-expr = 抚摸表情: { $expr }
+char-model-scale = 模型大小
+char-model-x = 模型X
+char-model-y = 模型Y
+char-pet-x = 抚摸X
+char-pet-y = 抚摸Y
+char-pet-w = 抚摸宽
+char-pet-h = 抚摸高
+char-model = 模型: { $name }
+char-model-default = 模型: 默认
+char-voice = 语音: { $name }
+char-voice-default = 语音: 默认
+char-reset = 重置为默认
+
+char-group-title = 角色
+char-tab-model = 模型
+char-tab-voice = 语音
+char-tab-adjust = 调整
+char-search-placeholder = 搜索模型...
+char-no-match = 无匹配模型
+char-voice-hint = 语音文件放在 assets/voice_Line/角色名/ 目录下
+char-disabled = 角色已关闭
+char-disabled-hint = 可在设置 → 自定义 → 显示角色中重新开启
