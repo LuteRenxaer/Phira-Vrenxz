@@ -22,3 +22,11 @@ action-failed =
        *[other] _
     }
 email-sent = Veuillez vérifier votre boîte de réception pour un e-mail d'activation de Phira.
+
+startup-select-language = Choisir la langue
+startup-tap-to-continue = Appuyez pour continuer
+startup-tip = Astuce : { $tip }
+
+startup-load-failed = Échec du démarrage
+startup-loading = Chargement...
+

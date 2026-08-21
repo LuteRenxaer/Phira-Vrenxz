@@ -9,6 +9,7 @@ use crate::{
     scene::{confirm_dialog, import_chart_to, parse_warnings_to_string, TEX_BACKGROUND, TEX_ICON_BACK},
 };
 use anyhow::{anyhow, Context, Result};
+use futures_util::join;
 use image::GenericImageView;
 use macroquad::prelude::*;
 use once_cell::sync::Lazy;
@@ -20,7 +21,7 @@ use prpr::{
     scene::{return_file, show_error, show_message, take_file, NextScene, Scene},
     task::Task,
     time::TimeManager,
-    ui::{button_hit, Dialog, FontArc, RectButton, Ui, UI_AUDIO},
+    ui::{back_sound, button_hit, Dialog, FontArc, RectButton, Ui, UI_AUDIO},
 };
 use sasa::{AudioClip, Music};
 use std::{
@@ -110,17 +111,18 @@ impl MainScene {
         };
         #[cfg(not(closed))]
         let bgm = {
+            let default_bgm = if get_data().config.old_home { "bgm/old/home.ogg" } else { "bgm/home.ogg" };
             let bgm_data = if let Some(custom_path) = &get_data().custom_bgm_path {
 
                 match std::fs::read(custom_path) {
                     Ok(data) => data,
                     Err(err) => {
                         warn!("Failed to load custom BGM from {}: {}, falling back to default", custom_path, err);
-                        load_file("bgm/home.ogg").await?
+                        load_file(default_bgm).await?
                     }
                 }
             } else {
-                load_file("bgm/home.ogg").await?
+                load_file(default_bgm).await?
             };
             let bgm_clip = AudioClip::new(bgm_data)?;
             Some(UI_AUDIO.with(|it| {
@@ -142,44 +144,70 @@ impl MainScene {
     }
 
     async fn init() -> Result<()> {
+        // 显示分数默认打开
+        if !get_data().config.show_score_initialized {
+            get_data_mut().config.show_score = true;
+            get_data_mut().config.show_score_initialized = true;
+            let _ = save_data();
+        }
+        // 并行加载所有资源文件，减少加载时间
+        let (sfx_large_data, sfx_data, switch_data, play_data, back_data, suspend_data, message_data, background_tex, icon_back_tex) = join!(
+            load_file("button_large.ogg"),
+            load_file("button.ogg"),
+            load_file("switch.ogg"),
+            load_file("play.wav"),
+            load_file("back.wav"),
+            load_file("Suspend.wav"),
+            load_file("Message.wav"),
+            async move {
+                let result: Result<SafeTexture> = if let Some(custom_path) = &get_data().custom_background_path {
+                    match std::fs::read(custom_path) {
+                        Ok(data) => match image::load_from_memory(&data) {
+                            Ok(img) => {
+                                info!("Loaded custom background from {}", custom_path);
+                                let rgba = img.to_rgba8();
+                                let (w, h) = img.dimensions();
+                                Ok(Texture2D::from_rgba8(w as u16, h as u16, &rgba).into())
+                            }
+                            Err(err) => {
+                                warn!("Failed to parse custom background image: {}, falling back to default", err);
+                                let bg = if get_data().config.old_home { "background_old.jpg" } else { "background.jpg" };
+                                Ok(load_texture(bg).await?.into())
+                            }
+                        },
+                        Err(err) => {
+                            warn!("Failed to read custom background from {}: {}, falling back to default", custom_path, err);
+                            let bg = if get_data().config.old_home { "background_old.jpg" } else { "background.jpg" };
+                            Ok(load_texture(bg).await?.into())
+                        }
+                    }
+                } else {
+                    let bg = if get_data().config.old_home { "background_old.jpg" } else { "background.jpg" };
+                    Ok(load_texture(bg).await?.into())
+                };
+                result
+            },
+            load_texture("icon_old(home)/back.png")
+        );
 
-        macro_rules! load_sfx {
-            ($name:ident, $path:literal) => {{
-                let clip = AudioClip::new(load_file($path).await?)?;
+        // 创建音效
+        macro_rules! create_sfx {
+            ($name:ident, $data:expr) => {{
+                let clip = AudioClip::new($data?)?;
                 let sound = UI_AUDIO.with(|it| it.borrow_mut().create_sfx(clip, None))?;
                 prpr::ui::$name.with(|it| *it.borrow_mut() = Some(sound));
             }};
         }
-        load_sfx!(UI_BTN_HITSOUND_LARGE, "button_large.ogg");
-        load_sfx!(UI_BTN_HITSOUND, "button.ogg");
-        load_sfx!(UI_SWITCH_SOUND, "switch.ogg");
+        create_sfx!(UI_BTN_HITSOUND_LARGE, sfx_large_data);
+        create_sfx!(UI_BTN_HITSOUND, sfx_data);
+        create_sfx!(UI_SWITCH_SOUND, switch_data);
+        create_sfx!(UI_PLAY_SOUND, play_data);
+        create_sfx!(UI_BACK_SOUND, back_data);
+        create_sfx!(UI_SUSPEND_SOUND, suspend_data);
+        create_sfx!(UI_MESSAGE_SOUND, message_data);
 
-        let background: SafeTexture = if let Some(custom_path) = &get_data().custom_background_path {
-            match std::fs::read(custom_path) {
-                Ok(data) => {
-                    match image::load_from_memory(&data) {
-                        Ok(img) => {
-                            info!("Loaded custom background from {}", custom_path);
-                            let rgba = img.to_rgba8();
-                            let (w, h) = img.dimensions();
-                            let tex = Texture2D::from_rgba8(w as u16, h as u16, &rgba);
-                            SafeTexture::from(tex)
-                        }
-                        Err(err) => {
-                            warn!("Failed to parse custom background image: {}, falling back to default", err);
-                            load_texture("background.jpg").await?.into()
-                        }
-                    }
-                }
-                Err(err) => {
-                    warn!("Failed to read custom background from {}: {}, falling back to default", custom_path, err);
-                    load_texture("background.jpg").await?.into()
-                }
-            }
-        } else {
-            load_texture("background.jpg").await?.into()
-        };
-        let icon_back: SafeTexture = load_texture("back.png").await?.into();
+        let background: SafeTexture = background_tex?;
+        let icon_back: SafeTexture = icon_back_tex?.into();
 
         TEX_BACKGROUND.with(|it| *it.borrow_mut() = Some(background));
         TEX_ICON_BACK.with(|it| *it.borrow_mut() = Some(icon_back));
@@ -327,7 +355,7 @@ impl Scene for MainScene {
             return Ok(true);
         }
         if self.btn_back.touch(touch) && self.pages.len() > 1 {
-            button_hit();
+            back_sound();
             if !self.pages.last_mut().unwrap().on_back_pressed(&mut self.state) {
                 if self.pages.len() == 2 {
                     if let Some(bgm) = &mut self.bgm {
@@ -678,12 +706,16 @@ impl Scene for MainScene {
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
-        set_camera(&ui.camera());
+        // 背景使用原始比例，不随 UI 比例缩放
+        set_camera(&ui.bg_camera());
 
         STRIPE_MATERIAL.set_uniform("time", ((tm.real_time() * 0.025) % (std::f64::consts::PI * 2.)) as f32);
         gl_use_material(*STRIPE_MATERIAL);
         ui.fill_rect(ui.screen_rect(), (*self.background, ui.screen_rect()));
         gl_use_default_material();
+
+        // UI 使用带比例的 camera
+        set_camera(&ui.camera());
 
         let s = &mut self.state;
         s.update(tm);

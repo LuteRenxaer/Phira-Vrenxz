@@ -2,6 +2,7 @@
 label = LIBRARY
 
 local = Local
+builtin = Built-in
 popular = Popular
 
 page = Page: { $current } / { $total }
@@ -27,6 +28,7 @@ fav-sync-failed = Failed to sync favorites.
 
 multi-select-status = { $count } selected
 multi-export = Export
+multi-download = Download
 multi-create-fav = Create Favorites
 multi-manage-fav = Manage Favorites
 multi-delete = Delete
@@ -37,6 +39,10 @@ multi-export-title = Select export location
 multi-export-no-file = Please download all charts before exporting. Missing: { $charts }
 multi-exporting = Exporting ({ $current } / { $total })
 exported = Exported
+
+multi-download-all-exists = All selected charts are already downloaded
+multi-download-complete = Batch download complete
+multi-downloading = Downloading ({ $current } / { $total }): { $name }
 
 multi-added-to-fav = Added to favorites
 multi-removed-from-fav = Removed from favorites

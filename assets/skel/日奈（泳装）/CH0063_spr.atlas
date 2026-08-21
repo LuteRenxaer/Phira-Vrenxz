@@ -1,0 +1,46 @@
+CH0063_spr.png
+	size: 2048, 2048
+	filter: Linear, Linear
+00_default
+	bounds: 249, 378, 245, 141
+01_normal
+	bounds: 1492, 514, 245, 144
+02_respond
+	bounds: 1483, 1515, 245, 151
+03_smile
+	bounds: 1245, 510, 245, 148
+04_embarassed
+	bounds: 1801, 1512, 245, 164
+05_serious
+	bounds: 2, 436, 245, 141
+06_depressed
+	bounds: 1004, 506, 239, 152
+07
+	bounds: 1719, 1345, 228, 165
+08
+	bounds: 450, 837, 239, 155
+09
+	bounds: 301, 521, 245, 150
+10
+	bounds: 1739, 514, 244, 144
+CH0063
+	bounds: 2, 993, 1372, 1053
+	offsets: 1, 859, 1373, 1912
+CH0063_1
+	bounds: 707, 660, 1339, 870
+	offsets: 0, 0, 1373, 1912
+diorama_BG
+	bounds: 2, 579, 898, 448
+	offsets: 0, 0, 961, 494
+	rotate: 90
+diorama_particle
+	bounds: 428, 59, 763, 792
+	rotate: 90
+eye close
+	bounds: 496, 371, 239, 144
+fronthair
+	bounds: 1352, 1981, 128, 65
+	offsets: 88, 0, 216, 65
+halo
+	bounds: 1349, 1668, 697, 305
+	offsets: 1, 0, 698, 305

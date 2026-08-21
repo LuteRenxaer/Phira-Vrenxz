@@ -43,3 +43,5 @@ impl AVStreamRef {
         AVCodecRef::find_decoder(self.codec_params().codec_id())
     }
 }
+
+unsafe impl Send for AVStreamRef {}

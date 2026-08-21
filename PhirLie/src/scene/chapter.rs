@@ -18,7 +18,7 @@ use prpr::{
     info::ChartInfo,
     scene::{NextScene, Scene},
     time::TimeManager,
-    ui::{button_hit, DRectButton, RectButton, Scroll, Ui},
+    ui::{back_sound, button_hit, DRectButton, RectButton, Scroll, Ui},
 };
 use serde::Deserialize;
 use std::{borrow::Cow, sync::Arc};
@@ -154,7 +154,7 @@ impl Scene for ChapterScene {
     fn touch(&mut self, tm: &mut TimeManager, touch: &Touch) -> Result<bool> {
         let t = tm.now() as f32;
         if self.btn_back.touch(touch) {
-            button_hit();
+            back_sound();
             self.next_scene = Some(NextScene::Pop);
             return Ok(true);
         }
@@ -204,6 +204,9 @@ impl Scene for ChapterScene {
                     illu: Illustration::from_done(chart.illu.clone()),
                     local_path: Some(local_path.clone()),
                     chart_type: ChartType::Integrated,
+                    level_author: None,
+                    xcsim_preview_url: None,
+                    xcsim_illustration_url: None,
                 };
                 let info = &item.info;
                 let dir = format!("{}/{}", dir::charts()?, item.local_path.as_ref().unwrap().replace(':', "_"));
@@ -259,6 +262,9 @@ impl Scene for ChapterScene {
                     use_rpe_170_speed: Some(false),
                     use_attach_ui_fix: Some(true),
 
+                    arcaea_judgement: false,
+                    fnf_judgement: false,
+
                     created: None,
                     updated: None,
                     chart_updated: None,
@@ -278,12 +284,16 @@ impl Scene for ChapterScene {
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
-        set_camera(&ui.camera());
+        // 背景使用原始比例，不随 UI 比例缩放
+        set_camera(&ui.bg_camera());
         let t = tm.now() as f32;
 
         let r = ui.screen_rect();
         ui.fill_rect(r, (*self.cover, r));
         ui.fill_rect(r, semi_black(0.3));
+
+        // UI 使用带比例的 camera
+        set_camera(&ui.camera());
         let r = ui.back_rect();
         ui.fill_rect(r, (*self.icons.back, r));
         self.btn_back.set(ui, r);

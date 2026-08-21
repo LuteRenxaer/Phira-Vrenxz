@@ -23,3 +23,11 @@ action-failed =
     }
 email-sent = Баталгаажуулах имэйл илгээгдсэн. Та баталгаажуулаад нэвтэрнэ үү.
 forget-password = Нууц үг мартсан уу?
+
+startup-select-language = Хэл сонгох
+startup-tap-to-continue = Үргэлжлүүлэхийн тулд товч дарна уу
+startup-tip = Зөвлөмж: { $tip }
+
+startup-load-failed = Эхлүүлэлт амжилтгүй боллоо
+startup-loading = Ачаалж байна...
+

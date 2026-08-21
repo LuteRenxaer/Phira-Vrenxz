@@ -5,12 +5,13 @@ use crate::{
     charts_view::{ChartDisplayItem, ChartsView, NEED_UPDATE},
     client::{recv_raw, Chart, ChartRef, ChartRefChartInfo, Client, Collection, CollectionUpdate, LocalCollection},
     dir, get_data, get_data_mut,
+    data::BriefChartInfo,
     icons::Icons,
-    page::{favorites::FAV_PAGE_RESULT, ChartItem, ChartType, Illustration},
+    page::{favorites::FAV_PAGE_RESULT, load_builtin_task, ChartItem, ChartType, Illustration},
     popup::Popup,
     rate::RateDialog,
     save_data,
-    scene::{check_read_tos_and_policy, compress_folder, confirm_dialog, ChartOrder, JUST_LOADED_TOS},
+    scene::{check_read_tos_and_policy, compress_folder, confirm_dialog, ChartOrder, Downloading, JUST_LOADED_TOS, SongScene},
     tabs::{Tabs, TitleFn},
     tags::TagsDialog,
 };
@@ -57,6 +58,8 @@ const PAGE_NUM: u64 = 28;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ChartListType {
     Local,
+    Builtin,
+    XCSim,
     Ranked,
     Special,
     Unstable,
@@ -98,6 +101,15 @@ pub struct LibraryPage {
     next_page_btn: DRectButton,
 
     online_task: Option<OnlineTask>,
+    remote_charts: Option<Vec<Chart>>,
+    builtin_task: Option<Task<Result<Vec<ChartItem>>>>,
+    xcsim_task: Option<Task<Result<(Vec<ChartDisplayItem>, u64)>>>,
+    xcsim_login_task: Option<Task<Result<(i32, String, String)>>>,
+    xcsim_charts: Option<Vec<crate::xcsim::XCSimChart>>,
+    xcsim_login_step: u8,
+    xcsim_login_username: String,
+    xcsim_login_btn: DRectButton,
+    xcsim_server_btn: DRectButton,
 
     icons: Arc<Icons>,
     rank_icons: [SafeTexture; 8],
@@ -159,6 +171,12 @@ pub struct LibraryPage {
     export_task: Option<mpsc::Receiver<Result<()>>>,
     export_progress: Arc<AtomicU32>,
     export_total: usize,
+
+    batch_download_queue: Option<Vec<(BriefChartInfo, Chart)>>,
+    batch_download_current: Option<Downloading>,
+    batch_download_progress: Arc<AtomicU32>,
+    batch_download_total: usize,
+    batch_download_current_name: Arc<Mutex<String>>,
 }
 
 impl LibraryPage {
@@ -169,11 +187,13 @@ impl LibraryPage {
         Ok(Self {
             tabs: Tabs::new([
                 (new_list(ChartListType::Local), || tl!("local")),
+                (new_list(ChartListType::Builtin), || tl!("builtin")),
+                (new_list(ChartListType::XCSim), || "XC-SIM".into()),
                 (new_list(ChartListType::Ranked), || ttl!("chart-ranked")),
                 (new_list(ChartListType::Special), || ttl!("chart-special")),
                 (new_list(ChartListType::Unstable), || ttl!("chart-unstable")),
                 (new_list(ChartListType::Popular), || tl!("popular")),
-            ] as [(ChartList, TitleFn); 5]),
+            ] as [(ChartList, TitleFn); 7]),
 
             current_page: 0,
             online_total_page: 0,
@@ -181,6 +201,15 @@ impl LibraryPage {
             next_page_btn: DRectButton::new(),
 
             online_task: None,
+        remote_charts: None,
+        builtin_task: Some(load_builtin_task()),
+        xcsim_task: None,
+        xcsim_login_task: None,
+        xcsim_charts: None,
+        xcsim_login_step: 0,
+        xcsim_login_username: String::new(),
+        xcsim_login_btn: DRectButton::new(),
+        xcsim_server_btn: DRectButton::new(),
 
             icons,
             rank_icons,
@@ -245,6 +274,12 @@ impl LibraryPage {
             export_task: None,
             export_progress: Arc::default(),
             export_total: 0,
+
+            batch_download_queue: None,
+            batch_download_current: None,
+            batch_download_progress: Arc::default(),
+            batch_download_total: 0,
+            batch_download_current_name: Arc::default(),
         })
     }
 }
@@ -255,6 +290,27 @@ impl LibraryPage {
             0
         } else {
             self.online_total_page
+        }
+    }
+
+    fn start_next_batch_download(&mut self) {
+        if let Some(queue) = &mut self.batch_download_queue {
+            if let Some((info, chart)) = queue.pop() {
+                *self.batch_download_current_name.lock().unwrap() = info.name.clone();
+                match SongScene::global_start_download(info, chart, None) {
+                    Ok(dl) => self.batch_download_current = Some(dl),
+                    Err(err) => {
+                        show_error(err);
+                        self.batch_download_queue = None;
+                        self.batch_download_current = None;
+                    }
+                }
+            } else {
+                self.batch_download_queue = None;
+                self.batch_download_current = None;
+                show_message(tl!("multi-download-complete")).ok();
+                NEED_UPDATE.store(true, Ordering::Relaxed);
+            }
         }
     }
 
@@ -340,6 +396,81 @@ impl LibraryPage {
         }));
     }
 
+    fn load_xcsim(&mut self) {
+        if !crate::xcsim::is_logged_in() {
+            self.tabs.selected_mut().view.reset_scroll();
+            self.tabs.selected_mut().view.clear();
+            self.xcsim_charts = None;
+            return;
+        }
+        self.tabs.selected_mut().view.reset_scroll();
+        self.tabs.selected_mut().view.clear();
+        let page = self.current_page;
+        let search = self.search_str.clone();
+        let access_token = crate::xcsim::account().access_token.clone();
+        self.xcsim_task = Some(Task::new(async move {
+            let (charts, count) = crate::xcsim::fetch_charts(
+                access_token.as_deref(),
+                Some(&search),
+                page as u32,
+                PAGE_NUM as u32,
+            )
+            .await?;
+            let total_page = if count == 0 { 0 } else { (count - 1) / PAGE_NUM as u64 + 1 };
+            let display_items: Vec<_> = charts
+                .iter()
+                .map(|c| {
+                    let illu = if let Some(illu_url) = &c.illustration {
+                        let illu_url = crate::xcsim::rehost_url(illu_url);
+                        Illustration {
+                            texture: (crate::page::BLACK_TEXTURE.clone(), crate::page::BLACK_TEXTURE.clone()),
+                            notify: Arc::default(),
+                            task: Some(Task::new({
+                                let illu_url = illu_url.clone();
+                                async move {
+                                    let bytes = reqwest::get(&illu_url).await?.bytes().await?;
+                                    let image = image::load_from_memory(&bytes)?;
+                                    Ok((image, None))
+                                }
+                            })),
+                            loaded: Arc::default(),
+                            load_time: f32::NAN,
+                        }
+                    } else {
+                        Illustration::from_done(crate::page::BLACK_TEXTURE.clone())
+                    };
+                    ChartDisplayItem::new(
+                        Some(ChartItem {
+                            info: BriefChartInfo {
+                                id: Some(c.id),
+                                uploader: None,
+                                name: c.name.clone(),
+                                level: c.level.clone().unwrap_or_default(),
+                                difficulty: c.difficulty.unwrap_or(0.),
+                                intro: c.description.clone().unwrap_or_default(),
+                                charter: c.charter.clone().unwrap_or_default(),
+                                composer: c.composer.clone().unwrap_or_default(),
+                                illustrator: c.illustrator.clone().unwrap_or_default(),
+                                created: None,
+                                updated: None,
+                                chart_updated: None,
+                                has_unlock: false,
+                            },
+                            local_path: None,
+                            illu,
+                            chart_type: ChartType::XCSim,
+                            level_author: None,
+                            xcsim_preview_url: c.preview.clone(),
+                            xcsim_illustration_url: c.illustration.clone(),
+                        }),
+                        None,
+                    )
+                })
+                .collect();
+            Ok((display_items, total_page))
+        }));
+    }
+
     fn sync_local(&mut self, s: &SharedState) {
         let mut charts_local = s.charts_local.iter().collect::<Vec<_>>();
         self.current_order.apply(&mut charts_local, |it| it);
@@ -381,6 +512,9 @@ impl LibraryPage {
                                         illu: Illustration::from_file_thumbnail(chart.illustration.clone()),
                                         local_path: None,
                                         chart_type: ChartType::Downloaded,
+                                        level_author: None,
+                                        xcsim_preview_url: None,
+                                        xcsim_illustration_url: None,
                                     }),
                                     None,
                                 )
@@ -409,12 +543,24 @@ impl LibraryPage {
                 )
             }
             list.view.set(s.t, charts);
+        } else if list.ty == ChartListType::Builtin {
+            let mut charts = s.charts_builtin.clone();
+            self.current_order.apply(&mut charts, |it| it);
+            if self.order_rev {
+                charts.reverse();
+            }
+            let charts: Vec<_> = charts
+                .into_iter()
+                .filter(|it| local_matcher(it))
+                .map(|it| ChartDisplayItem::new(Some(it), None))
+                .collect();
+            list.view.set(s.t, charts);
         }
     }
 
     fn on_order_update(&mut self, s: &mut SharedState) {
         let list = self.tabs.selected_mut();
-        if list.ty == ChartListType::Local {
+        if list.ty == ChartListType::Local || list.ty == ChartListType::Builtin {
             self.sync_local(s);
         } else {
             self.current_page = 0;
@@ -576,7 +722,13 @@ pub fn request_export(suggested_name: String) {
         } else if #[cfg(target_env = "ohos")] {
             miniquad::native::call_request_callback(format!("{{\"action\":\"request_export\",\"filename\":\"{}\"}}", suggested_name));
         } else {
-            if let Some(output_path) = rfd::FileDialog::new().set_title(tl!("multi-export-title")).set_file_name(&suggested_name).save_file() {
+            if let Some(output_path) = rfd::FileDialog::new()
+                .set_title(tl!("multi-export-title"))
+                .set_file_name(&suggested_name)
+                .add_filter("RPE 谱面 (*.pez)", &["pez"])
+                .add_filter("ZIP 谱面 (*.zip)", &["zip"])
+                .save_file()
+            {
                 let config = File::create(&output_path).map(|file| ExportConfig {
                     file,
                     deleter: Box::new(move || std::fs::remove_file(output_path)),
@@ -727,7 +879,7 @@ impl Page for LibraryPage {
         if self.tabs.touch(touch, s.rt) {
             return Ok(true);
         }
-        if !matches!(self.tabs.selected().ty, ChartListType::Local) {
+        if !matches!(self.tabs.selected().ty, ChartListType::Local | ChartListType::Builtin) {
             if self.prev_page_btn.touch(touch, t) {
                 if self.current_page != 0 {
                     self.current_page -= 1;
@@ -740,6 +892,19 @@ impl Page for LibraryPage {
                     self.current_page += 1;
                     self.load_online();
                 }
+                return Ok(true);
+            }
+        }
+
+        if self.tabs.selected().ty == ChartListType::XCSim && !crate::xcsim::is_logged_in() {
+            if self.xcsim_login_btn.touch(touch, t) {
+                self.xcsim_login_step = 0;
+                request_input("xcsim_username", InputBox::new().prompt("请输入用户名/邮箱"));
+                return Ok(true);
+            }
+            if self.xcsim_server_btn.touch(touch, t) {
+                let current = crate::xcsim::api_base_url();
+                request_input("xcsim_server_api", InputBox::new().default_text(&current).prompt("XC-SIM API 地址"));
                 return Ok(true);
             }
         }
@@ -794,10 +959,39 @@ impl Page for LibraryPage {
                 }
             }
             ChartListType::Popular => {}
+            ChartListType::Builtin => {
+                if !self.search_str.is_empty() && self.search_clr_btn.touch(touch) {
+                    button_hit();
+                    self.search_str.clear();
+                    self.sync_local(s);
+                    return Ok(true);
+                }
+                if !self.search_clr_btn.contains(touch.position) && self.search_btn.touch(touch, t) {
+                    request_input("search", InputBox::new().default_text(&self.search_str));
+                    return Ok(true);
+                }
+            }
+            ChartListType::XCSim => {
+                if !self.search_str.is_empty() && self.search_clr_btn.touch(touch) {
+                    button_hit();
+                    self.search_str.clear();
+                    self.current_page = 0;
+                    self.load_xcsim();
+                    return Ok(true);
+                }
+                if !self.search_clr_btn.contains(touch.position) && self.search_btn.touch(touch, t) {
+                    request_input("search", InputBox::new().default_text(&self.search_str));
+                    return Ok(true);
+                }
+            }
         }
         if self.tabs.selected_mut().view.multi_select.is_some() {
             if self.multi_operation_btn.touch(touch, t) {
+                let is_online = self.tabs.selected().ty != ChartListType::Local;
                 let mut options = vec!["multi-export", "multi-create-fav", "multi-manage-fav"];
+                if is_online {
+                    options.insert(0, "multi-download");
+                }
                 if self.tabs.selected_mut().view.allow_edit {
                     options.push("multi-delete");
                 }
@@ -826,6 +1020,35 @@ impl Page for LibraryPage {
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         let t = s.t;
 
+        if let Some(task) = &mut self.builtin_task {
+            if let Some(res) = task.take() {
+                match res {
+                    Ok(charts) => {
+                        s.charts_builtin = charts;
+                        if self.tabs.selected().ty == ChartListType::Builtin {
+                            self.sync_local(s);
+                        }
+                    }
+                    Err(err) => warn!("failed to load builtin charts: {err:?}"),
+                }
+                self.builtin_task = None;
+            }
+        }
+
+        // 检查批量下载进度
+        if let Some(dl) = &mut self.batch_download_current {
+            if let Ok(Some(result)) = dl.check() {
+                self.batch_download_progress.fetch_add(1, Ordering::Relaxed);
+                self.batch_download_current = None;
+                if result.is_some() {
+                    self.start_next_batch_download();
+                } else {
+                    // 下载失败，继续下一个
+                    self.start_next_batch_download();
+                }
+            }
+        }
+
         if let Some(chosen_cover) = CHOSEN_COVER.with(|it| it.borrow_mut().take()) {
             CHOOSE_COVER.store(false, Ordering::Relaxed);
             self.next_page = Some(NextPage::Overlay(Box::new(FavoritesPage::new(
@@ -846,13 +1069,18 @@ impl Page for LibraryPage {
         self.tags.update(t);
         self.rating.update(t);
 
-        let is_local = self.tabs.selected().ty == ChartListType::Local;
+        let is_local = self.tabs.selected().ty == ChartListType::Local || self.tabs.selected().ty == ChartListType::Builtin;
+        let is_xcsim = self.tabs.selected().ty == ChartListType::XCSim;
         if self.tabs.changed() {
             self.tabs.selected_mut().view.reset_scroll();
             self.tabs.iter_mut().for_each(|it| it.view.multi_select = None);
             self.online_task = None;
+            self.xcsim_task = None;
             if is_local {
                 self.sync_local(s);
+            } else if is_xcsim {
+                self.current_page = 0;
+                self.load_xcsim();
             } else {
                 self.current_page = 0;
                 self.load_online();
@@ -894,10 +1122,42 @@ impl Page for LibraryPage {
                     Err(err) => show_error(err.context(tl!("failed-to-load-online"))),
                     Ok(res) => {
                         self.online_total_page = res.2;
+                        self.remote_charts = Some(res.1);
                         self.tabs.selected_mut().view.set(t, res.0);
                     }
                 }
                 self.online_task = None;
+            }
+        }
+        if let Some(task) = &mut self.xcsim_login_task {
+            if let Some(res) = task.take() {
+                match res {
+                    Ok((id, token, refresh_token)) => {
+                        let data = crate::get_data_mut();
+                        data.xcsim_account.id = Some(id);
+                        data.xcsim_account.access_token = Some(token);
+                        data.xcsim_account.refresh_token = Some(refresh_token);
+                        let _ = crate::save_data();
+                        show_message("XC-SIM 登录成功").ok();
+                        self.load_xcsim();
+                    }
+                    Err(err) => {
+                        show_error(err.context("XC-SIM 登录失败"));
+                    }
+                }
+                self.xcsim_login_task = None;
+            }
+        }
+        if let Some(task) = &mut self.xcsim_task {
+            if let Some(res) = task.take() {
+                match res {
+                    Err(err) => show_error(err.context("Failed to load XC-SIM charts")),
+                    Ok((charts, total_page)) => {
+                        self.online_total_page = total_page as u64;
+                        self.tabs.selected_mut().view.set(t, charts);
+                    }
+                }
+                self.xcsim_task = None;
             }
         }
         self.order_menu.update(t);
@@ -964,10 +1224,42 @@ impl Page for LibraryPage {
                 self.search_str = text;
                 if is_local {
                     self.sync_local(s);
+                } else if is_xcsim {
+                    self.current_page = 0;
+                    self.load_xcsim();
                 } else {
                     self.current_page = 0;
                     self.load_online();
                 }
+            } else if id == "xcsim_username" {
+                self.xcsim_login_username = text;
+                self.xcsim_login_step = 1;
+                request_input("xcsim_password", InputBox::new().mode(inputbox::InputMode::Password).prompt("请输入密码"));
+            } else if id == "xcsim_password" {
+                let username = std::mem::take(&mut self.xcsim_login_username);
+                self.xcsim_login_step = 0;
+                let password = text;
+                self.xcsim_login_task = Some(Task::new(async move {
+                    crate::xcsim::login(&username, &password).await
+                }));
+            } else if id == "xcsim_server_api" {
+                let data = crate::get_data_mut();
+                if text.is_empty() {
+                    data.xcsim_api_url = None;
+                } else {
+                    data.xcsim_api_url = Some(text);
+                }
+                let _ = crate::save_data();
+                show_message("XC-SIM API 地址已更新").ok();
+            } else if id == "xcsim_server_download" {
+                let data = crate::get_data_mut();
+                if text.is_empty() {
+                    data.xcsim_download_url = None;
+                } else {
+                    data.xcsim_download_url = Some(text);
+                }
+                let _ = crate::save_data();
+                show_message("XC-SIM 下载地址已更新").ok();
             } else if id == "new_fav" {
                 if text.is_empty() {
                     use crate::page::favorites::{tl as ftl, L10N_LOCAL};
@@ -1074,6 +1366,28 @@ impl Page for LibraryPage {
             let charts_view = &mut self.tabs.selected_mut().view;
             let selected = charts_view.multi_select.as_mut().unwrap();
             match self.multi_operation_options[self.multi_operation_menu.selected()] {
+                "multi-download" => {
+                    self.multi_operation_menu.dismiss(t);
+                    let remote_charts = self.remote_charts.as_ref();
+                    let mut queue = Vec::new();
+                    for chart_ref in selected.iter() {
+                        if chart_ref.find_local_path().ok().flatten().is_none() {
+                            if let Some(remote_charts) = remote_charts {
+                                if let Some(chart) = remote_charts.iter().find(|c| Some(c.id) == chart_ref.id()) {
+                                    queue.push((chart.to_info(), chart.clone()));
+                                }
+                            }
+                        }
+                    }
+                    if queue.is_empty() {
+                        show_message(tl!("multi-download-all-exists")).ok();
+                    } else {
+                        self.batch_download_total = queue.len();
+                        self.batch_download_progress.store(0, Ordering::Relaxed);
+                        self.batch_download_queue = Some(queue);
+                        self.start_next_batch_download();
+                    }
+                }
                 "multi-export" => {
                     self.multi_operation_menu.dismiss(t);
                     let mut paths = Vec::with_capacity(selected.len());
@@ -1541,9 +1855,18 @@ impl Page for LibraryPage {
                     .color(semi_white(0.9))
                     .max_width(rt - r.right() - 0.02)
                     .draw();
+
+                if chosen == ChartListType::XCSim && !crate::xcsim::is_logged_in() {
+                    r.w = 0.16;
+                    r.x -= r.w + 0.02;
+                    self.xcsim_login_btn.render_text(ui, r, t, "登录", 0.5, true);
+                    r.w = 0.12;
+                    r.x -= r.w + 0.02;
+                    self.xcsim_server_btn.render_text(ui, r, t, "服务器", 0.45, true);
+                }
             });
         }
-        if chosen != ChartListType::Local {
+        if chosen != ChartListType::Local && chosen != ChartListType::Builtin {
             let total_page = self.total_page();
             s.render_fader(ui, |ui| {
                 let cx = r.center().x;
@@ -1611,6 +1934,12 @@ impl Page for LibraryPage {
             let current = self.export_progress.load(Ordering::Relaxed);
             let total = self.export_total;
             ui.full_loading(tl!("multi-exporting", "current" => current, "total" => total), t);
+        }
+        if self.batch_download_current.is_some() || self.batch_download_queue.is_some() {
+            let current = self.batch_download_progress.load(Ordering::Relaxed);
+            let total = self.batch_download_total;
+            let name = self.batch_download_current_name.lock().unwrap().clone();
+            ui.full_loading(tl!("multi-downloading", "current" => current, "total" => total, "name" => name), t);
         }
         if self.multi_create_fav_task.is_some()
             || self.manage_fav_pre_task.is_some()

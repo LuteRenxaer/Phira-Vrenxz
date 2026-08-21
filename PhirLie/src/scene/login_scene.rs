@@ -1,12 +1,8 @@
-//! 进入主页前的启动页(登录画面)。
-//! 流程:纯黑屏 + 播放 login.mp3 持续 6.5 秒 → 闪光一下 → 显示画面(高斯模糊的
-//! 随机 loginbg 背景 + PhirLie 标题 + 版本号 + Tip)→ 提示点击继续 → 若尚未选择
-//! 过语言则弹出语言选择面板,否则直接进入加载主页的加载页。所有界面切换都带
-//! 淡入/淡出动画。
 
 use super::StartupLoadingScene;
-use crate::blue_archive_tips::BLUE_ARCHIVE_TIPS;
+use crate::blue_archive_tips::random_tip;
 use crate::{get_data, get_data_mut, save_data, sync_data};
+prpr_l10n::tl_file!("login");
 use prpr::{
     config::Config,
     ext::{create_audio_manger, semi_black, semi_white, SafeTexture, ScaleType, BLACK_TEXTURE},
@@ -23,16 +19,15 @@ use std::sync::atomic::Ordering;
 use tracing::info;
 use ::rand::{seq::SliceRandom, thread_rng};
 
-/// 纯黑屏时长(只播音乐)
-const BLACK_TIME: f32 = 6.5;
+const BLACK_TIME: f32 = 1.5;
 /// 黑屏结束后的白色闪光时长(渐入渐出)
-const FLASH_TIME: f32 = 0.18;
+const FLASH_TIME: f32 = 0.3;
 /// 画面显示后到"点击继续"提示出现的时长
 const SHOW_TIME: f32 = 0.8;
 /// 画面/文字淡入时长
 const FADE_IN_TIME: f32 = 0.35;
 /// 切换前画面淡出时长
-const FADE_OUT_TIME: f32 = 0.3;
+const FADE_OUT_TIME: f32 = 0.4;
 /// 语言选择面板弹出动画时长
 const LANG_ANIM_TIME: f32 = 0.22;
 /// 进入语言选择后忽略点击的冷却时长(避免上一阶段的点击误触)
@@ -56,7 +51,7 @@ pub struct LoginScene {
     audio: Option<AudioManager>,
     bgm: Option<Music>,
     enter_time: f32,
-    tip: &'static str,
+    tip: String,
     phase: Phase,
     lang_selected: Option<usize>,
     lang_btns: Vec<RectButton>,
@@ -65,15 +60,15 @@ pub struct LoginScene {
     fade_out_time: f32,
     pending_scene: Option<NextScene>,
 }
-
+//人类注释_这是一个普普通通的模糊效果
 async fn load_blurred_bg(path: String) -> Result<BlurredBg> {
     let bytes = load_file(&path).await?;
     let img = image::load_from_memory(&bytes)?;
-    let img = img.thumbnail(512, 512);
+    let img = img.thumbnail(256, 256);
     let rgb = img.to_rgb8();
     let (w, h) = (rgb.width() as usize, rgb.height() as usize);
     let mut pixels: Vec<[u8; 3]> = rgb.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect();
-    fastblur::gaussian_blur(&mut pixels, w, h, 30.0);
+    fastblur::gaussian_blur(&mut pixels, w, h, 20.0);
     let flat: Vec<u8> = pixels.into_iter().flat_map(|p| p.to_vec()).collect();
     let mut rgba = Vec::with_capacity(w * h * 4);
     for chunk in flat.chunks_exact(3) {
@@ -111,17 +106,19 @@ impl LoginScene {
         });
 
         let custom_bgm = get_data().custom_startup_bgm_path.clone();
+        let old_home = get_data().config.old_home;
         let music_task = Task::new(async move {
+            let default_login = if old_home { "bgm/old/login.mp3" } else { "bgm/login.mp3" };
             match custom_bgm.as_deref() {
                 Some(path) => match std::fs::read(path) {
                     Ok(data) => Ok(data),
-                    Err(_) => load_file("bgm/login.mp3").await.map_err(Into::into),
+                    Err(_) => load_file(default_login).await.map_err(Into::into),
                 },
-                None => load_file("bgm/login.mp3").await.map_err(Into::into),
+                None => load_file(default_login).await.map_err(Into::into),
             }
         });
 
-        let tip = BLUE_ARCHIVE_TIPS.choose(&mut thread_rng()).copied().unwrap_or("老师,欢迎回来!");
+        let tip = random_tip();
 
         Self {
             fallback,
@@ -221,7 +218,7 @@ impl Scene for LoginScene {
                         let config = Config::default();
                         match create_audio_manger(&config).and_then(|mut audio| {
                             let clip = AudioClip::new(data)?;
-                            let mut bgm = audio.create_music(
+                            let bgm = audio.create_music(
                                 clip,
                                 MusicParams {
                                     amplifier: 1.0,
@@ -256,7 +253,8 @@ impl Scene for LoginScene {
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
-        set_camera(&ui.camera());
+        // 背景使用原始比例，不随 UI 比例缩放
+        set_camera(&ui.bg_camera());
         let t = tm.now() as f32;
         let top = ui.top;
         let full = ui.screen_rect();
@@ -275,6 +273,9 @@ impl Scene for LoginScene {
         // 遮罩(语言选择更暗)
         let dim = if self.phase == Phase::LanguageSelect { 0.55 } else { 0.3 };
         ui.fill_rect(full, semi_black(dim));
+
+        // UI 使用带比例的 camera
+        set_camera(&ui.camera());
 
         // 画面淡入
         let fade_in = if PREFER_REDUCED_MOTION.load(Ordering::Relaxed) {
@@ -311,7 +312,7 @@ impl Scene for LoginScene {
                 if hint_p > 0. {
                     let blink = ((t * 2.0).sin() * 0.5 + 0.5) * 0.5 + 0.5;
                     ui.alpha(hint_p, |ui| {
-                        ui.text("点击屏幕以继续")
+                        ui.text(tl!("startup-tap-to-continue"))
                             .pos(0., 0.20)
                             .anchor(0.5, 0.)
                             .size(0.5)
@@ -320,7 +321,7 @@ impl Scene for LoginScene {
                     });
                 }
 
-                ui.text(&format!("Tip: {}", self.tip))
+                ui.text(tl!("startup-tip", "tip" => &self.tip))
                     .pos(-0.95, top - 0.05)
                     .anchor(0., 1.)
                     .max_width(1.6)
@@ -330,10 +331,15 @@ impl Scene for LoginScene {
             });
         }
 
-        // 黑屏结束后的白色闪光(渐入渐出)
         if self.phase == Phase::Show && show_elapsed >= 0. && show_elapsed < FLASH_TIME {
-            let p = show_elapsed / FLASH_TIME;
-            let flash = (1. - (p * 2. - 1.).abs()).clamp(0., 1.);
+            let half = FLASH_TIME * 0.5;
+            let flash = if show_elapsed < half {
+                let t = show_elapsed / half;
+                t * t
+            } else {
+                let t = (show_elapsed - half) / half;
+                1. - t * t
+            };
             if flash > 0. {
                 ui.fill_rect(full, Color::new(1., 1., 1., flash));
             }
@@ -374,9 +380,7 @@ impl LoginScene {
         let panel = Rect::new(-ww / 2., -wh / 2., ww, wh);
 
         ui.alpha(ease, |ui| {
-            ui.fill_rect(panel, Color::new(0.06, 0.07, 0.11, 0.92));
-
-            ui.text("选择语言 / Select Language")
+            ui.text(tl!("startup-select-language"))
                 .pos(panel.x, panel.y + 0.04)
                 .anchor(0., 0.)
                 .size(0.6 * scale)

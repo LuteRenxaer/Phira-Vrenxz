@@ -25,12 +25,25 @@ pub struct RecordUpdateState {
     pub new_rks: Option<f32>,
 }
 
-fn draw_illustration(tex: Texture2D, x: f32, y: f32, w: f32, h: f32, color: Color) -> Rect {
+fn draw_illustration(tex: Texture2D, x: f32, y: f32, w: f32, h: f32, color: Color, cover: bool) -> Rect {
     let scale = 0.076;
     let w = scale * 13. * w;
     let h = scale * 7. * h;
     let r = Rect::new(x - w / 2., y - h / 2., w, h);
-    draw_parallelogram(r, Some((tex, Rect::new(0., 0., 1., 1.))), color, true);
+    let tex_rect = if cover {
+        let tex_ratio = tex.width() / tex.height();
+        let rect_ratio = w / h;
+        if tex_ratio > rect_ratio {
+            let new_w = rect_ratio / tex_ratio;
+            Rect::new((1. - new_w) / 2., 0., new_w, 1.)
+        } else {
+            let new_h = tex_ratio / rect_ratio;
+            Rect::new(0., (1. - new_h) / 2., 1., new_h)
+        }
+    } else {
+        Rect::new(0., 0., 1., 1.)
+    };
+    draw_parallelogram(r, Some((tex, tex_rect)), color, true);
     r
 }
 
@@ -39,6 +52,7 @@ pub struct EndingScene {
     illustration: SafeTexture,
     player: SafeTexture,
     icons: [SafeTexture; 8],
+    arc_icon: SafeTexture,
     icon_retry: SafeTexture,
     icon_proceed: SafeTexture,
     target: Option<RenderTarget>,
@@ -53,6 +67,7 @@ pub struct EndingScene {
     next: u8,
     update_state: Option<RecordUpdateState>,
     rated: bool,
+    arcaea_mode: bool,
     upload_fn: Option<UploadFn>,
     upload_task: Option<(Task<Result<RecordUpdateState>>, MessageHandle)>,
     record_data: Option<Vec<u8>>,
@@ -66,6 +81,7 @@ impl EndingScene {
         illustration: SafeTexture,
         player: SafeTexture,
         icons: [SafeTexture; 8],
+        arc_icon: SafeTexture,
         icon_retry: SafeTexture,
         icon_proceed: SafeTexture,
         _mod_icons: [SafeTexture; 7],
@@ -112,6 +128,7 @@ impl EndingScene {
             illustration,
             player,
             icons,
+            arc_icon,
             icon_retry,
             icon_proceed,
             target: None,
@@ -119,6 +136,7 @@ impl EndingScene {
             bgm,
             update_state,
             rated: upload_task.is_some(),
+            arcaea_mode: info.arcaea_judgement || config.arcaea_judgement,
             info,
             result,
             player_name: config.player_name.clone(),
@@ -215,7 +233,7 @@ impl Scene for EndingScene {
             gl.push_model_matrix(Mat4::from_translation(vec3(x * 2., 0., 0.)));
         }
         tran(gl, (1. - ran(now, 0.1, 1.3)).powi(3));
-        let r = draw_illustration(*self.illustration, -0.38, 0., 1., 1.2, WHITE);
+        let r = draw_illustration(*self.illustration, -0.38, 0., 1., 1.2, WHITE, true);
         let slope = PARALLELOGRAM_SLOPE;
         let ratio = 0.2;
         draw_parallelogram_ex(
@@ -265,13 +283,23 @@ impl Scene for EndingScene {
             };
             let r = draw_text_aligned(ui, &text, main.x + dx, main.bottom() - 0.035, (0., 1.), 0.34, WHITE);
             let r = draw_text_aligned(ui, &format!("{:07}", res.score), r.x, r.y - 0.023, (0., 1.), 1., WHITE);
-            let icon = icon_index(res.score, res.num_of_notes == res.max_combo);
+            let is_arc_full = self.arcaea_mode && res.counts[0] == res.num_of_notes;
+            let icon = if is_arc_full {
+                6 // Use FC index but we'll override texture below
+            } else {
+                icon_index(res.score, res.num_of_notes == res.max_combo)
+            };
             let p = ran(now, 1.4, 1.9).powi(2);
             let s = main.h * 0.67;
             let ct = (main.right() - main.h * slope - s / 2., r.bottom() + 0.02 - s / 2.);
             let s = s + s * (1. - p) * 0.3;
+            let icon_tex = if is_arc_full {
+                &*self.arc_icon
+            } else {
+                &*self.icons[icon]
+            };
             draw_texture_ex(
-                *self.icons[icon],
+                *icon_tex,
                 ct.0 - s / 2.,
                 ct.1 - s / 2.,
                 Color::new(1., 1., 1., p),
@@ -382,7 +410,7 @@ impl Scene for EndingScene {
             0.37,
             Color::new(0., 0., 0., alpha),
         );
-        let r = draw_illustration(*self.player, 1. - 0.21, main.center().y, 0.12 / (0.076 * 13.), 0.12 / (0.076 * 7.), color);
+        let r = draw_illustration(*self.player, 1. - 0.21, main.center().y, 0.12 / (0.076 * 7.), 0.12 / (0.076 * 7.), color, true);
         let text = draw_text_aligned(ui, &self.player_name, r.x - 0.01, r.center().y, (1., 0.5), 0.54, color);
         draw_parallelogram(
             Rect::new(text.x - main.h * slope - 0.01, main.y, r.x - text.x + main.h * slope * 2. + 0.013, main.h),

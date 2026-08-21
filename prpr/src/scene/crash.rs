@@ -17,6 +17,7 @@ use anyhow::Result;
 use macroquad::prelude::*;
 use sasa::{AudioClip, AudioManager, Music, MusicParams};
 use std::env;
+prpr_l10n::tl_file!("crash");
 
 /// 内嵌报错页 BGM（编译期打入二进制，避免 Android 上 std::fs 读不到 assets 而 panic）。
 const CRASH_BGM: &[u8] = include_bytes!("../../../assets/bgm/gameerror.mp3");
@@ -28,6 +29,7 @@ const CRASH_BG_PNG: &[u8] = include_bytes!("../../../assets/errorbackground.png"
 /// Error codes for the crash scene.
 #[derive(Clone, Debug)]
 pub enum CrashCode {
+    // === 原有崩溃类型 ===
     ChartLoadTimeout,
     ResPackLoadTimeout,
     ManualCrash,
@@ -40,27 +42,334 @@ pub enum CrashCode {
         code: u32,
         reason: String,
     },
+
+    // === 资源加载类 (1000-1999) ===
+    /// 图片/纹理加载失败
+    ImageLoadFailed { message: String },
+    /// 音频加载失败
+    AudioLoadFailed { message: String },
+    /// 字体加载失败
+    FontLoadFailed { message: String },
+    /// 资源包加载失败
+    ResPackLoadFailed { message: String },
+    /// 谱面文件加载失败
+    ChartLoadFailed { message: String },
+    /// 资源文件缺失
+    AssetNotFound { path: String },
+
+    // === 网络类 (2000-2999) ===
+    /// 网络连接失败
+    NetworkError { message: String },
+    /// 服务器响应超时
+    NetworkTimeout { message: String },
+    /// API 请求失败
+    ApiRequestFailed { message: String },
+    /// 下载失败
+    DownloadFailed { message: String },
+
+    // === 解析类 (3000-3999) ===
+    /// JSON 解析失败
+    JsonParseError { message: String },
+    /// 谱面解析失败
+    ChartParseError { message: String },
+    /// 配置文件解析失败
+    ConfigParseError { message: String },
+
+    // === 文件系统类 (4000-4999) ===
+    /// 文件读取失败
+    FileReadError { message: String },
+    /// 文件写入失败
+    FileWriteError { message: String },
+    /// 存储空间不足
+    StorageFull,
+
+    // === 渲染类 (5000-5999) ===
+    /// 纹理创建失败
+    TextureCreateFailed { message: String },
+    /// 着色器编译失败
+    ShaderCompileFailed { message: String },
+    /// 渲染上下文丢失
+    RenderContextLost,
+
+    // === 音频类 (6000-6999) ===
+    /// 音频设备初始化失败
+    AudioInitFailed { message: String },
+    /// 音频播放失败
+    AudioPlayFailed { message: String },
+
+    // === 游戏逻辑类 (7000-7999) ===
+    /// 游戏状态异常
+    InvalidGameState { message: String },
+    /// 判定系统错误
+    JudgeSystemError { message: String },
+
+    // === 系统类 (8000-8999) ===
+    /// 内存不足
+    OutOfMemory,
+    /// 线程恐慌
+    ThreadPanic { message: String },
+    /// 空指针解引用
+    NullPointerDeref,
+    /// 索引越界
+    IndexOutOfBounds { message: String },
+    /// 算术溢出
+    ArithmeticOverflow,
+
+    // === 认证类 (9000-9999) ===
+    /// 登录失败
+    LoginFailed { message: String },
+    /// Token 失效
+    TokenExpired,
 }
 
 impl CrashCode {
     pub fn code(&self) -> u32 {
         match self {
+            // 原有
             CrashCode::ChartLoadTimeout => 404,
             CrashCode::ResPackLoadTimeout => 501,
             CrashCode::ManualCrash => 951,
             CrashCode::UnexpectedPanic { .. } => 500,
             CrashCode::Custom { code, .. } => *code,
+
+            // 资源加载类
+            CrashCode::ImageLoadFailed { .. } => 1001,
+            CrashCode::AudioLoadFailed { .. } => 1002,
+            CrashCode::FontLoadFailed { .. } => 1003,
+            CrashCode::ResPackLoadFailed { .. } => 1004,
+            CrashCode::ChartLoadFailed { .. } => 1005,
+            CrashCode::AssetNotFound { .. } => 1006,
+
+            // 网络类
+            CrashCode::NetworkError { .. } => 2001,
+            CrashCode::NetworkTimeout { .. } => 2002,
+            CrashCode::ApiRequestFailed { .. } => 2003,
+            CrashCode::DownloadFailed { .. } => 2004,
+
+            // 解析类
+            CrashCode::JsonParseError { .. } => 3001,
+            CrashCode::ChartParseError { .. } => 3002,
+            CrashCode::ConfigParseError { .. } => 3003,
+
+            // 文件系统类
+            CrashCode::FileReadError { .. } => 4001,
+            CrashCode::FileWriteError { .. } => 4002,
+            CrashCode::StorageFull => 4003,
+
+            // 渲染类
+            CrashCode::TextureCreateFailed { .. } => 5001,
+            CrashCode::ShaderCompileFailed { .. } => 5002,
+            CrashCode::RenderContextLost => 5003,
+
+            // 音频类
+            CrashCode::AudioInitFailed { .. } => 6001,
+            CrashCode::AudioPlayFailed { .. } => 6002,
+
+            // 游戏逻辑类
+            CrashCode::InvalidGameState { .. } => 7001,
+            CrashCode::JudgeSystemError { .. } => 7002,
+
+            // 系统类
+            CrashCode::OutOfMemory => 8001,
+            CrashCode::ThreadPanic { .. } => 8002,
+            CrashCode::NullPointerDeref => 8003,
+            CrashCode::IndexOutOfBounds { .. } => 8004,
+            CrashCode::ArithmeticOverflow => 8005,
+
+            // 认证类
+            CrashCode::LoginFailed { .. } => 9001,
+            CrashCode::TokenExpired => 9002,
         }
     }
 
     pub fn reason(&self) -> String {
         match self {
-            CrashCode::ChartLoadTimeout => "加载铺面或者加载游戏太慢(至少1分钟)而崩溃".to_string(),
-            CrashCode::ResPackLoadTimeout => "玩家加载资源包过久而崩溃".to_string(),
-            CrashCode::ManualCrash => "玩家在设置中,点击崩溃按钮".to_string(),
+            // 原有
+            CrashCode::ChartLoadTimeout => tl!("reason-chart-load-timeout").to_string(),
+            CrashCode::ResPackLoadTimeout => tl!("reason-respack-load-timeout").to_string(),
+            CrashCode::ManualCrash => tl!("reason-manual-crash").to_string(),
             CrashCode::UnexpectedPanic { message } => message.clone(),
-            CrashCode::Custom { reason, .. } => reason.clone(),
+            CrashCode::Custom { reason, .. } => {
+                if reason.is_empty() {
+                    tl!("reason-custom-default").to_string()
+                } else {
+                    reason.clone()
+                }
+            }
+
+            // 资源加载类
+            CrashCode::ImageLoadFailed { message } => tl!("reason-image-load-failed", "message" => message.clone()),
+            CrashCode::AudioLoadFailed { message } => tl!("reason-audio-load-failed", "message" => message.clone()),
+            CrashCode::FontLoadFailed { message } => tl!("reason-font-load-failed", "message" => message.clone()),
+            CrashCode::ResPackLoadFailed { message } => tl!("reason-respack-load-failed", "message" => message.clone()),
+            CrashCode::ChartLoadFailed { message } => tl!("reason-chart-load-failed", "message" => message.clone()),
+            CrashCode::AssetNotFound { path } => tl!("reason-asset-not-found", "path" => path.clone()),
+
+            // 网络类
+            CrashCode::NetworkError { message } => tl!("reason-network-error", "message" => message.clone()),
+            CrashCode::NetworkTimeout { message } => tl!("reason-network-timeout", "message" => message.clone()),
+            CrashCode::ApiRequestFailed { message } => tl!("reason-api-request-failed", "message" => message.clone()),
+            CrashCode::DownloadFailed { message } => tl!("reason-download-failed", "message" => message.clone()),
+
+            // 解析类
+            CrashCode::JsonParseError { message } => tl!("reason-json-parse-error", "message" => message.clone()),
+            CrashCode::ChartParseError { message } => tl!("reason-chart-parse-error", "message" => message.clone()),
+            CrashCode::ConfigParseError { message } => tl!("reason-config-parse-error", "message" => message.clone()),
+
+            // 文件系统类
+            CrashCode::FileReadError { message } => tl!("reason-file-read-error", "message" => message.clone()),
+            CrashCode::FileWriteError { message } => tl!("reason-file-write-error", "message" => message.clone()),
+            CrashCode::StorageFull => tl!("reason-storage-full").to_string(),
+
+            // 渲染类
+            CrashCode::TextureCreateFailed { message } => tl!("reason-texture-create-failed", "message" => message.clone()),
+            CrashCode::ShaderCompileFailed { message } => tl!("reason-shader-compile-failed", "message" => message.clone()),
+            CrashCode::RenderContextLost => tl!("reason-render-context-lost").to_string(),
+
+            // 音频类
+            CrashCode::AudioInitFailed { message } => tl!("reason-audio-init-failed", "message" => message.clone()),
+            CrashCode::AudioPlayFailed { message } => tl!("reason-audio-play-failed", "message" => message.clone()),
+
+            // 游戏逻辑类
+            CrashCode::InvalidGameState { message } => tl!("reason-invalid-game-state", "message" => message.clone()),
+            CrashCode::JudgeSystemError { message } => tl!("reason-judge-system-error", "message" => message.clone()),
+
+            // 系统类
+            CrashCode::OutOfMemory => tl!("reason-out-of-memory").to_string(),
+            CrashCode::ThreadPanic { message } => tl!("reason-thread-panic", "message" => message.clone()),
+            CrashCode::NullPointerDeref => tl!("reason-null-pointer-deref").to_string(),
+            CrashCode::IndexOutOfBounds { message } => tl!("reason-index-out-of-bounds", "message" => message.clone()),
+            CrashCode::ArithmeticOverflow => tl!("reason-arithmetic-overflow").to_string(),
+
+            // 认证类
+            CrashCode::LoginFailed { message } => tl!("reason-login-failed", "message" => message.clone()),
+            CrashCode::TokenExpired => tl!("reason-token-expired").to_string(),
         }
+    }
+
+    /// 根据 panic 消息匹配对应的崩溃原因
+    pub fn from_panic_message(message: &str) -> Self {
+        let msg = message.to_lowercase();
+
+        // 索引越界
+        if msg.contains("index out of bounds") || msg.contains("out of range") {
+            return CrashCode::IndexOutOfBounds { message: message.to_string() };
+        }
+
+        // 算术溢出
+        if msg.contains("overflow") || msg.contains("underflow") || msg.contains("divide by zero") {
+            return CrashCode::ArithmeticOverflow;
+        }
+
+        // 空指针
+        if msg.contains("null") || msg.contains("none") || msg.contains("unwrap on none") {
+            return CrashCode::NullPointerDeref;
+        }
+
+        // 内存不足
+        if msg.contains("out of memory") || msg.contains("oom") || msg.contains("allocation failed") {
+            return CrashCode::OutOfMemory;
+        }
+
+        // 图片加载
+        if msg.contains("image") && (msg.contains("load") || msg.contains("decode") || msg.contains("format")) {
+            return CrashCode::ImageLoadFailed { message: message.to_string() };
+        }
+        if msg.contains("texture") {
+            return CrashCode::TextureCreateFailed { message: message.to_string() };
+        }
+
+        // 音频
+        if msg.contains("audio") || msg.contains("sound") || msg.contains("music") || msg.contains("ogg") || msg.contains("mp3") {
+            if msg.contains("init") || msg.contains("device") {
+                return CrashCode::AudioInitFailed { message: message.to_string() };
+            }
+            return CrashCode::AudioLoadFailed { message: message.to_string() };
+        }
+
+        // 字体
+        if msg.contains("font") || msg.contains("ttf") {
+            return CrashCode::FontLoadFailed { message: message.to_string() };
+        }
+
+        // 资源包
+        if msg.contains("respack") || msg.contains("resource pack") {
+            return CrashCode::ResPackLoadFailed { message: message.to_string() };
+        }
+
+        // 谱面
+        if msg.contains("chart") || msg.contains("beatmap") || msg.contains("pec") || msg.contains("pgr") || msg.contains("rpe") {
+            if msg.contains("parse") || msg.contains("decode") {
+                return CrashCode::ChartParseError { message: message.to_string() };
+            }
+            return CrashCode::ChartLoadFailed { message: message.to_string() };
+        }
+
+        // 网络
+        if msg.contains("network") || msg.contains("connection") || msg.contains("disconnected") {
+            return CrashCode::NetworkError { message: message.to_string() };
+        }
+        if msg.contains("timeout") || msg.contains("timed out") {
+            return CrashCode::NetworkTimeout { message: message.to_string() };
+        }
+        if msg.contains("download") {
+            return CrashCode::DownloadFailed { message: message.to_string() };
+        }
+        if msg.contains("http") || msg.contains("api") || msg.contains("request") {
+            return CrashCode::ApiRequestFailed { message: message.to_string() };
+        }
+
+        // JSON 解析
+        if msg.contains("json") || msg.contains("serde") || msg.contains("parse") {
+            return CrashCode::JsonParseError { message: message.to_string() };
+        }
+
+        // 文件操作
+        if msg.contains("file") || msg.contains("io error") || msg.contains("read") || msg.contains("write") {
+            if msg.contains("write") || msg.contains("create") {
+                return CrashCode::FileWriteError { message: message.to_string() };
+            }
+            return CrashCode::FileReadError { message: message.to_string() };
+        }
+
+        // 渲染
+        if msg.contains("shader") || msg.contains("glsl") {
+            return CrashCode::ShaderCompileFailed { message: message.to_string() };
+        }
+        if msg.contains("render") || msg.contains("opengl") || msg.contains("vulkan") || msg.contains("gpu") {
+            return CrashCode::RenderContextLost;
+        }
+
+        // 登录/认证
+        if msg.contains("login") || msg.contains("sign in") || msg.contains("auth") {
+            return CrashCode::LoginFailed { message: message.to_string() };
+        }
+        if msg.contains("token") || msg.contains("unauthorized") || msg.contains("401") {
+            return CrashCode::TokenExpired;
+        }
+
+        // 线程
+        if msg.contains("thread") || msg.contains("panic") {
+            return CrashCode::ThreadPanic { message: message.to_string() };
+        }
+
+        // 游戏状态
+        if msg.contains("state") || msg.contains("invalid") {
+            return CrashCode::InvalidGameState { message: message.to_string() };
+        }
+
+        // 判定系统
+        if msg.contains("judge") || msg.contains("judgment") {
+            return CrashCode::JudgeSystemError { message: message.to_string() };
+        }
+
+        // 资源缺失
+        if msg.contains("not found") || msg.contains("no such file") || msg.contains("missing") {
+            return CrashCode::AssetNotFound { path: message.to_string() };
+        }
+
+        // 默认：意外崩溃
+        CrashCode::UnexpectedPanic { message: message.to_string() }
     }
 }
 
@@ -68,319 +377,25 @@ pub struct CrashScene {
     code: CrashCode,
     enter_time: f32,
     background: Option<SafeTexture>,
-    tip: &'static str,
+    tip: String,
     audio: AudioManager,
     bgm: Music,
     black_duration: f32,
     custom_title: String,
 }
 
-impl CrashScene {
-    const TIPS: &[&str] = &[
-        "哎呀,sensei的phirLie又崩溃了呀",
-        "不!",
-        "wow,你又可以向Lute_Rencai投诉了呢",
-        "you game error!",
-        "你可以数一数phirLie有多少个bug啦",
-        "你肯定不知道,PhirLie其实是rust项目",
-        "哈哈哈,你去玩Phira吧",
-        "我们的bug真多呀",
-        "恭喜你,中大奖了!",
-        "kskbl",
-        "zdjd",
-        "如何解决error,先把游戏删掉,然后启动phira玩去",
-        "是时候检查一下你的AP记录了",
-        "你的游戏被error先生占领了",
-        "这个bug是故意留下来逗你玩的",
-        "建议：重启游戏，如果还不行就重装系统",
-        "你确定你玩的是PhirLie不是Phira？",
-        "哈哈，你也遇到了这个bug？",
-        "error先生今天心情不好",
-        "试试把手机倒过来？",
-        "你的手指是不是太快了？",
-        "别担心，这个bug已经提交给开发组了",
-        "你一定是打开了新世界的大门",
-        "这个错误是隐藏彩蛋",
-        "现在你知道为什么叫PhirLie了吧？",
-        "加油，你离游戏崩溃次数记录只差一次了！",
-        "你获得了‘游戏崩溃大师’称号",
-        "建议：退出游戏，去写作业",
-        "这个bug已经被标记为‘不会修复’",
-        "你的AP记录可能已经飞走了",
-        "error先生正在嘲笑你",
-        "你玩的是PhirLie，不是Phira",
-        "这个错误是Lute_Rencai的锅",
-        "建议：把你的电脑砸了",
-        "恭喜你成功让游戏崩溃了",
-        "别慌，这只是个开始",
-        "你可能需要重新安装你的游戏",
-        "建议：去玩Phira吧，那里没那么多bug",
-        "error先生今天又开party了",
-        "你的手速太快，游戏跟不上",
-        "是不是你刚刚按了什么奇怪的按钮？",
-        "好消息：你获得了崩溃成就！",
-        "坏消息：这个成就没奖励",
-        "你的AP记录已经乘坐火箭飞走了",
-        "建议：先冷静一下，然后重启游戏",
-        "这个bug是Lute_Rencai的错，不是你的",
-        "你的游戏正在尝试修复自己……但失败了",
-        "哈哈，你被error先生盯上了",
-        "这个错误代码是幸运数字，你赚了",
-        "你可以把这个截图发给作者，他会感谢你",
-        "这个bug…和我一样会哈气",
-        "哈欠…又是崩溃啊…",
-        "哼！区区崩溃，本大人根本不放在眼里！",
-        "……麻烦，下次直接砸了电脑吧",
-        "嘻嘻，sensei又被bug捉弄了呢～",
-        "风纪委员长在此！立即修复bug！",
-        "阳奈大人说得对，我来记录这个错误",
-        "老师！您怎么又搞崩溃了！",
-        "……这个错误，我会用十字军解决",
-        "呜…要不我们先去玩别的游戏吧…",
-        "正义实现部出击！正义的修复！",
-        "これは、エラーです。勇者よ、立ち上がれ！",
-        "…我已经记不清这是第几次了",
-        "这个bug的颜色…不够白，不合格",
-        "水…我需要水来冷静…然后重启",
-        "夏莱的科技真是深不可测啊",
-        "把它吃掉就不会再崩溃了…大概",
-        "主啊，请保佑这个游戏不再崩溃",
-        "我已记录，下次更新会修复…大概",
-        "哇！又崩了！再来一次！",
-        "我…我藏进柜子里了，你们玩",
-        "任务失败，撤退",
-        "好累…这个bug也…太顽固了",
-        "阿罗娜来了！虽然我也不知道怎么修",
-        "分析完成…需要重启",
-        "前辈…好困…但也要帮你重启",
-        "把这个错误当成目标，击碎它",
-        "我可是法外狂徒！岂会被bug打败！",
-        "……（默默重启）",
-        "下次我要在bug里塞点惊喜～",
-        "我命令你，立刻恢复！",
-        "已经重启了！",
-        "老师！不要再按那个按钮了！",
-        "这个错误…我记住了",
-        "这是勇者试炼！爱丽丝会突破！",
-        "我已经麻木了…继续吧",
-        "让我用白色覆盖这个错误！",
-        "水…水…好了，重启成功",
-        "这个bug的构造…很有趣",
-        "吃掉它！吃掉它就不见了！",
-        "主啊，请赐予我重启的力量",
-        "错误代码已记录，已通知开发组",
-        "我还会再回来的！",
-        "下次我不会让它跑掉",
-        "好麻烦…但是必须重启",
-        "阿罗娜会加油的！",
-        "冷静…重启…再重启",
-        "前辈…你习惯就好",
-        "把这个bug当作狩猎目标",
-        "哼！这种小事，不值一提！",
-        "……我不会在同一个坑里摔倒两次",
-        "sensei，你又给我提供了快乐素材",
-        "再崩溃我就把电脑没收",
-        "遵命！已经准备好重启方案",
-        "老师！您是不是又偷偷改代码了！",
-        "我会用我的方式解决它",
-        "这是爱丽丝的觉悟！",
-        "……我已经懒得数了",
-        "我觉得…我们可以先去玩别的…",
-        "这是第几号bug来着？我先查查台账",
-        "sensei，这次真的不是我干的",
-        "报告！错误已被正义实现部登记在案",
-        "error先生说他今天想休息一下",
-        "已自动上报，开发组正在围观",
-        "别急，先截图发群里乐一乐",
-        "恭喜你解锁了隐藏剧情：崩溃篇",
-        "这个bug会呼吸，先别打扰它",
-        "重启能解决90%的问题，剩下10%重装",
-        "你的存档还活着，别慌",
-        "阿罗娜表示：这不是我的计算失误",
-        "要不要先喝口水冷静一下？",
-        "阳奈大人正在赶来修复的路上",
-        "建议深呼吸三次，然后重启",
-        "这个错误已经被我瞪过了，没用",
-        "下次更新一定修，大概吧",
-        "其实这是个防沉迷系统，休息一下吧",
-        "夏莱的服务器刚刚打了个喷嚏",
-        "爱丽丝会把它当成BOSS击破的！",
-        "别担心，这只是程序在卖萌",
-        "重启吧，重启完又是一条好汉",
-        "你离‘崩溃十连’只差一步了",
-        "这个bug正在申请加班费",
-        "建议重启游戏，再不行重启人生",
-        "sensei，请下指令：重启 or 继续崩溃？",
-        "风纪委员长已记录，违规bug将被处分",
-        "error先生只是想引起你的注意",
-        "你的AP记录此刻非常安全",
-        "好，我宣布：这是特性，不是bug",
-        "阿罗娜正在重新计算你的好运",
-        "再按一次，说不定就修好了",
-        "这个bug有它自己的想法",
-        "冷静，我们先看一眼错误代码再笑",
-        "重启的按钮已经为你准备好了",
-        "恭喜，本次崩溃已计入年度统计",
-        "也许……是时候去喝杯奶茶了",
-        "阳奈大人说：区区错误，不足为惧",
-        "让夏莱的科技帮你重启！",
-        "别盯着看了，它不会自己好的",
-        "正义实现部，出击！目标是这个bug",
-        "请尝试重启游戏后再试一次",
-        "请检查网络连接是否正常",
-        "请切换到更稳定的网络环境",
-        "请关闭不必要的后台程序以释放内存",
-        "请清理设备存储空间后重试",
-        "请确认设备系统时间是否正确",
-        "请更新显卡驱动到最新版本",
-        "请更新系统到最新版本",
-        "请降低游戏内的画质或特效设置",
-        "请关闭省电模式后再运行游戏",
-        "请确保设备有足够的剩余存储空间",
-        "请尝试清除游戏缓存数据",
-        "请重启设备后再运行游戏",
-        "请检查设备是否过热并适当散热",
-        "请连接电源后再进行游戏",
-        "请关闭垂直同步以提升流畅度",
-        "请关闭其他占用网络的下载任务",
-        "请使用有线网络代替无线网络",
-        "请检查路由器是否工作正常",
-        "请尝试更换 DNS 服务器",
-        "请关闭代理或加速器后重试",
-        "请重新登录账号后再试一次",
-        "请检查账号状态是否正常",
-        "请确认游戏版本是否为最新版",
-        "请前往官网下载并安装最新版本",
-        "请备份好你的数据以防丢失",
-        "请定期备份存档与谱面文件",
-        "请检查磁盘是否存在坏道",
-        "请整理磁盘碎片以提升读取速度",
-        "请将游戏安装到固态硬盘",
-        "请关闭杀毒软件对游戏目录的实时扫描",
-        "请将游戏添加至杀毒软件白名单",
-        "请以管理员身份运行游戏",
-        "请检查游戏文件是否完整",
-        "请重新安装游戏以修复损坏文件",
-        "请检查音频驱动是否正常",
-        "请检查耳机或扬声器连接是否正常",
-        "请调低音量并检查是否与崩溃有关",
-        "请关闭游戏内音乐后再试",
-        "请检查键盘鼠标等外设是否正常",
-        "请断开不必要的外接设备",
-        "请检查显示器刷新率设置",
-        "请尝试窗口化运行游戏",
-        "请尝试全屏与窗口模式切换",
-        "请调整分辨率到推荐值",
-        "请检查显卡温度是否过高",
-        "请为设备进行除尘保养",
-        "请确保风扇运转正常",
-        "请保持系统盘有充足剩余空间",
-        "请关闭系统的游戏模式",
-        "请关闭系统的录屏功能",
-        "请关闭自动更新避免中途占用",
-        "请在空闲时段再尝试游玩",
-        "请勿在下载大文件时游玩",
-        "请勿同时运行多个大型游戏",
-        "请检查内存条是否插紧",
-        "请检查内存是否充足",
-        "请关闭虚拟内存中的手动设置",
-        "请检查电源计划是否设为高性能",
-        "请尝试降低分辨率提升稳定性",
-        "请关闭抗锯齿功能",
-        "请关闭动态阴影",
-        "请关闭粒子特效",
-        "请降低音符速度相关特效",
-        "请关闭背景动画",
-        "请关闭命中特效",
-        "请关闭击打音效后重试",
-        "请降低屏幕亮度",
-        "请关闭震动反馈",
-        "请关闭触控反馈音",
-        "请校准屏幕触控",
-        "请清洁屏幕后再操作",
-        "请确保手指干燥再游玩",
-        "请使用质量较好的耳机",
-        "请检查蓝牙连接是否稳定",
-        "请关闭蓝牙设备减少干扰",
-        "请保持网络延迟稳定",
-        "请在信号良好的位置游玩",
-        "请避免在电梯或地铁等信号差处游玩",
-        "请尝试切换手机网络与 Wi-Fi",
-        "请勿使用极低剩余电量的设备游玩",
-        "请避免边充电边游玩导致过热",
-        "请关闭后台音乐播放器",
-        "请关闭悬浮窗类应用",
-        "请关闭系统手势冲突的应用",
-        "请检查是否有输入法冲突",
-        "请切换回系统默认输入法",
-        "请关闭屏幕方向锁定",
-        "请检查是否开启了勿扰模式",
-        "请关闭弹窗通知避免干扰",
-        "请勿在系统更新期间游玩",
-        "请确认设备时间与网络时间同步",
-        "请定期重启路由器",
-        "请检查防火墙是否拦截了游戏",
-        "请允许游戏通过防火墙",
-        "请检查家长控制设置",
-        "请确认账户有足够权限",
-        "请重新下载谱面文件",
-        "请删除损坏的谱面后重新导入",
-        "请检查谱面文件是否完整",
-        "请勿导入损坏的压缩包",
-        "请确认谱面来源可靠",
-        "请从官方渠道获取资源包",
-        "请更新资源包到最新版本",
-        "请检查资源包是否完整",
-        "请重新下载资源包",
-        "请删除冲突的资源包",
-        "请保持资源包数量不要过多",
-        "请定期清理不再使用的谱面",
-        "请为谱面预留足够空间",
-        "请检查自定义皮肤是否兼容",
-        "请关闭自定义皮肤后重试",
-        "请恢复默认设置后重试",
-        "请逐个排查最近更改的设置",
-        "请记录崩溃前的操作以便反馈",
-        "请截图保存错误信息",
-        "请保存崩溃日志并反馈给作者",
-        "请提供设备型号与系统版本",
-        "请提供游戏版本号",
-        "请描述复现步骤以便修复",
-        "请耐心等待开发组修复",
-        "请关注官方更新公告",
-        "请加入官方反馈群交流",
-        "请勿使用修改版或破解版",
-        "请从官方渠道下载游戏",
-        "请勿随意修改游戏文件",
-        "请保持系统整洁",
-        "请定期清理系统垃圾文件",
-        "请使用正规的安全软件",
-        "请勿安装来路不明的插件",
-        "请检查游戏路径是否包含中文",
-        "请将游戏安装到纯英文路径",
-        "请避免在移动硬盘上运行游戏",
-        "请检查硬盘接口连接",
-        "请关闭磁盘加密软件",
-        "请关闭云端同步软件对游戏目录的同步",
-        "请检查系统字体是否缺失",
-        "请安装完整的中文字体支持",
-        "请检查 DirectX 组件是否完整",
-        "请更新运行库到最新版本",
-        "请安装 VC++ 运行库",
-        "请更新显卡驱动与声卡驱动",
-        "请检查主板驱动",
-        "请更新 BIOS 到稳定版本",
-        "请确保设备散热良好",
-        "请在凉爽的环境中游玩",
-        "请勿长时间连续游玩，适当休息",
-        "请保护视力，每隔一段时间远眺",
-        "请保持充足睡眠再游玩",
-        "请理性对待分数，享受音乐本身",
-    ];
+const TIP_COUNT: usize = 149;
 
+fn random_tip() -> String {
+    use ::rand::Rng;
+    let idx = ::rand::thread_rng().gen_range(0..TIP_COUNT);
+    let key = format!("tip-{:03}", idx + 1);
+    tl!(key).to_string()
+}
+
+impl CrashScene {
     pub fn new(code: CrashCode, custom_title: String) -> Self {
-        let mut rng = ::rand::thread_rng();
-        let tip = Self::TIPS[::rand::Rng::gen_range(&mut rng, 0..Self::TIPS.len())];
+        let tip = random_tip();
 
         let config = Config::default();
         let mut audio = create_audio_manger(&config).expect("创建音频管理器失败");
@@ -540,7 +555,7 @@ impl Scene for CrashScene {
 
         let rr = draw_text_aligned(
             ui,
-            "CRASH Lv.Error_555",
+            "CRASH Lv.Error_999",
             r.right() - r.h / 7. * 13. * 0.13 - 0.01,
             r.bottom() - top / 20.,
             (1., 1.),
@@ -549,7 +564,7 @@ impl Scene for CrashScene {
         );
         let p = (r.x + 0.04, r.bottom() - top / 20.);
         let mw = rr.x - 0.02 - p.0;
-        let code_text = format!("错误代码:{}////", self.code.code());
+        let code_text = tl!("crash-error-code", "code" => self.code.code().to_string());
         let mut text = ui.text(&code_text).pos(p.0, p.1).anchor(0., 1.).size(0.7);
         if text.measure().w <= mw {
             text.draw();
@@ -571,13 +586,13 @@ impl Scene for CrashScene {
 
 
         let title = if self.custom_title.is_empty() {
-            "哇!你的PhiLie崩溃啦!看来error先生愤怒了呢"
+            tl!("crash-title").to_string()
         } else {
-            &self.custom_title
+            self.custom_title.clone()
         };
         draw_text_aligned(
             ui,
-            title,
+            &title,
             main.x + dx,
             main.bottom() - 0.035,
             (0., 1.),
@@ -625,16 +640,46 @@ impl Scene for CrashScene {
         draw_parallelogram(s1, None, c, true);
 
         let detail = match self.code {
-            CrashCode::ChartLoadTimeout => "加载超时 ( > 60秒 )",
-            CrashCode::ResPackLoadTimeout => "资源包加载超时",
-            CrashCode::ManualCrash => "手动触发",
-            CrashCode::UnexpectedPanic { .. } => "意外崩溃",
-            CrashCode::Custom { .. } => "自定义崩溃",
+            CrashCode::ChartLoadTimeout => tl!("detail-chart-load-timeout").to_string(),
+            CrashCode::ResPackLoadTimeout => tl!("detail-respack-load-timeout").to_string(),
+            CrashCode::ManualCrash => tl!("detail-manual-crash").to_string(),
+            CrashCode::UnexpectedPanic { .. } => tl!("detail-unexpected-panic").to_string(),
+            CrashCode::Custom { .. } => tl!("detail-custom").to_string(),
+            CrashCode::ImageLoadFailed { .. } => tl!("detail-image-load-failed").to_string(),
+            CrashCode::AudioLoadFailed { .. } => tl!("detail-audio-load-failed").to_string(),
+            CrashCode::FontLoadFailed { .. } => tl!("detail-font-load-failed").to_string(),
+            CrashCode::ResPackLoadFailed { .. } => tl!("detail-respack-load-failed").to_string(),
+            CrashCode::ChartLoadFailed { .. } => tl!("detail-chart-load-failed").to_string(),
+            CrashCode::AssetNotFound { .. } => tl!("detail-asset-not-found").to_string(),
+            CrashCode::NetworkError { .. } => tl!("detail-network-error").to_string(),
+            CrashCode::NetworkTimeout { .. } => tl!("detail-network-timeout").to_string(),
+            CrashCode::ApiRequestFailed { .. } => tl!("detail-api-request-failed").to_string(),
+            CrashCode::DownloadFailed { .. } => tl!("detail-download-failed").to_string(),
+            CrashCode::JsonParseError { .. } => tl!("detail-json-parse-error").to_string(),
+            CrashCode::ChartParseError { .. } => tl!("detail-chart-parse-error").to_string(),
+            CrashCode::ConfigParseError { .. } => tl!("detail-config-parse-error").to_string(),
+            CrashCode::FileReadError { .. } => tl!("detail-file-read-error").to_string(),
+            CrashCode::FileWriteError { .. } => tl!("detail-file-write-error").to_string(),
+            CrashCode::StorageFull => tl!("detail-storage-full").to_string(),
+            CrashCode::TextureCreateFailed { .. } => tl!("detail-texture-create-failed").to_string(),
+            CrashCode::ShaderCompileFailed { .. } => tl!("detail-shader-compile-failed").to_string(),
+            CrashCode::RenderContextLost => tl!("detail-render-context-lost").to_string(),
+            CrashCode::AudioInitFailed { .. } => tl!("detail-audio-init-failed").to_string(),
+            CrashCode::AudioPlayFailed { .. } => tl!("detail-audio-play-failed").to_string(),
+            CrashCode::InvalidGameState { .. } => tl!("detail-invalid-game-state").to_string(),
+            CrashCode::JudgeSystemError { .. } => tl!("detail-judge-system-error").to_string(),
+            CrashCode::OutOfMemory => tl!("detail-out-of-memory").to_string(),
+            CrashCode::ThreadPanic { .. } => tl!("detail-thread-panic").to_string(),
+            CrashCode::NullPointerDeref => tl!("detail-null-pointer-deref").to_string(),
+            CrashCode::IndexOutOfBounds { .. } => tl!("detail-index-out-of-bounds").to_string(),
+            CrashCode::ArithmeticOverflow => tl!("detail-arithmetic-overflow").to_string(),
+            CrashCode::LoginFailed { .. } => tl!("detail-login-failed").to_string(),
+            CrashCode::TokenExpired => tl!("detail-token-expired").to_string(),
         };
         let dy = 0.025;
         draw_text_aligned(
             ui,
-            detail,
+            &detail,
             s1.x + dx,
             s1.bottom() - dy,
             (0., 1.),
@@ -643,7 +688,7 @@ impl Scene for CrashScene {
         );
         draw_text_aligned(
             ui,
-            "建议：重启游戏",
+            &tl!("crash-suggest-restart"),
             s1.right() - dx,
             s1.bottom() - dy,
             (1., 1.),
@@ -673,7 +718,7 @@ impl Scene for CrashScene {
         );
         draw_text_aligned(
             ui,
-            "投诉",
+            &tl!("crash-complain"),
             complain_rect.center().x,
             complain_rect.center().y,
             (0.5, 0.5),
@@ -694,7 +739,7 @@ impl Scene for CrashScene {
         );
         draw_text_aligned(
             ui,
-            "强制重启",
+            &tl!("crash-force-restart"),
             restart_rect.center().x,
             restart_rect.center().y,
             (0.5, 0.5),
@@ -715,7 +760,7 @@ impl Scene for CrashScene {
         );
         draw_text_aligned(
             ui,
-            "退出游戏",
+            &tl!("crash-exit"),
             exit_rect.center().x,
             exit_rect.center().y,
             (0.5, 0.5),
@@ -732,8 +777,8 @@ impl Scene for CrashScene {
                         std::process::exit(0);
                     }
                     if complain_rect.contains(touch.position) {
-                        Dialog::plain("投诉", "是否前往投诉页面？")
-                            .buttons(vec!["取消".to_string(), "前往投诉".to_string()])
+                        Dialog::plain(tl!("crash-complain-title").to_string(), tl!("crash-complain-msg").to_string())
+                            .buttons(vec![tl!("crash-cancel").to_string(), tl!("crash-go-complain").to_string()])
                             .listener(|_dialog, pos| {
                                 if pos == 1 {
                                     let _ = open_url("https://qm.qq.com/q/NS4qvTszCg");

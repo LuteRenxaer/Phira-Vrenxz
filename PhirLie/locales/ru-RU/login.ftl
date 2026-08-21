@@ -23,3 +23,11 @@ action-failed =
     }
 email-sent = На вашу почту пришло верификационное письмо. Подтвердите свою почту, после чего войдите в аккаунт.
 forget-password = Забыли пароль?
+
+startup-select-language = Выбор языка
+startup-tap-to-continue = Нажмите, чтобы продолжить
+startup-tip = Совет: { $tip }
+
+startup-load-failed = Ошибка запуска
+startup-loading = Загрузка...
+

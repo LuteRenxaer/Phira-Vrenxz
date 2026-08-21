@@ -24,7 +24,7 @@ use prpr::{
     scene::{request_file, return_file, show_error, show_message, take_file, NextScene, Scene},
     task::Task,
     time::TimeManager,
-    ui::{button_hit, rounded_rect_shadow, DRectButton, RectButton, Scroll, ShadowConfig, Ui},
+    ui::{back_sound, button_hit, rounded_rect_shadow, DRectButton, RectButton, Scroll, ShadowConfig, Ui},
 };
 use serde_json::json;
 use std::sync::{
@@ -32,6 +32,18 @@ use std::sync::{
     Arc,
 };
 use tokio::sync::Notify;
+
+/// 生成平行四边形路径（左右边斜切）
+fn parallelogram(r: Rect, shear: f32) -> lyon::path::Path {
+    use lyon::math::point;
+    let mut p = lyon::path::Path::builder();
+    p.begin(point(r.x + shear, r.y));
+    p.line_to(point(r.right() + shear, r.y));
+    p.line_to(point(r.right() - shear, r.bottom()));
+    p.line_to(point(r.x - shear, r.bottom()));
+    p.end(true);
+    p.build()
+}
 
 struct RecordItem {
     record: Record,
@@ -91,7 +103,7 @@ impl ProfileScene {
         let _ = UserManager::clear_cache(id);
         UserManager::request(id);
         let load_task = Some(Task::new(Client::load(id)));
-        Self {
+        let mut s = Self {
             id,
             user: None,
             user_badges: Vec::new(),
@@ -151,10 +163,12 @@ impl ProfileScene {
                             }
                         };
                         let chart = it.chart.clone();
+                        let mut btn = DRectButton::new();
+                        btn.config.elevation = 0.0;
                         RecordItem {
                             record: it,
                             name: Task::new(async move { Ok(chart.fetch().await?.name.clone()) }),
-                            btn: DRectButton::new(),
+                            btn,
                             illu,
                         }
                     })
@@ -166,7 +180,17 @@ impl ProfileScene {
             fader: Fader::new().with_distance(0.12),
 
             rank_icons,
+        };
+        // 禁用按钮阴影
+        s.btn_open_web.config.elevation = 0.0;
+        s.btn_logout.config.elevation = 0.0;
+        s.btn_delete.config.elevation = 0.0;
+        #[cfg(feature = "hykb")]
+        {
+            s.btn_hykb.config.elevation = 0.0;
+            s.btn_transfer.config.elevation = 0.0;
         }
+        s
     }
 }
 
@@ -351,7 +375,7 @@ impl Scene for ProfileScene {
             return Ok(true);
         }
         if self.btn_back.touch(touch) {
-            button_hit();
+            back_sound();
             self.sf.next(t, NextScene::Pop);
             return Ok(true);
         }
@@ -423,11 +447,15 @@ impl Scene for ProfileScene {
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
-        set_camera(&ui.camera());
+        // 背景使用原始比例，不随 UI 比例缩放
+        set_camera(&ui.bg_camera());
         let t = tm.now() as f32;
 
         let r = ui.screen_rect();
         ui.fill_rect(r, (*self.background, r));
+
+        // UI 使用带比例的 camera
+        set_camera(&ui.camera());
 
         let r = ui.back_rect();
         ui.fill_path(&r.rounded(0.01), semi_black(0.3));
@@ -436,17 +464,14 @@ impl Scene for ProfileScene {
         self.btn_back.set(ui, r);
 
         let r = Rect::new(-0.85, -ui.top + 0.1, 0.6, 2.);
-        let radius = 0.015;
-        rounded_rect_shadow(
-            ui,
-            r,
-            &ShadowConfig {
-                radius,
-                elevation: 0.01,
-                ..Default::default()
-            },
-        );
-        ui.fill_path(&r.rounded(radius), semi_black(0.2));
+        let radius = 0.02;
+        let shear = 0.04;
+        // 卡片平行四边形背景
+        let pgram = parallelogram(r, shear);
+        ui.fill_path(&pgram, semi_black(0.3));
+        // 顶部高光条
+        let top_bar = Rect::new(r.x + 0.04, r.y + 0.02, r.w - 0.08, 0.006);
+        ui.fill_path(&parallelogram(top_bar, 0.01), Color::from_rgba(255, 255, 255, 30));
 
         if let Some(user) = &self.user {
             ui.scope(|ui| {
@@ -465,11 +490,18 @@ impl Scene for ProfileScene {
 
                     let r = ui.avatar(cx, r.y + radius + 0.05, radius, t, UserManager::opt_avatar(self.id, &self.icon_user));
                     self.avatar_btn.set(ui, r);
+                    // 头像外发光圆环
+                    let avatar_center = (r.center().x, r.center().y);
+                    let glow_r = radius + 0.015;
+                    for i in 0..3 {
+                        let alpha = 30 - i * 8;
+                        ui.stroke_circle(avatar_center.0, avatar_center.1, glow_r + i as f32 * 0.008, 0.006, Color::from_rgba(255, 255, 255, alpha));
+                    }
 
                     let r = ui
                         .text(&user.name)
-                        .size(0.74)
-                        .pos(cx, r.bottom() + 0.03)
+                        .size(0.8)
+                        .pos(cx, r.bottom() + 0.04)
                         .anchor(0.5, 0.)
                         .max_width(mw)
                         .color(user.name_color())
@@ -480,18 +512,26 @@ impl Scene for ProfileScene {
                     let r = ui
                         .text(format!("#{}", self.id))
                         .size(0.35)
-                        .pos(cx, r.bottom() + 0.01)
+                        .pos(cx, r.bottom() + 0.015)
                         .anchor(0.5, 0.)
-                        .color(semi_white(0.5))
+                        .color(semi_white(0.45))
                         .draw();
 
 
-                    let r = ui
-                        .text(format!("RKS {:.2}", user.rks))
-                        .size(0.5)
-                        .pos(cx, r.bottom() + 0.01)
+                    // RKS 醒目显示
+                    let rks_y = r.bottom() + 0.025;
+                    ui.text("RKS")
+                        .size(0.35)
+                        .pos(cx - 0.08, rks_y + 0.02)
                         .anchor(0.5, 0.)
-                        .color(semi_white(0.9))
+                        .color(semi_white(0.5))
+                        .draw();
+                    let r = ui
+                        .text(format!("{:.2}", user.rks))
+                        .size(0.65)
+                        .pos(cx + 0.06, rks_y)
+                        .anchor(0.5, 0.)
+                        .color(Color::from_rgba(255, 215, 0, 255))
                         .draw();
 
                     let mut r = ui
@@ -525,21 +565,23 @@ impl Scene for ProfileScene {
                     let hw = 0.2;
                     let mut r = Rect::new(r.center().x - hw, r.bottom() + 0.02, hw * 2., 0.1);
 
-                    self.btn_open_web.render_shadow(ui, r, t, |ui, path| {
-                        ui.fill_path(&path, semi_black(0.35));
+                    self.btn_open_web.render_shadow(ui, r, t, |ui, _path| {
+                        let btn_shear = 0.025;
+                        ui.fill_path(&parallelogram(r, btn_shear), Color::from_rgba(76, 132, 255, 200));
                         ui.text(ttl!("open-in-web"))
                             .pos(r.center().x, r.center().y)
                             .anchor(0.5, 0.5)
                             .no_baseline()
                             .size(0.45)
-                            .color(semi_white(0.9))
+                            .color(WHITE)
                             .draw();
                     });
                     r.y += r.h + 0.02;
 
                     if get_data().me.as_ref().is_some_and(|it| it.id == self.id) {
-                        self.btn_logout.render_shadow(ui, r, t, |ui, path| {
-                            ui.fill_path(&path, semi_black(0.35));
+                        self.btn_logout.render_shadow(ui, r, t, |ui, _path| {
+                            let btn_shear = 0.025;
+                            ui.fill_path(&parallelogram(r, btn_shear), semi_black(0.45));
                             ui.text(tl!("logout"))
                                 .pos(r.center().x, r.center().y)
                                 .anchor(0.5, 0.5)
@@ -550,14 +592,15 @@ impl Scene for ProfileScene {
                         });
                         r.y += r.h + 0.02;
 
-                        self.btn_delete.render_shadow(ui, r, t, |ui, path| {
-                            ui.fill_path(&path, semi_black(0.35));
+                        self.btn_delete.render_shadow(ui, r, t, |ui, _path| {
+                            let btn_shear = 0.025;
+                            ui.fill_path(&parallelogram(r, btn_shear), Color::from_rgba(220, 60, 60, 180));
                             ui.text(tl!("delete"))
                                 .pos(r.center().x, r.center().y)
                                 .anchor(0.5, 0.5)
                                 .no_baseline()
                                 .size(0.45)
-                                .color(Color::from_rgba(255, 80, 80, 255))
+                                .color(WHITE)
                                 .draw();
                         });
 
@@ -625,31 +668,40 @@ impl Scene for ProfileScene {
                                         return;
                                     }
                                     item.illu.notify();
-                                    item.btn.render_shadow(ui, r, t, |ui, path| {
-                                        ui.fill_path(&path, semi_black(0.15));
-                                        let cover_r = r.nonuniform_feather(0.02, 0.0);
-                                        ui.fill_path(&path, (*item.illu.texture.0, cover_r));
-                                        ui.fill_path(&path, semi_black(0.5));
+                                    item.btn.render_shadow(ui, r, t, |ui, _path| {
+                                        let card_shear = 0.012;
+                                        ui.fill_path(&parallelogram(r, card_shear), semi_black(0.25));
+                                        let cover_r = r.nonuniform_feather(0.015, 0.0);
+                                        // 封面图用平行四边形裁剪
+                                        ui.fill_path(&parallelogram(cover_r, card_shear), (*item.illu.texture.0, cover_r));
+                                        ui.fill_path(&parallelogram(r, card_shear), semi_black(0.5));
                                     });
 
                                     let icon = icon_index(item.record.score as _, item.record.full_combo);
                                     let s = r.h - pad * 2.;
                                     let ir = Rect::new(r.x + pad, r.y + pad, s, s);
-                                    ui.fill_path(&ir.rounded(0.005), semi_black(0.1));
-                                    ui.fill_rect(ir.feather(-0.005), (*self.rank_icons[icon], ir.feather(-0.005), ScaleType::Fit));
+                                    // 排名图标背景
+                                    ui.fill_path(&ir.rounded(0.008), semi_black(0.3));
+                                    ui.fill_rect(ir.feather(-0.008), (*self.rank_icons[icon], ir.feather(-0.008), ScaleType::Fit));
 
                                     let lf = ir.right() + 0.02;
 
                                     if let Some(Ok(name)) = item.name.get().as_ref() {
-                                        ui.text(name).pos(lf, ir.y + 0.01).max_width(r.right() - lf - 0.03).size(0.5).color(semi_white(0.9)).draw();
+                                        ui.text(name).pos(lf, ir.y + 0.01).max_width(r.right() - lf - 0.03).size(0.5).color(semi_white(0.95)).draw();
                                     }
 
-                                    ui.text(format!("{:07} {}", item.record.score, if item.record.full_combo { "[FC]" } else { "" }))
+                                    let fc = item.record.full_combo;
+                                    ui.text(format!("{:07} {}", item.record.score, if fc { "[FC]" } else { "" }))
                                         .pos(lf, ir.bottom() - 0.02)
                                         .anchor(0., 1.)
                                         .size(0.55)
-                                        .color(if item.record.full_combo { Color::from_rgba(255, 193, 7, 255) } else { semi_white(0.6) })
+                                        .color(if fc { Color::from_rgba(255, 215, 0, 255) } else { semi_white(0.65) })
                                         .draw();
+                                    // FC 时底部金色装饰线
+                                    if fc {
+                                        let line_r = Rect::new(r.x + pad, r.bottom() - 0.012, r.w - pad * 2., 0.006);
+                                        ui.fill_path(&line_r.rounded(0.003), Color::from_rgba(255, 215, 0, 150));
+                                    }
                                 });
                             }
                         }

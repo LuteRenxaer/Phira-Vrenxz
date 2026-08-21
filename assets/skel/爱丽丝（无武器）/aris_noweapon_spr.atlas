@@ -1,0 +1,66 @@
+aris_noweapon_spr.png
+	size: 1024, 1024
+	filter: Linear, Linear
+	scale: 0.55
+00_default
+	bounds: 258, 163, 122, 90
+01_normal
+	bounds: 134, 162, 122, 91
+02_respond
+	bounds: 630, 165, 122, 91
+03_smile
+	bounds: 138, 373, 122, 98
+	rotate: 90
+04_embarassed
+	bounds: 259, 256, 122, 97
+05_serious
+	bounds: 850, 188, 122, 91
+06_depressed
+	bounds: 382, 153, 122, 89
+07
+	bounds: 383, 254, 119, 99
+08
+	bounds: 138, 255, 119, 100
+09
+	bounds: 2, 158, 120, 91
+10
+	bounds: 850, 281, 119, 101
+11
+	bounds: 2, 251, 130, 90
+12
+	bounds: 714, 258, 124, 134
+	rotate: 90
+13
+	bounds: 754, 138, 118, 85
+	rotate: 90
+14
+	bounds: 507, 938, 124, 84
+15
+	bounds: 2, 938, 124, 84
+16
+	bounds: 504, 244, 124, 90
+17
+	bounds: 588, 336, 124, 134
+18
+	bounds: 2, 343, 124, 134
+	rotate: 90
+19
+	bounds: 2, 469, 124, 136
+Hair_Cover_02
+	bounds: 903, 105, 119, 102
+	offsets: 2, 3, 124, 108
+Halo
+	bounds: 2, 605, 151, 144
+	offsets: 2, 0, 155, 144
+Halo_Blur
+	bounds: 810, 869, 161, 153
+	offsets: 1, 0, 164, 153
+aris
+	bounds: 2, 354, 808, 668
+	offsets: 0, 0, 808, 1108
+aris_1
+	bounds: 661, 384, 361, 454
+	offsets: 255, 654, 808, 1108
+	rotate: 180
+eyeclose
+	bounds: 506, 151, 119, 91

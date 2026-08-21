@@ -20,8 +20,6 @@ pub struct Dialog {
     title: String,
     message: String,
     buttons: Vec<String>,
-    /// listener function returns `false` to close the dialog, `true` to keep it open
-    /// the parameter is the *index* of the button clicked, `-1` for outside click, `-2` for text
     listener: Option<Box<DialogListener>>,
 
     text_btn: RectButton,
@@ -181,7 +179,6 @@ impl Dialog {
         };
         let ease = 1. - (1. - p).powi(3);
 
-        // 遮罩淡入
         ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 0.62 * ease));
 
         let mh = ui.top * 2. * HEIGHT_RATIO;
@@ -204,15 +201,12 @@ impl Dialog {
             );
         }
         let h = self.h.unwrap();
-        // 弹出:轻微缩放
         let scale = 0.94 + 0.06 * ease;
         let ww = 2. * WIDTH_RADIO * scale;
         let wh = h * scale;
         let wr = Rect::new(-ww / 2., -wh / 2., ww, wh);
-        // 点击外部关闭用的矩形(最终尺寸)
         self.window_rect = Some(ui.rect_to_global(Rect::new(-WIDTH_RADIO, -h / 2., 2. * WIDTH_RADIO, h)));
 
-        // 主体平行四边形:顶部略亮、底部略暗,带阴影
         draw_parallelogram_ex(
             wr,
             None,
@@ -220,17 +214,15 @@ impl Dialog {
             Color::new(0.09, 0.11, 0.15, 0.97 * ease),
             true,
         );
-        // 描边
+
         draw_parallelogram(wr, None, Color::new(1., 1., 1., 0.09 * ease), false);
-        // 顶部高亮线
+
         let l = wr.h * PARALLELOGRAM_SLOPE;
         ui.fill_rect(Rect::new(wr.x + l, wr.y, wr.w - l, 0.004), Color::new(1., 1., 1., 0.12 * ease));
 
-        // 内容安全区域(避开左侧斜切)
         let content_x = wr.x + l + pad;
         let content_w = wr.w - l - pad * 2.;
 
-        // 标题
         let tr = ui
             .text(&self.title)
             .pos(content_x, wr.y + pad)
@@ -241,7 +233,6 @@ impl Dialog {
             .color(WHITE)
             .draw_using(&BOLD_FONT);
 
-        // 消息(可滚动)
         let scroll_top = wr.y + pad + tr.h + s * 2.;
         let scroll_h = wr.bottom() - bh - s - scroll_top;
         ui.scope(|ui| {
@@ -262,9 +253,6 @@ impl Dialog {
             });
         });
 
-        // 按钮:平行四边形斜切 + 右侧高亮条
-        // 按钮位于窗口底部,而底部边从 wr.x 收斜到 wr.right() - l,
-        // 所以按底部安全区排列,避免右下角探出窗口斜切边缘。
         let n = self.buttons.len();
         let area_x = wr.x + pad;
         let area_w = wr.w - l - pad * 2.;

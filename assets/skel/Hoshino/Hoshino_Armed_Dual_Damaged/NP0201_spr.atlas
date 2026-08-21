@@ -1,0 +1,113 @@
+NP0201_spr.png
+size:2048,2048
+filter:Linear,Linear
+scale:1.09
+00_deuflat
+bounds:423,33,216,153
+01_normal
+bounds:423,33,216,153
+02_respond
+bounds:1826,1786,216,160
+rotate:180
+03_smile
+bounds:1137,124,216,167
+04_embarassed
+bounds:1355,32,214,154
+05_serious
+bounds:203,2,218,145
+06_depressed
+bounds:1889,1520,216,157
+rotate:270
+07_normal 2
+bounds:2,1273,216,154
+rotate:90
+08_eyeclose 2
+bounds:860,67,216,154
+09_sarcastic
+bounds:1797,108,216,167
+10_think
+bounds:641,29,216,150
+11_damaged
+bounds:2,66,216,160
+12_fury shout 1
+bounds:816,1212,216,180
+rotate:90
+13_fury shout 2
+bounds:1397,188,216,180
+rotate:90
+14_shout
+bounds:920,223,215,182
+15_irritate 1
+bounds:423,188,218,156
+16_irritate 2
+bounds:243,172,213,178
+rotate:90
+17_embarassed 2
+bounds:643,181,215,154
+18_embarassed 3
+bounds:678,337,240,185
+19_shout 2
+bounds:722,524,240,191
+20_surprised 1
+bounds:1862,895,215,184
+rotate:90
+21_surprised 2
+bounds:1878,676,217,147
+rotate:90
+22_surprised 3
+bounds:2,666,240,192
+23_pure smile 1
+bounds:964,407,240,189
+rotate:90
+24_pure smile 2
+bounds:2,437,240,189
+25_smile 2
+bounds:1614,911,240,197
+26_calm smile
+bounds:1604,331,240,186
+27_peaceful
+bounds:480,537,240,194
+28_yawn
+bounds:244,629,234,198
+29_shy 1
+bounds:244,386,240,191
+rotate:90
+30_shy 2
+bounds:1636,713,240,196
+31_shy 3
+bounds:1410,406,240,192
+rotate:90
+32_cry 1
+bounds:1845,277,240,180
+rotate:90
+33_cry 2
+bounds:1155,293,240,184
+34_cry 3
+bounds:2,228,240,207
+35_difficult 1
+bounds:1636,519,240,192
+36_difficult 2
+bounds:1168,479,240,192
+37_difficult 3
+bounds:436,346,240,189
+38_trick 1
+bounds:2,861,240,197
+39_trick 2
+bounds:2,1060,240,199
+NP0201
+bounds:2,732,913,1214
+offsets:0,993,1050,2207
+NP0201_1
+bounds:876,647,1050,1299
+offsets:0,0,1050,2207
+rotate:180
+eyeclose
+bounds:1579,176,216,153
+fronthair_D
+bounds:1696,1111,306,245
+halo 1
+bounds:1540,1349,506,253
+halo 2
+bounds:1564,7,219,167
+halo 3
+bounds:843,1823,160,123

@@ -1,5 +1,6 @@
 use crate::scene::TEX_ICON_BACK;
 use anyhow::Result;
+use futures_util::join;
 use macroquad::texture::load_texture;
 use prpr::ext::SafeTexture;
 
@@ -32,6 +33,7 @@ pub struct Icons {
     pub cloud_check: SafeTexture,
     pub plus: SafeTexture,
     pub select: SafeTexture,
+    pub character: SafeTexture,
 
     #[cfg(feature = "hykb")]
     pub hykb: SafeTexture,
@@ -41,40 +43,82 @@ pub struct Icons {
 
 impl Icons {
     pub async fn new() -> Result<Self> {
+        // 并行加载所有图标，显著减少加载时间
+        let (
+            icon, play, medal, respack, msg, settings, lang, download, user, info, delete,
+            menu, edit, ldb, close, search, order, filter, r#mod, star, star_outline, heart,
+            heart_outline, cloud_none, cloud_check, plus, select, character, abstract_tex,
+        ) = join!(
+            load_texture("icon.png"),
+            load_texture("icon_old(home)/resume.png"),
+            load_texture("medal.png"),
+            load_texture("respack.png"),
+            load_texture("message.png"),
+            load_texture("settings.png"),
+            load_texture("language.png"),
+            load_texture("download.png"),
+            load_texture("user.png"),
+            load_texture("info.png"),
+            load_texture("delete.png"),
+            load_texture("menu.png"),
+            load_texture("edit.png"),
+            load_texture("leaderboard.png"),
+            load_texture("icon_old(home)/close.png"),
+            load_texture("search.png"),
+            load_texture("order.png"),
+            load_texture("filter.png"),
+            load_texture("mod.png"),
+            load_texture("star.png"),
+            load_texture("star_outline.png"),
+            load_texture("heart.png"),
+            load_texture("heart_outline.png"),
+            load_texture("cloud_none.png"),
+            load_texture("cloud_check.png"),
+            load_texture("plus.png"),
+            load_texture("select.png"),
+            load_texture("skel_icon.png"),
+            load_texture("abstract.jpg"),
+        );
+
+        // hykb 图标单独加载（条件编译）
+        #[cfg(feature = "hykb")]
+        let hykb = load_texture("hykb.png").await?;
+
         Ok(Self {
-            icon: load_texture("icon.png").await?.into(),
-            play: load_texture("resume.png").await?.into(),
-            medal: load_texture("medal.png").await?.into(),
-            respack: load_texture("respack.png").await?.into(),
-            msg: load_texture("message.png").await?.into(),
-            settings: load_texture("settings.png").await?.into(),
-            lang: load_texture("language.png").await?.into(),
+            icon: icon?.into(),
+            play: play?.into(),
+            medal: medal?.into(),
+            respack: respack?.into(),
+            msg: msg?.into(),
+            settings: settings?.into(),
+            lang: lang?.into(),
             back: TEX_ICON_BACK.with(|it| it.borrow().clone().unwrap()),
-            download: load_texture("download.png").await?.into(),
-            user: load_texture("user.png").await?.into(),
-            info: load_texture("info.png").await?.into(),
-            delete: load_texture("delete.png").await?.into(),
-            menu: load_texture("menu.png").await?.into(),
-            edit: load_texture("edit.png").await?.into(),
-            ldb: load_texture("leaderboard.png").await?.into(),
-            close: load_texture("close.png").await?.into(),
-            search: load_texture("search.png").await?.into(),
-            order: load_texture("order.png").await?.into(),
-            filter: load_texture("filter.png").await?.into(),
-            r#mod: load_texture("mod.png").await?.into(),
-            star: load_texture("star.png").await?.into(),
-            star_outline: load_texture("star_outline.png").await?.into(),
-            heart: load_texture("heart.png").await?.into(),
-            heart_outline: load_texture("heart_outline.png").await?.into(),
-            cloud_none: load_texture("cloud_none.png").await?.into(),
-            cloud_check: load_texture("cloud_check.png").await?.into(),
-            plus: load_texture("plus.png").await?.into(),
-            select: load_texture("select.png").await?.into(),
+            download: download?.into(),
+            user: user?.into(),
+            info: info?.into(),
+            delete: delete?.into(),
+            menu: menu?.into(),
+            edit: edit?.into(),
+            ldb: ldb?.into(),
+            close: close?.into(),
+            search: search?.into(),
+            order: order?.into(),
+            filter: filter?.into(),
+            r#mod: r#mod?.into(),
+            star: star?.into(),
+            star_outline: star_outline?.into(),
+            heart: heart?.into(),
+            heart_outline: heart_outline?.into(),
+            cloud_none: cloud_none?.into(),
+            cloud_check: cloud_check?.into(),
+            plus: plus?.into(),
+            select: select?.into(),
+            character: character?.into(),
 
             #[cfg(feature = "hykb")]
-            hykb: load_texture("hykb.png").await?.into(),
+            hykb: hykb.into(),
 
-            r#abstract: load_texture("abstract.jpg").await?.into(),
+            r#abstract: abstract_tex?.into(),
         })
     }
 }

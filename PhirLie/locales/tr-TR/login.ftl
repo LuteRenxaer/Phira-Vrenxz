@@ -22,3 +22,11 @@ action-failed =
        *[other] _
     }
 email-sent = Bir doğrulama e-postası gönderildi. Lütfen hesabınızı doğrulayıp giriş yapın.
+
+startup-select-language = Dil Seç
+startup-tap-to-continue = Devam etmek için dokunun
+startup-tip = İpucu: { $tip }
+
+startup-load-failed = Başlatma başarısız
+startup-loading = Yükleniyor...
+

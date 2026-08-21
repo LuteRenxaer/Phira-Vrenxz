@@ -50,6 +50,13 @@ pub struct ChartInfo {
     pub use_rpe_170_speed: Option<bool>,
     pub use_attach_ui_fix: Option<bool>,
 
+    /// Use Arcaea-style judgement and scoring (for XC-SIM charts)
+    #[serde(default)]
+    pub arcaea_judgement: bool,
+    /// Use FNF-style judgement and scoring
+    #[serde(default)]
+    pub fnf_judgement: bool,
+
     pub created: Option<DateTime<Utc>>,
     pub updated: Option<DateTime<Utc>>,
     pub chart_updated: Option<DateTime<Utc>>,
@@ -90,6 +97,9 @@ impl Default for ChartInfo {
             force_aspect_ratio: false,
             use_rpe_170_speed: None,
             use_attach_ui_fix: None,
+
+            arcaea_judgement: false,
+            fnf_judgement: false,
 
             created: None,
             updated: None,

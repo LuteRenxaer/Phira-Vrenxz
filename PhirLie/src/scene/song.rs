@@ -49,7 +49,7 @@ use prpr::{
     },
     task::Task,
     time::TimeManager,
-    ui::{button_hit, render_chart_info, ChartInfoEdit, DRectButton, Dialog, LoadingParams, LongTouchState, RectButton, Scroll, Ui, UI_AUDIO},
+    ui::{back_sound, button_hit, play_sound, render_chart_info, ChartInfoEdit, DRectButton, Dialog, LoadingParams, LongTouchState, RectButton, Scroll, Ui, UI_AUDIO},
 };
 use regex::Regex;
 use reqwest::Method;
@@ -338,7 +338,6 @@ pub struct SongScene {
     mod_btn: RectButton,
     mod_scroll: Scroll,
     mod_btns: Vec<(DRectButton, bool)>,
-    autoplay_text_btn: DRectButton,
 
     side_content: SideContent,
     side_enter_time: f32,
@@ -394,6 +393,7 @@ pub struct SongScene {
     tr_start: f32,
 
     open_web_btn: DRectButton,
+    level_author_btn: DRectButton,
 
 
     overwrite_from: Option<String>,
@@ -402,6 +402,9 @@ pub struct SongScene {
     update_cksum_passed: Option<bool>,
     update_cksum_task: Option<Task<Result<bool>>>,
     chart_type: ChartType,
+    level_author: Option<crate::page::LevelAuthor>,
+    xcsim_preview_url: Option<String>,
+    xcsim_illustration_url: Option<String>,
 
     is_fav: Option<bool>,
     toggle_fav_task: Option<Task<Result<(Collection, bool)>>>,
@@ -416,9 +419,13 @@ pub struct SongScene {
 
 impl SongScene {
     pub fn new(mut chart: ChartItem, local_path: Option<String>, icons: Arc<Icons>, rank_icons: [SafeTexture; 8], mods: Mods) -> Self {
+        let is_xcsim = chart.chart_type == ChartType::XCSim;
         if let Some(path) = &local_path {
-            if let Some(id) = path.strip_prefix("download/") {
-                chart.info.id = Some(id.parse().unwrap());
+            if let Some(id_str) = path.strip_prefix("download/") {
+                let id_str = id_str.strip_prefix("xcsim_").unwrap_or(id_str);
+                if let Ok(id) = id_str.parse::<i32>() {
+                    chart.info.id = Some(id);
+                }
             }
         }
         let illu = if let Some(path) = &chart.local_path {
@@ -426,18 +433,40 @@ impl SongScene {
             illu.notify.notify_one();
             illu
         } else if let Some(id) = chart.info.id {
-            Illustration {
-                texture: chart.illu.texture.clone(),
-                notify: Arc::default(),
-                task: Some(Task::new({
-                    async move {
-                        let chart = Ptr::<Chart>::new(id).load().await?;
-                        let image = chart.illustration.load_image().await?;
-                        Ok((image, None))
+            if is_xcsim {
+                if let Some(illu_url) = &chart.xcsim_illustration_url {
+                    let illu_url = crate::xcsim::rehost_url(illu_url);
+                    Illustration {
+                        texture: chart.illu.texture.clone(),
+                        notify: Arc::default(),
+                        task: Some(Task::new({
+                            let illu_url = illu_url.clone();
+                            async move {
+                                let bytes = reqwest::get(&illu_url).await?.bytes().await?;
+                                let image = image::load_from_memory(&bytes)?;
+                                Ok((image, None))
+                            }
+                        })),
+                        loaded: Arc::default(),
+                        load_time: f32::NAN,
                     }
-                })),
-                loaded: Arc::default(),
-                load_time: f32::NAN,
+                } else {
+                    chart.illu
+                }
+            } else {
+                Illustration {
+                    texture: chart.illu.texture.clone(),
+                    notify: Arc::default(),
+                    task: Some(Task::new({
+                        async move {
+                            let chart = Ptr::<Chart>::new(id).load().await?;
+                            let image = chart.illustration.load_image().await?;
+                            Ok((image, None))
+                        }
+                    })),
+                    loaded: Arc::default(),
+                    load_time: f32::NAN,
+                }
             }
         } else {
             chart.illu
@@ -448,7 +477,7 @@ impl SongScene {
             .find(|it| Some(&it.local_path) == local_path.as_ref())
             .and_then(|it| it.record.clone())
             .or_else(|| local_path.as_ref().and_then(|path| get_data().local_records.get(path).cloned().flatten()));
-        let fetch_best_task = if get_data().me.is_some() {
+        let fetch_best_task = if !is_xcsim && get_data().me.is_some() {
             chart.info.id.map(|id| Task::new(Client::best_record(id)))
         } else {
             None
@@ -471,6 +500,7 @@ impl SongScene {
             preview: None,
             preview_task: Some(Task::new({
                 let local_path = local_path.clone();
+                let xcsim_preview_url = chart.xcsim_preview_url.clone();
                 async move {
                     if let Some(path) = local_path {
                         let mut fs = fs_from_path(&path)?;
@@ -479,6 +509,14 @@ impl SongScene {
                             AudioClip::decode(fs.load_file(&info.music).await?)?,
                             Some((info.preview_start, info.preview_end.unwrap_or(info.preview_start + 15.))),
                         )
+                    } else if is_xcsim {
+                        if let Some(preview_url) = xcsim_preview_url {
+                            let preview_url = crate::xcsim::rehost_url(&preview_url);
+                            let bytes = reqwest::get(&preview_url).await?.bytes().await?;
+                            with_effects(AudioClip::decode(bytes.to_vec())?, None)
+                        } else {
+                            bail!("XC-SIM 谱面没有预览音频");
+                        }
                     } else {
                         let chart = Ptr::<Chart>::new(id.unwrap()).fetch().await?;
                         with_effects(AudioClip::decode(chart.preview.fetch().await?.to_vec())?, None)
@@ -486,7 +524,7 @@ impl SongScene {
                 }
             })),
 
-            load_task: if offline_mode {
+            load_task: if offline_mode || is_xcsim {
                 None
             } else {
                 id.map(|it| Task::new(async move { Ptr::new(it).fetch_opt().await }))
@@ -517,7 +555,6 @@ impl SongScene {
             mod_btn: RectButton::new(),
             mod_scroll: Scroll::new(),
             mod_btns: Vec::new(),
-            autoplay_text_btn: DRectButton::new(),
 
             side_content: SideContent::Edit,
             side_enter_time: f32::INFINITY,
@@ -554,7 +591,7 @@ impl SongScene {
 
             should_update: Arc::default(),
 
-            my_rating_task: if offline_mode {
+            my_rating_task: if offline_mode || is_xcsim {
                 None
             } else {
                 id.map(|id| {
@@ -586,6 +623,7 @@ impl SongScene {
             background: Arc::default(),
 
             open_web_btn: DRectButton::new(),
+            level_author_btn: DRectButton::new(),
 
             overwrite_from: None,
             overwrite_task: None,
@@ -593,6 +631,9 @@ impl SongScene {
             update_cksum_passed: None,
             update_cksum_task: None,
             chart_type: chart.chart_type,
+            level_author: chart.level_author,
+            xcsim_preview_url: chart.xcsim_preview_url,
+            xcsim_illustration_url: chart.xcsim_illustration_url,
 
             is_fav: None,
             toggle_fav_task: None,
@@ -608,6 +649,11 @@ impl SongScene {
 
     fn start_download(&mut self) -> Result<()> {
         let chart = self.info.clone();
+        if self.chart_type == ChartType::XCSim {
+            self.loading_last = 0.;
+            self.downloading = Some(Self::global_start_download_xcsim(chart, self.local_path.clone())?);
+            return Ok(());
+        }
         let Some(entity) = self.entity.clone() else {
             show_message(tl!("still-loading")).error();
             return Ok(());
@@ -615,6 +661,68 @@ impl SongScene {
         self.loading_last = 0.;
         self.downloading = Some(Self::global_start_download(chart, entity, self.local_path.clone())?);
         Ok(())
+    }
+
+    pub fn global_start_download_xcsim(chart: BriefChartInfo, local_path: Option<String>) -> Result<Downloading> {
+        let progress = Arc::new(Mutex::new(None));
+        let status = Arc::new(Mutex::new(Cow::Borrowed("正在下载 XC-SIM 谱面")));
+        let status_shared = Arc::clone(&status);
+        let atomicity = Arc::new(Mutex::new(()));
+        Ok(Downloading {
+            info: chart.clone(),
+            local_path,
+            loading_last: 0.,
+            cancel_download_btn: DRectButton::new(),
+            prog: progress,
+            status: status_shared,
+            atomicity: atomicity.clone(),
+            task: Task::new({
+                let path = format!("{}/{}", dir::downloaded_charts()?, Uuid::new_v4());
+                async move {
+                    let path = std::path::Path::new(&path);
+                    tokio::fs::create_dir(path).await?;
+
+                    let id = chart.id.ok_or_else(|| anyhow::anyhow!("XC-SIM 谱面缺少 ID"))?;
+                    let access_token = crate::xcsim::account().access_token.clone();
+                    *status.lock().unwrap() = Cow::Borrowed("正在从 XC-SIM 下载谱面");
+                    crate::xcsim::download_chart(access_token.as_deref(), id, path).await?;
+
+                    *status.lock().unwrap() = Cow::Borrowed("正在保存谱面");
+                    let dir = prpr::dir::Dir::new(path)?;
+                    let mut info: ChartInfo = serde_yaml::from_reader(dir.open("info.yml")?)?;
+                    info.id = Some(id);
+                    serde_yaml::to_writer(dir.create("info.yml")?, &info)?;
+
+                    let local_path = format!("download/xcsim_{}", id);
+                    let to_path = format!("{}/{local_path}", dir::charts()?);
+                    let to_path = Path::new(&to_path);
+                    {
+                        let _guard = atomicity.lock().unwrap();
+                        if to_path.exists() {
+                            if to_path.is_file() {
+                                std::fs::remove_file(to_path)?;
+                            } else {
+                                std::fs::remove_dir_all(to_path)?;
+                            }
+                        }
+                        std::fs::rename(path, to_path)?;
+                    }
+
+                    let tuple = load_local_tuple(&local_path, BLACK_TEXTURE.clone(), info).await?;
+
+                    Ok((
+                        LocalChart {
+                            info: chart,
+                            local_path,
+                            record: None,
+                            mods: Mods::default(),
+                            played_unlock: false,
+                        },
+                        tuple,
+                    ))
+                }
+            }),
+        })
     }
 
     pub fn global_start_download(chart: BriefChartInfo, entity: Chart, local_path: Option<String>) -> Result<Downloading> {
@@ -725,7 +833,7 @@ impl SongScene {
     }
 
     fn load_ldb(&mut self) {
-        if get_data().config.offline_mode {
+        if get_data().config.offline_mode || self.chart_type == ChartType::XCSim {
             return;
         }
         let Some(id) = self.info.id else { return };
@@ -775,7 +883,7 @@ impl SongScene {
         if self.local_path.as_ref().is_some_and(|it| !it.starts_with(':')) {
             self.menu_options.push("delete");
         }
-        if self.info.id.is_some() {
+        if self.info.id.is_some() && self.chart_type != ChartType::XCSim {
             self.menu_options.push("rate");
         }
         if let Some(local_path) = &self.local_path {
@@ -837,9 +945,10 @@ impl SongScene {
                     .iter()
                     .find(|it| it.local_path == *local_path)
                     .is_some_and(|it| it.info.has_unlock && !it.played_unlock));
+        let is_xcsim = self.chart_type == ChartType::XCSim;
 
         self.scene_task =
-            Self::global_launch(self.info.id, local_path, self.mods, mode, None, Some(self.background.clone()), self.record.clone(), is_unlock)?;
+            Self::global_launch(self.info.id, local_path, self.mods, mode, None, Some(self.background.clone()), self.record.clone(), is_unlock, is_xcsim)?;
 
         Ok(())
     }
@@ -855,6 +964,7 @@ impl SongScene {
         background_output: Option<Arc<Mutex<Option<SafeTexture>>>>,
         record: Option<SimpleRecord>,
         is_unlock: bool,
+        is_xcsim: bool,
     ) -> Result<LocalSceneTask> {
         let mut fs = fs_from_path(local_path)?;
         let can_rated = id.is_some() || local_path.starts_with(':');
@@ -863,7 +973,7 @@ impl SongScene {
         #[cfg(closed)]
         let rated = {
             let config = &get_data().config;
-            !config.offline_mode && can_rated && !mods.intersects(Mods::UNRATED) && !config.use_keyboard && config.speed >= 1.0 - 1e-3
+            !is_xcsim && !config.arcaea_judgement && !config.fnf_judgement && !config.offline_mode && can_rated && !mods.intersects(Mods::UNRATED) && !config.use_keyboard && config.speed >= 1.0 - 1e-3
         };
         #[cfg(not(closed))]
         let rated = false;
@@ -997,6 +1107,7 @@ impl SongScene {
         Ok(Some(Box::pin(async move {
             let mut info = fs::load_info(fs.as_mut()).await?;
             info.id = id;
+            info.arcaea_judgement = is_xcsim;
             let mut config = get_data().config.clone();
             config.player_name = get_data()
                 .me
@@ -1044,44 +1155,48 @@ impl SongScene {
                 rks: it.rks,
                 historic_best: record.map_or(0, |it| it.score as u32),
             });
-            let upload_fn: Option<UploadFn> = Some(Arc::new(move |data: Vec<u8>| {
-                Task::new(async move {
-                    #[derive(Serialize)]
-                    #[serde(rename_all = "camelCase")]
-                    struct Req {
-                        chart: i32,
-                        token: String,
-                        chart_updated: Option<DateTime<Utc>>,
-                    }
-                    #[derive(Deserialize)]
-                    #[serde(rename_all = "camelCase")]
-                    struct Resp {
-                        id: i32,
-                        exp_delta: f64,
-                        new_best: bool,
-                        improvement: u32,
-                        new_rks: f32,
-                    }
-                    let resp: Resp = recv_raw(Client::post(
-                        "/play/upload",
-                        &Req {
-                            chart: id.unwrap(),
-                            token: STANDARD.encode(data),
-                            chart_updated,
-                        },
-                    ))
-                    .await?
-                    .json()
-                    .await?;
-                    RECORD_ID.store(resp.id, Ordering::Relaxed);
-                    Ok(RecordUpdateState {
-                        best: resp.new_best,
-                        improvement: resp.improvement,
-                        gain_exp: resp.exp_delta as f32,
-                        new_rks: Some(resp.new_rks),
+            let upload_fn: Option<UploadFn> = if is_xcsim {
+                None
+            } else {
+                Some(Arc::new(move |data: Vec<u8>| {
+                    Task::new(async move {
+                        #[derive(Serialize)]
+                        #[serde(rename_all = "camelCase")]
+                        struct Req {
+                            chart: i32,
+                            token: String,
+                            chart_updated: Option<DateTime<Utc>>,
+                        }
+                        #[derive(Deserialize)]
+                        #[serde(rename_all = "camelCase")]
+                        struct Resp {
+                            id: i32,
+                            exp_delta: f64,
+                            new_best: bool,
+                            improvement: u32,
+                            new_rks: f32,
+                        }
+                        let resp: Resp = recv_raw(Client::post(
+                            "/play/upload",
+                            &Req {
+                                chart: id.unwrap(),
+                                token: STANDARD.encode(data),
+                                chart_updated,
+                            },
+                        ))
+                        .await?
+                        .json()
+                        .await?;
+                        RECORD_ID.store(resp.id, Ordering::Relaxed);
+                        Ok(RecordUpdateState {
+                            best: resp.new_best,
+                            improvement: resp.improvement,
+                            gain_exp: resp.exp_delta as f32,
+                            new_rks: Some(resp.new_rks),
+                        })
                     })
-                })
-            }));
+                }))
+            };
 
             if is_unlock {
                 #[cfg(not(feature = "video"))]
@@ -1297,7 +1412,7 @@ impl SongScene {
                 }};
             }
             let mw = width - pad * 3.;
-            if self.info.id.is_some() {
+            if self.info.id.is_some() && self.chart_type != ChartType::XCSim {
                 let r = Rect::new(0.03, 0., mw, 0.12).nonuniform_feather(-0.03, -0.01);
                 self.open_web_btn.render_text(ui, r, rt, ttl!("open-in-web"), 0.6, true);
                 dy!(r.h + 0.04);
@@ -1345,6 +1460,18 @@ impl SongScene {
                     }
                     dy!(0.14);
                 }
+            }
+
+            if let Some(author) = &self.level_author {
+                dy!(ui.text("谱师").size(0.4).color(semi_white(0.7)).draw().h + 0.02);
+                // 谱师名字
+                dy!(ui.text(&author.name).pos(pad, 0.).size(0.7).color(WHITE).draw().h + 0.01);
+                // 平台
+                dy!(ui.text(format!("平台：{}", author.terrace)).pos(pad, 0.).size(0.45).color(semi_white(0.7)).draw().h + 0.01);
+                // 链接按钮
+                let link_r = Rect::new(pad, 0., mw, 0.08);
+                self.level_author_btn.render_text(ui, link_r, rt, "查看主页", 0.5, true);
+                dy!(link_r.h + 0.03);
             }
 
             let mut item = |title: Cow<'_, str>, content: Cow<'_, str>| {
@@ -1469,43 +1596,6 @@ impl SongScene {
             item(tl!("mods-instant-death-fc"), Some(tl!("mods-instant-death-fc-sub")), Mods::INSTANT_DEATH_FC);
             item(tl!("mods-no-shader"), Some(tl!("mods-no-shader-sub")), Mods::NO_SHADER);
 
-            {
-                const TITLE_SIZE: f32 = 0.6;
-                const SUBTITLE_SIZE: f32 = 0.35;
-                const LEFT: f32 = 0.03;
-                let title = "Autoplay 显示文字";
-                let subtitle = Cow::Owned(get_data().config.autoplay_display_text.clone());
-                let r1 = ui.text(title).size(TITLE_SIZE).measure();
-                let r2 = ui
-                    .text(Cow::clone(&subtitle))
-                    .size(SUBTITLE_SIZE)
-                    .max_width(0.46)
-                    .no_baseline()
-                    .measure();
-                let h = r1.h + 0.01 + r2.h;
-                ui.text(subtitle)
-                    .pos(LEFT, (ITEM_HEIGHT + h) / 2. - r2.h)
-                    .size(SUBTITLE_SIZE)
-                    .max_width(0.46)
-                    .color(semi_white(0.6))
-                    .draw();
-                ui.text(title).pos(LEFT, (ITEM_HEIGHT - h) / 2.).no_baseline().size(TITLE_SIZE).draw();
-
-                let btn_rect = Rect::new(width - 0.24, (ITEM_HEIGHT - rr.h) / 2., 0.2, rr.h);
-                self.autoplay_text_btn.build(ui, rt, btn_rect, |ui, path| {
-                    let ct = btn_rect.center();
-                    ui.fill_path(&path, ui.background());
-                    ui.text("修改")
-                        .pos(ct.x, ct.y)
-                        .anchor(0.5, 0.5)
-                        .no_baseline()
-                        .size(0.45)
-                        .max_width(btn_rect.w)
-                        .color(WHITE)
-                        .draw();
-                });
-                dy!(ITEM_HEIGHT);
-            }
             (width, h + 0.2)
         });
     }
@@ -1871,6 +1961,12 @@ impl Scene for SongScene {
                             open_url(&format!("https://phira.moe/chart/{}", self.info.id.unwrap()))?;
                             return Ok(true);
                         }
+                        if self.level_author_btn.touch(touch, rt) {
+                            if let Some(author) = &self.level_author {
+                                open_url(&author.link)?;
+                                return Ok(true);
+                            }
+                        }
                     }
                     SideContent::Mods => {
                         if self.mod_scroll.touch(touch, t) {
@@ -1883,23 +1979,18 @@ impl Scene for SongScene {
                                 return Ok(true);
                             }
                         }
-                        if self.autoplay_text_btn.touch(touch, rt) {
-                            button_hit();
-                            let current_text = get_data().config.autoplay_display_text.clone();
-                            request_input("autoplay-text", InputBox::new().default_text(&current_text));
-                            return Ok(true);
-                        }
                     }
                 }
             }
             return Ok(false);
         }
         if self.back_btn.touch(touch) {
-            button_hit();
+            back_sound();
             self.next_scene = Some(NextScene::PopWithResult(Box::new(false)));
             return Ok(true);
         }
         if self.scene_task.is_none() && self.next_scene.is_none() && self.play_btn.touch(touch, t) {
+            play_sound();
             if self.local_path.is_some() {
                 self.launch(GameMode::Normal, false)?;
             } else {
@@ -1946,7 +2037,7 @@ impl Scene for SongScene {
                 return Ok(true);
             }
         }
-        if self.info.id.is_some() && self.ldb_btn.touch(touch) {
+        if self.info.id.is_some() && self.chart_type != ChartType::XCSim && self.ldb_btn.touch(touch) {
             button_hit();
             self.side_content = SideContent::Leaderboard;
             self.side_enter_time = tm.real_time() as _;
@@ -2205,7 +2296,7 @@ impl Scene for SongScene {
                     request_input("stabilize-deny-reason", InputBox::new().mode(InputMode::Multiline));
                 }
                 "export" => {
-                    request_export(format!("{}.zip", sanitize(&self.info.name)));
+                    request_export(format!("{}.pez", sanitize(&self.info.name)));
                 }
                 _ => {}
             }
@@ -2563,13 +2654,6 @@ impl Scene for SongScene {
                         .into())
                     }));
                 }
-                "autoplay-text" => {
-                    let mut data = get_data_mut();
-                    data.config.autoplay_display_text = text;
-                    if let Err(e) = save_data() {
-                        show_error(e);
-                    }
-                }
                 _ => return_input(id, text),
             }
         }
@@ -2741,10 +2825,14 @@ impl Scene for SongScene {
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
-        set_camera(&ui.camera());
+        // 背景使用原始比例，不随 UI 比例缩放
+        set_camera(&ui.bg_camera());
         let t = tm.now() as f32;
         ui.fill_rect(ui.screen_rect(), (*self.illu.texture.1, ui.screen_rect()));
         ui.fill_rect(ui.screen_rect(), semi_black(0.55));
+
+        // UI 使用带比例的 camera
+        set_camera(&ui.camera());
 
         let r = ui.back_rect();
         self.back_btn.set(ui, r);
@@ -2781,9 +2869,6 @@ impl Scene for SongScene {
             let rank_r = Rect::new(-0.94, ui.top - s - 0.06, s, s);
             let icon = self.record.as_ref().map_or(0, |it| icon_index(it.score as _, it.full_combo));
 
-            let rank_bg = rank_r.feather(-0.02);
-            ui.fill_path(&rank_bg.rounded(0.02), semi_black(0.3));
-
             ui.fill_rect(rank_r, (*self.rank_icons[icon], rank_r, ScaleType::Fit));
 
             let score = self.record.as_ref().map(|it| it.score).unwrap_or_default();
@@ -2803,7 +2888,7 @@ impl Scene for SongScene {
                 .color(semi_white(0.7))
                 .draw();
 
-            if self.info.id.is_some() {
+            if self.info.id.is_some() && self.chart_type != ChartType::XCSim {
                 let h = 0.09;
                 let mut ldb_r = Rect::new(score_r.x, score_r.y - h, h, h);
                 let ldb_bg = ldb_r.feather(-0.01);

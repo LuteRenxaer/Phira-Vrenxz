@@ -1,0 +1,135 @@
+NP0200_spr.png
+size:2048,2048
+filter:Linear,Linear
+scale:1.02
+00_deuflat
+bounds:1859,1818,202,143
+rotate:90
+01_normal
+bounds:1859,1818,202,143
+rotate:90
+02_respond
+bounds:1692,7,202,150
+rotate:90
+03_smile
+bounds:1654,710,202,156
+rotate:90
+04_embarassed
+bounds:2,2,200,144
+05_serious
+bounds:1837,1203,204,136
+rotate:90
+06_depressed
+bounds:2,148,202,147
+07_normal 2
+bounds:1734,1612,202,144
+rotate:90
+08_eyeclose 2
+bounds:206,93,202,144
+rotate:90
+09_sarcastic
+bounds:1652,914,202,156
+rotate:90
+10_think
+bounds:1803,567,202,141
+11_damaged
+bounds:1685,1185,202,150
+rotate:90
+12_fury shout 1
+bounds:1627,211,202,168
+rotate:90
+13_fury shout 2
+bounds:1613,1389,202,168
+rotate:90
+14_shout
+bounds:1562,1593,201,170
+rotate:90
+15_irritate 1
+bounds:1711,1816,204,146
+rotate:90
+16_irritate 2
+bounds:1635,440,199,166
+rotate:90
+17_embarassed 2
+bounds:1783,1409,201,144
+rotate:90
+18_embarassed 3
+bounds:1510,1118,224,173
+rotate:90
+19_shout 2
+bounds:184,297,224,179
+rotate:90
+20_surprised 1
+bounds:1489,15,201,172
+21_surprised 2
+bounds:1810,1045,203,138
+22_surprised 3
+bounds:2,297,224,180
+rotate:90
+23_pure smile 1
+bounds:1476,641,224,176
+rotate:90
+24_pure smile 2
+bounds:1457,415,224,176
+rotate:90
+25_smile 2
+bounds:1270,641,224,185
+rotate:90
+26_calm smile
+bounds:1476,891,224,174
+rotate:90
+27_peaceful
+bounds:1265,189,224,182
+rotate:90
+28_yawn
+bounds:1288,867,219,186
+rotate:90
+29_shy 1
+bounds:1432,1344,224,179
+rotate:90
+30_shy 2
+bounds:1268,415,224,184
+rotate:90
+31_shy 3
+bounds:1380,1570,224,180
+rotate:90
+32_cry 1
+bounds:1263,19,224,168
+33_cry 2
+bounds:1485,1796,224,172
+34_cry 3
+bounds:1184,1569,224,194
+rotate:90
+35_difficult 1
+bounds:1328,1117,224,180
+rotate:90
+36_difficult 2
+bounds:1303,1796,224,180
+rotate:90
+37_difficult 3
+bounds:1449,189,224,176
+rotate:90
+38_trick 1
+bounds:1245,1343,224,185
+rotate:90
+39_trick 2
+bounds:2,523,224,187
+NP0200
+bounds:2,617,1325,1403
+offsets:0,663,1325,2066
+NP0200_1
+bounds:362,77,788,907
+offsets:276,0,1325,2066
+rotate:270
+eyeclose
+bounds:1797,295,202,143
+fronthair_D
+bounds:1014,1790,287,230
+halo 1
+bounds:2,712,473,237
+rotate:90
+halo 2
+bounds:1812,838,205,156
+rotate:90
+halo 3
+bounds:218,1905,150,115

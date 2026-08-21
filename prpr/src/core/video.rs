@@ -52,7 +52,13 @@ impl Video {
         let mut video_file = NamedTempFile::new()?;
         video_file.write_all(&data)?;
         drop(data);
-        let video = prpr_avc::Video::open(video_file.path().as_os_str().to_str().unwrap(), AVPixelFormat::YUV420P)?;
+        let path = video_file.path().as_os_str().to_str().unwrap().to_owned();
+        let video = std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(move || prpr_avc::Video::open(&path, AVPixelFormat::YUV420P))
+            .unwrap()
+            .join()
+            .unwrap()?;
         let duration = video.duration();
         let format = video.stream_format();
         let w = format.width as u32;

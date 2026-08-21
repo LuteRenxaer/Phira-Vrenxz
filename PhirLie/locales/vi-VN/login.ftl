@@ -22,3 +22,11 @@ action-failed =
        *[other] _
     }
 email-sent = Bạn đã được gửi một Email xác minh, hãy xác minh nó và quay lại đăng nhập.
+
+startup-select-language = Chọn ngôn ngữ
+startup-tap-to-continue = Chạm để tiếp tục
+startup-tip = Mẹo: { $tip }
+
+startup-load-failed = Khởi động thất bại
+startup-loading = Đang tải...
+

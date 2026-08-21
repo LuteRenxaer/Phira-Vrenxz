@@ -22,3 +22,11 @@ action-failed =
        *[other] _
     }
 email-sent = Um e-mail de verificação foi enviado, verifique e faça login
+
+startup-select-language = Selecionar idioma
+startup-tap-to-continue = Toque para continuar
+startup-tip = Dica: { $tip }
+
+startup-load-failed = Falha na inicialização
+startup-loading = Carregando...
+

@@ -48,3 +48,12 @@ hykb-other-login-not-bound = 该账号未绑定好游快爆，无法登录
 hykb-bind-required-title = 需要绑定好游快爆
 hykb-bind-required = 该账号尚未绑定好游快爆，需要绑定后才能登录游戏。
 hykb-bind-required-confirm = 绑定好游快爆
+
+startup-select-language = 选择语言
+startup-tap-to-continue = 点击屏幕以继续
+startup-tip = 提示：{ $tip }
+
+startup-load-failed = 启动失败
+startup-loading = 加载中...
+startup-init-failed = 初始化失败
+

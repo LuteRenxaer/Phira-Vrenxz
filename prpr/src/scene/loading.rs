@@ -28,7 +28,16 @@ fn draw_illustration(tex: Texture2D, x: f32, y: f32, w: f32, h: f32, color: Colo
     let w = scale * 13. * w;
     let h = scale * 7. * h;
     let r = Rect::new(x - w / 2., y - h / 2., w, h);
-    draw_parallelogram(r, Some((tex, Rect::new(0., 0., 1., 1.))), color, true);
+    let tex_ratio = tex.width() / tex.height();
+    let rect_ratio = w / h;
+    let tex_rect = if tex_ratio > rect_ratio {
+        let new_w = rect_ratio / tex_ratio;
+        Rect::new((1. - new_w) / 2., 0., new_w, 1.)
+    } else {
+        let new_h = tex_ratio / rect_ratio;
+        Rect::new(0., (1. - new_h) / 2., 1., new_h)
+    };
+    draw_parallelogram(r, Some((tex, tex_rect)), color, true);
     r
 }
 

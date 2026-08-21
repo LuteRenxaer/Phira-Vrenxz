@@ -1,0 +1,63 @@
+aris_spr.png
+	size: 1024, 1024
+	filter: Linear, Linear
+	scale: 0.51
+00_default
+	bounds: 239, 48, 113, 84
+01_normal
+	bounds: 677, 51, 113, 84
+02_respond
+	bounds: 792, 83, 113, 84
+03_smile
+	bounds: 2, 931, 113, 91
+04_embarassed
+	bounds: 114, 212, 113, 90
+05_serious
+	bounds: 124, 111, 113, 84
+06_depressed
+	bounds: 354, 49, 113, 83
+07
+	bounds: 353, 134, 110, 92
+08
+	bounds: 353, 228, 110, 93
+09
+	bounds: 2, 40, 111, 84
+10
+	bounds: 2, 261, 110, 93
+11
+	bounds: 2, 126, 120, 84
+12
+	bounds: 236, 197, 115, 124
+13
+	bounds: 2, 820, 109, 79
+	rotate: 90
+14
+	bounds: 569, 944, 115, 78
+15
+	bounds: 117, 944, 115, 78
+16
+	bounds: 907, 116, 115, 83
+17
+	bounds: 119, 304, 115, 124
+18
+	bounds: 309, 323, 115, 124
+19
+	bounds: 2, 356, 115, 126
+Hair_Cover_02
+	bounds: 907, 697, 111, 94
+	offsets: 2, 3, 115, 99
+Halo
+	bounds: 826, 753, 140, 133
+	offsets: 2, 0, 143, 133
+Halo_Blur
+	bounds: 848, 880, 149, 142
+	offsets: 1, 0, 152, 142
+aris
+	bounds: 2, 424, 846, 598
+	offsets: 2, 0, 965, 1028
+aris_1
+	bounds: 418, 34, 739, 604
+	offsets: 226, 421, 965, 1028
+	rotate: 270
+eyeclose
+	bounds: 907, 30, 110, 84

@@ -1,0 +1,15 @@
+char-name = Name: { $name }
+char-default-expr = Default Expr: { $expr }
+char-pet-expr = Pet Expr: { $expr }
+char-model-scale = Model Scale
+char-model-x = Model X
+char-model-y = Model Y
+char-pet-x = Pet X
+char-pet-y = Pet Y
+char-pet-w = Pet Width
+char-pet-h = Pet Height
+char-model = Model: { $name }
+char-model-default = Model: Default
+char-voice = Voice: { $name }
+char-voice-default = Voice: Default
+char-reset = Reset to Default

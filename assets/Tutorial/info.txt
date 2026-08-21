@@ -1,0 +1,13 @@
+#
+Name: 教程
+Path: 8898338770955988
+Song: 8898338770955988.mp3
+Picture: 8898338770955988.png
+Chart: 8898338770955988.json
+Level: EZ Lv.10
+Composer: raynodon
+Charter: 几何邻屿
+LastEditTime: 2026_8_19_21_8_35_
+Length: 161.227
+EditTime: 9784.697
+Group: Default

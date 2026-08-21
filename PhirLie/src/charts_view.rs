@@ -1,4 +1,4 @@
-﻿prpr_l10n::tl_file!("charts_view");
+prpr_l10n::tl_file!("charts_view");
 
 use crate::{
     client::{Chart, ChartRef},
@@ -14,7 +14,7 @@ use core::f32;
 use macroquad::prelude::*;
 use prpr::{
     core::{Tweenable, BOLD_FONT},
-    ext::{semi_black, RectExt, SafeTexture},
+    ext::{semi_black, semi_white, RectExt, SafeTexture},
     scene::{show_message, NextScene},
     ui::{button_hit, button_hit_large, DRectButton, LongTouchState, Scroll, Ui},
 };
@@ -272,8 +272,15 @@ impl ChartsView {
                             continue;
                         }
 
-                        button_hit_large();
-                        let download_path = chart.info.id.map(|it| format!("download/{it}"));
+                        button_hit();
+                        let is_xcsim = chart.chart_type == crate::page::ChartType::XCSim;
+                        let download_path = chart.info.id.map(|it| {
+                            if is_xcsim {
+                                format!("download/xcsim_{it}")
+                            } else {
+                                format!("download/{it}")
+                            }
+                        });
                         let scene = SongScene::new(
                             chart.clone(),
                             if let Some(path) = &chart.local_path {
@@ -419,7 +426,13 @@ impl ChartsView {
                         let path = if let Some(path) = &item.chart.as_ref().unwrap().local_path {
                             path.clone()
                         } else {
-                            format!("download/{}", item.chart.as_ref().unwrap().info.id.unwrap())
+                            let chart = item.chart.as_ref().unwrap();
+                            let id = chart.info.id.unwrap();
+                            if chart.chart_type == crate::page::ChartType::XCSim {
+                                format!("download/xcsim_{id}")
+                            } else {
+                                format!("download/{id}")
+                            }
                         };
                         std::fs::remove_dir_all(format!("{}/{path}", dir::charts()?))?;
 
@@ -571,6 +584,16 @@ impl ChartsView {
                                         .size(0.55 * r.w / cw)
                                         .color(c)
                                         .draw_using(&BOLD_FONT);
+
+                                    if let Some(author) = &chart.level_author {
+                                        ui.text(format!("by {}", author.name))
+                                            .pos(card_r.x + 0.012, card_r.y + 0.012)
+                                            .max_width(card_r.w - 0.03)
+                                            .anchor(0., 0.)
+                                            .size(0.38 * r.w / cw)
+                                            .color(semi_white(0.85 * c.a))
+                                            .draw();
+                                    }
 
                                     if let Some(symbol) = item.symbol {
                                         ui.text(symbol.to_string())

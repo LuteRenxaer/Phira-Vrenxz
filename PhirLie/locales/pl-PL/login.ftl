@@ -22,3 +22,11 @@ action-failed =
        *[other] _
     }
 email-sent = Email z weryfikacją został wysłany. Wejdź w niego, aby się zweryfikować.
+
+startup-select-language = Wybierz język
+startup-tap-to-continue = Stuknij, aby kontynuować
+startup-tip = Wskazówka: { $tip }
+
+startup-load-failed = Uruchomienie nieudane
+startup-loading = Ładowanie...
+
