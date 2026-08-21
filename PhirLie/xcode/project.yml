@@ -2,12 +2,13 @@ name: PhirLie
 options:
   bundleIdPrefix: com.teamflos
   deploymentTarget:
-    iOS: "13.0"
+    iOS: "14.0"
   createIntermediateGroups: true
   groupSortPosition: top
 
 settings:
   base:
+    IPHONEOS_DEPLOYMENT_TARGET: "14.0"
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "1.3.0"
     CURRENT_PROJECT_VERSION: "1"
@@ -65,6 +66,7 @@ targets:
           #!/bin/bash
           set -euo pipefail
           export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+          export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-14.0}"
 
           echo "=== Rust iOS Build ==="
           echo "PLATFORM_NAME=$PLATFORM_NAME"

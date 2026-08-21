@@ -75,6 +75,7 @@ echo "  Project generated: $XCODE_DIR/PhirLie.xcodeproj"
 echo ""
 echo "[3/5] Building Rust static library for aarch64-apple-ios..."
 cd "$PROJECT_ROOT"
+export IPHONEOS_DEPLOYMENT_TARGET=14.0
 if [ "$CONFIG" = "release" ]; then
     cargo build --release --target aarch64-apple-ios --features video -p PhirLie
 else

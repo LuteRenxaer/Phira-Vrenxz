@@ -28,6 +28,7 @@ env:
   BUNDLE_ID: com.teamflos.PhirLie
   XCODE_PROJECT_DIR: PhirLie/xcode
   CARGO_TERM_COLOR: always
+  IPHONEOS_DEPLOYMENT_TARGET: "14.0"
 
 jobs:
   build-ios:
@@ -60,7 +61,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-ios-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-ios-${{ env.IPHONEOS_DEPLOYMENT_TARGET }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-ios-
 
