@@ -1,0 +1,143 @@
+name: iOS Build (IPA)
+
+on:
+  push:
+    tags:
+      - "v*"
+    branches:
+      - main
+      - ios
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: "Build configuration"
+        required: true
+        default: "Release"
+        type: choice
+        options:
+          - Release
+          - Debug
+      sign:
+        description: "Enable code signing (requires secrets)"
+        required: false
+        default: false
+        type: boolean
+
+env:
+  APP_NAME: PhirLie
+  BUNDLE_ID: com.teamflos.PhirLie
+  XCODE_PROJECT_DIR: PhirLie/xcode
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-ios:
+    name: Build iOS IPA
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -switch /Applications/Xcode_15.4.app
+          xcodebuild -version
+          xcrun --show-sdk-version --sdk iphoneos
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-ios-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-ios-
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: |
+          cd "$XCODE_PROJECT_DIR"
+          xcodegen generate
+          echo "Generated project:"
+          ls -la PhirLie.xcodeproj
+
+      - name: Build Rust static library (device)
+        run: |
+          cargo build --release --target aarch64-apple-ios --features video -p PhirLie
+          echo "Device static lib:"
+          ls -lh target/aarch64-apple-ios/release/libPhirLie.a
+
+      - name: Build app (Release)
+        id: build
+        run: |
+          CONFIG="${{ github.event.inputs.configuration || 'Release' }}"
+          cd "$XCODE_PROJECT_DIR"
+
+          # Build for iOS device (arm64)
+          xcodebuild build \
+            -project PhirLie.xcodeproj \
+            -scheme PhirLie \
+            -configuration "$CONFIG" \
+            -sdk iphoneos \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            ARCHS=arm64 \
+            2>&1 | tee build.log
+
+          # Find the .app bundle
+          APP_PATH=$(find build/DerivedData -name "PhirLie.app" -type d | head -1)
+          echo "APP_PATH=$APP_PATH" >> $GITHUB_OUTPUT
+          echo "Built app: $APP_PATH"
+          ls -la "$APP_PATH"
+
+      - name: Package IPA
+        run: |
+          APP_PATH="${{ steps.build.outputs.APP_PATH }}"
+          PAYLOAD_DIR="ipa/Payload"
+          mkdir -p "$PAYLOAD_DIR"
+          cp -R "$APP_PATH" "$PAYLOAD_DIR/"
+
+          # Remove code signature if present (unsigned build)
+          if [ -d "$PAYLOAD_DIR/PhirLie.app/_CodeSignature" ]; then
+            rm -rf "$PAYLOAD_DIR/PhirLie.app/_CodeSignature"
+          fi
+
+          cd ipa
+          IPA_NAME="${{ env.APP_NAME }}-ios-${{ github.ref_name }}.ipa"
+          zip -r "../$IPA_NAME" Payload/
+          cd ..
+
+          echo "IPA created: $IPA_NAME"
+          ls -lh "$IPA_NAME"
+          echo "IPA_PATH=$IPA_NAME" >> $GITHUB_ENV
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-ios-ipa
+          path: "*.ipa"
+          retention-days: 30
+
+      - name: Upload build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ${{ env.XCODE_PROJECT_DIR }}/build.log
+          retention-days: 7

@@ -1,0 +1,121 @@
+name: PhirLie
+options:
+  bundleIdPrefix: com.teamflos
+  deploymentTarget:
+    iOS: "13.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.3.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    INFOPLIST_KEY_UIRequiresFullScreen: YES
+    INFOPLIST_KEY_UIStatusBarHidden: YES
+    INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen
+    INFOPLIST_KEY_CFBundleDisplayName: PhirLie
+    INFOPLIST_KEY_NSHumanReadableCopyright: "Copyright © 2026 TeamFlos"
+    INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+    INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+    INFOPLIST_KEY_CADisableMinimumFrameDurationOnPhone: YES
+    # Rust static library search path (populated by build script)
+    LIBRARY_SEARCH_PATHS: "$(SRCROOT)/lib $(inherited)"
+    OTHER_LDFLAGS: "-lPhirLie -lc++ -lz -liconv $(inherited)"
+    ENABLE_BITCODE: NO
+
+targets:
+  PhirLie:
+    type: application
+    platform: iOS
+    sources:
+      - path: PhirLie
+      - path: Assets.xcassets
+      - path: LaunchScreen.storyboard
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.teamflos.PhirLie
+        PRODUCT_NAME: PhirLie
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # System frameworks required by macroquad/miniquad and Rust deps
+        # (linked explicitly because staticlib does not carry link directives)
+    dependencies:
+      - sdk: UIKit.framework
+      - sdk: Foundation.framework
+      - sdk: QuartzCore.framework
+      - sdk: CoreGraphics.framework
+      - sdk: Metal.framework
+      - sdk: MetalKit.framework
+      - sdk: OpenGLES.framework
+      - sdk: AudioToolbox.framework
+      - sdk: AVFoundation.framework
+      - sdk: CoreAudio.framework
+      - sdk: CoreMedia.framework
+      - sdk: CoreVideo.framework
+      - sdk: CFNetwork.framework
+      - sdk: Security.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: WebKit.framework
+    preBuildScripts:
+      - name: Build Rust Static Library
+        script: |
+          #!/bin/bash
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+          echo "=== Rust iOS Build ==="
+          echo "PLATFORM_NAME=$PLATFORM_NAME"
+          echo "ARCHS=$ARCHS"
+          echo "CONFIGURATION=$CONFIGURATION"
+
+          # Map Xcode platform/arch to Rust target triple
+          WORKSPACE_ROOT="$SRCROOT/../.."
+          LIB_DIR="$SRCROOT/lib"
+          mkdir -p "$LIB_DIR"
+
+          build_target() {
+            local triple="$1"
+            echo "--- Building $triple ---"
+            cd "$WORKSPACE_ROOT"
+            if [ "$CONFIGURATION" = "Release" ]; then
+              cargo build --release --target "$triple" --features video -p PhirLie 2>&1
+            else
+              cargo build --target "$triple" --features video -p PhirLie 2>&1
+            fi
+          }
+
+          OUTPUT_LIB=""
+          case "$PLATFORM_NAME" in
+            iphoneos)
+              build_target "aarch64-apple-ios"
+              OUTPUT_LIB="$WORKSPACE_ROOT/target/aarch64-apple-ios/${CONFIGURATION:-release}/libPhirLie.a"
+              ;;
+            iphonesimulator)
+              # Build both simulator archs and lipo them together
+              build_target "aarch64-apple-ios-sim"
+              build_target "x86_64-apple-ios"
+              SIM_DIR="$WORKSPACE_ROOT/target/aarch64-apple-ios-sim/${CONFIGURATION:-release}"
+              INTEL_DIR="$WORKSPACE_ROOT/target/x86_64-apple-ios/${CONFIGURATION:-release}"
+              OUTPUT_LIB="$LIB_DIR/libPhirLie.a"
+              lipo -create \
+                "$SIM_DIR/libPhirLie.a" \
+                "$INTEL_DIR/libPhirLie.a" \
+                -output "$OUTPUT_LIB"
+              ;;
+            *)
+              echo "error: unsupported platform $PLATFORM_NAME" >&2
+              exit 1
+              ;;
+          esac
+
+          # For device builds, copy to lib dir as well
+          if [ "$PLATFORM_NAME" = "iphoneos" ]; then
+            cp "$OUTPUT_LIB" "$LIB_DIR/libPhirLie.a"
+          fi
+
+          echo "=== Rust build complete: $LIB_DIR/libPhirLie.a ==="
+          ls -lh "$LIB_DIR/libPhirLie.a"
+        basedOnDependencyAnalysis: false

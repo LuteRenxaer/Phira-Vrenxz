@@ -8,7 +8,7 @@ license = { workspace = true }
 workspace = true
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
 default = []
@@ -85,10 +85,14 @@ phira-mp-client = { workspace = true }
 phira-mp-common = { workspace = true }
 sanitize-filename = "0.6.0"
 daachorse = "3.0.2"
+rusty_spine_38 = { package = "rusty_spine", git = "https://github.com/jabuwu/rusty_spine3.8", rev = "4ff8b72" }
+rusty_spine_4x = { package = "rusty_spine", path = "../vendor/rusty_spine_4x" }
+glam = { version = "0.30", features = ["scalar-math"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.22.4"
 ndk-context = "0.1"
+ndk-sys = "0.6"
 sasa = { workspace = true, default-features = false, features = ["oboe"] }
 
 [target.'cfg(target_env = "ohos")'.dependencies]
@@ -124,4 +128,10 @@ assets = "../assets"
 icon = "icon.png"
 min_sdk_version = 30
 target_sdk_version = 30
+
+[package.metadata.android.signing.release]
+path = "../phirLie-release.keystore"
+alias = "phirLie"
+keystore_password = "278913"
+key_password = "278913"
 
