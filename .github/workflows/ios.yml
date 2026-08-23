@@ -116,8 +116,8 @@ jobs:
             ARCHS=arm64 \
             2>&1 | tee build.log
 
-          # Find the .app bundle
-          APP_PATH=$(find build/DerivedData -name "PhirLie.app" -type d | head -1)
+          # Find the .app bundle (use absolute path)
+          APP_PATH=$(find "$PWD/build/DerivedData" -name "PhirLie.app" -type d | head -1)
           if [ -z "$APP_PATH" ]; then
             echo "ERROR: PhirLie.app not found. DerivedData contents:"
             find build/DerivedData -name "*.app" -type d 2>/dev/null || true
@@ -133,7 +133,14 @@ jobs:
 
       - name: Package IPA
         run: |
+          cd "$XCODE_PROJECT_DIR"
           APP_PATH="${{ steps.build.outputs.APP_PATH }}"
+          # Make path absolute if it isn't already
+          if [[ "$APP_PATH" != /* ]]; then
+            APP_PATH="$PWD/$APP_PATH"
+          fi
+          echo "Using APP_PATH=$APP_PATH"
+          ls -la "$APP_PATH"
           PAYLOAD_DIR="ipa/Payload"
           mkdir -p "$PAYLOAD_DIR"
           cp -R "$APP_PATH" "$PAYLOAD_DIR/"
