@@ -157,13 +157,15 @@ jobs:
 
           echo "IPA created: $IPA_NAME"
           ls -lh "$IPA_NAME"
-          echo "IPA_PATH=$IPA_NAME" >> $GITHUB_ENV
+          # Copy to workspace root for clean artifact download
+          cp "$IPA_NAME" "$GITHUB_WORKSPACE/"
+          echo "IPA_PATH=$GITHUB_WORKSPACE/$IPA_NAME" >> $GITHUB_ENV
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-ios-ipa
-          path: "**/*.ipa"
+          path: "PhirLie-ios-*.ipa"
           retention-days: 30
 
       - name: Upload build log (on failure)
