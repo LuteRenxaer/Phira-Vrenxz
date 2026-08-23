@@ -8,7 +8,7 @@ license = { workspace = true }
 workspace = true
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
 default = []

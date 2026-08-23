@@ -1,0 +1,13 @@
+// Local signing configuration — copy this file to LocalSigning.xcconfig
+// and fill in your Apple Developer details. LocalSigning.xcconfig is
+// git-ignored and imported by Shared.xcconfig.
+//
+// To find your DEVELOPMENT_TEAM:
+//   1. Open Xcode → Settings → Accounts
+//   2. Select your Apple ID → Team
+//   3. The Team ID is a 10-character string (e.g. AB12CDE34F)
+
+LOCAL_DEVELOPMENT_TEAM = AB12CDE34F
+LOCAL_CODE_SIGN_STYLE = Automatic
+LOCAL_CODE_SIGN_IDENTITY = Apple Development
+LOCAL_PROVISIONING_PROFILE_SPECIFIER =
