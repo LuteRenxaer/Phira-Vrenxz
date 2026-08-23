@@ -13,6 +13,13 @@ inner.rs
 
 /prpr-avc/static-lib
 
+# iOS build artifacts
+/PhirLie/xcode/PhirLie.xcodeproj/
+/PhirLie/xcode/lib/
+/PhirLie/xcode/build/
+/PhirLie/xcode/build.log
+/ipa_build/
+
 # Mac
 
 ._*
