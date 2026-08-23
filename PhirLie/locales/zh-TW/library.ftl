@@ -32,3 +32,18 @@ multi-select-all = 選取全部
 multi-select-invert = 反向選取
 fav-created = 收藏夾建立成功
 exported = 已匯出
+
+xcsim-username-prompt = 請輸入使用者名稱/電子郵件
+xcsim-api-prompt = XC-SIM API 位址
+xcsim-password-prompt = 請輸入密碼
+xcsim-login-success = XC-SIM 登入成功
+xcsim-login-failed = XC-SIM 登入失敗
+xcsim-api-updated = XC-SIM API 位址已更新
+xcsim-download-updated = XC-SIM 下載位址已更新
+xcsim-login = 登入
+xcsim-server = 伺服器
+xcsim-not-logged-in = 未登入
+xcsim-logging-in = 登入中...
+
+filter-rpe-charts = RPE 譜面 (*.pez)
+filter-zip-charts = ZIP 譜面 (*.zip)

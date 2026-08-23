@@ -136,3 +136,11 @@ still-loading = 仍在載入，請稍候…
 
 export = 匯出
 exporting = 匯出中…
+
+author-platform = 平台：{ $platform }
+author-view-profile = 查看主頁
+xcsim-no-preview = XC-SIM 譜面沒有預覽音訊
+xcsim-downloading = 正在下載 XC-SIM 譜面
+xcsim-missing-id = XC-SIM 譜面缺少 ID
+xcsim-downloading-from = 正在從 XC-SIM 下載譜面
+xcsim-saving = 正在儲存譜面

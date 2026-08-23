@@ -166,6 +166,10 @@ item-startup-screen = 起動画面を表示
 item-startup-screen-sub = ホーム前に起動画面を表示（言語選択を含む）
 item-full-screen-judge = フルスクリーン判定
 item-full-screen-judge-sub = フルスクリーン判定を有効化（実験的機能）
+item-arcaca-judgement = Arcaea判定モード
+item-arcaca-judgement-sub = 有効化後はArcaeaスコアリングを使用（満点10000000+物量）、スコアアップロードを無効化
+item-fnf-judgement = FNF判定モード
+item-fnf-judgement-sub = 有効化後はFNFスコアリングを使用（Sick350/Good200/Bad100）、スコアアップロードを無効化
 item-combo-text = コンボ表示テキスト
 item-combo-text-default = COMBO
 item-combo-text-edit = 編集
@@ -226,9 +230,15 @@ tutorial-start = チュートリアルを開始
 tutorial-load-failed = チュートリアルの読み込みに失敗
 
 about-update-log =
-  バージョン: V1.3.1
+  バージョン: V1.3.15
   更新内容:
-  いくつかのバグを修正
+  1.ゲーム全体のスコアアップロードを無効化、切り替えスイッチは不要
+  2.XC-SIM譜面ライブラリの読み込み中、ページ表示を1/0のままにする
+  3.XC-SIMデフォルトAPIをhttpに変更、ポート20003
+  4.フルスクリーン判定を修正、どこをタップしても判定されるように
+  5.内蔵譜面をお気に入りに追加できるバグを修正
+  6.XC-SIM譜面はArcaea判定モードを強制的に有効化
+  7.リーダーボードを10000000+スコア表示に対応
 
   オリジナル開発: Prpr, Phira
   運用保守: Lute_Rencai

@@ -70,6 +70,10 @@ item-touch-debug-sub = Display user touch points.
 
 item-full-screen-judge = Full Screen Judge
 item-full-screen-judge-sub = Enable judgment on entire screen (experimental)
+item-arcaca-judgement = Arcaea Judgment Mode
+item-arcaca-judgement-sub = Use Arcaea scoring (max 10000000+ note count), disable score upload
+item-fnf-judgement = FNF Judgment Mode
+item-fnf-judgement-sub = Use FNF scoring (Sick350/Good200/Bad100), disable score upload
 item-combo-text = Combo Display Text
 item-combo-text-default = COMBO
 item-combo-text-edit = Edit
@@ -226,9 +230,15 @@ tutorial-start = Start Tutorial
 tutorial-load-failed = Failed to load tutorial
 
 about-update-log =
-  Version: V1.3.1
+  Version: V1.3.15
   Update notes:
-  Fixed some bugs
+  1. Disabled score upload for the entire game, no toggle required
+  2. XC-SIM chart library keeps page display at 1/0 while loading
+  3. XC-SIM default API changed to http, port 20003
+  4. Fixed full-screen judgement, tap anywhere to judge
+  5. Fixed bug where builtin charts could be favorited
+  6. XC-SIM charts force-enable Arcaea judgement mode
+  7. Leaderboard adapted for 10000000+ score display
 
   Original development: Prpr, Phira
   Operations & maintenance: Lute_Rencai

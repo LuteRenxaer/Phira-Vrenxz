@@ -430,7 +430,7 @@ impl GameScene {
                 ui.fill_circle(pause_center.x, pause_center.y, 0.05, Color::new(1., 1., 1., 0.5));
             }
 
-            ui.text("PHIRLIE v1.3.1")
+            ui.text("PHIRLIE v1.3.15")
                 .pos(pause_center.x + 0.08, pause_center.y)
                 .anchor(0., 0.5)
                 .size(0.4)

@@ -458,7 +458,7 @@ impl Fader {
                     + 0.012;
             }
             if s == "PHIRLIE" {
-                ui.text("v1.3.1")
+                ui.text("v1.3.15")
                     .pos(x + 0.01, tp + h - 0.027)
                     .anchor(0., 1.)
                     .color(semi_white(0.4))

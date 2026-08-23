@@ -579,18 +579,14 @@ impl Judge {
                     .iter()
                     .map(|touch| {
                         let p = touch.position;
-                        if full_screen_judge {
-                            Some(Point::new(p.x, -p.y))
+                        let p = inv.transform_point(&Point::new(p.x, -p.y));
+                        fn ok(f: f32) -> bool {
+                            matches!(f.classify(), FpCategory::Zero | FpCategory::Subnormal | FpCategory::Normal)
+                        }
+                        if ok(p.x) && ok(p.y) {
+                            Some(p)
                         } else {
-                            let p = inv.transform_point(&Point::new(p.x, -p.y));
-                            fn ok(f: f32) -> bool {
-                                matches!(f.classify(), FpCategory::Zero | FpCategory::Subnormal | FpCategory::Normal)
-                            }
-                            if ok(p.x) && ok(p.y) {
-                                Some(p)
-                            } else {
-                                None
-                            }
+                            None
                         }
                     })
                     .collect(),
@@ -622,13 +618,9 @@ impl Judge {
             let t = time_of(touch);
             let mut closest = (None, x_diff_max, limit_bad, limit_bad + (x_diff_max / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR);
             for (line_id, ((line, pos), (idx, st))) in chart.lines.iter_mut().zip(pos.iter()).zip(self.notes.iter_mut()).enumerate() {
-                let pos = if full_screen_judge {
-                    pos[id].unwrap_or(Point::new(0.0, 0.0))
-                } else {
-                    match pos[id] {
-                        Some(p) => p,
-                        None => continue,
-                    }
+                let pos = match pos[id] {
+                    Some(p) => p,
+                    None => continue,
                 };
                 for id in &idx[*st..] {
                     let note = &mut line.notes[*id as usize];
@@ -645,7 +637,11 @@ impl Judge {
                     let dt = if dt < 0. { (dt + EARLY_OFFSET).min(0.).abs() } else { dt };
                     let x = &mut note.object.translation.0;
                     x.set_time(t);
-                    let dist = (x.now() - pos.x).abs() as f64 / note.judge_area as f64;
+                    let dist = if full_screen_judge {
+                        0.0
+                    } else {
+                        (x.now() - pos.x).abs() as f64 / note.judge_area as f64
+                    };
                     if dist > x_diff_max {
                         continue;
                     }

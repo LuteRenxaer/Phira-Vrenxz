@@ -133,3 +133,11 @@ fav-added = Added to favorites (long press to manage)
 still-loading = Still loading...
 export = Export
 exporting = Exporting...
+
+author-platform = Platform: { $platform }
+author-view-profile = View Profile
+xcsim-no-preview = XC-SIM chart has no preview audio
+xcsim-downloading = Downloading XC-SIM chart
+xcsim-missing-id = XC-SIM chart missing ID
+xcsim-downloading-from = Downloading chart from XC-SIM
+xcsim-saving = Saving chart
