@@ -51,3 +51,18 @@ multi-select-all = Select All
 multi-select-invert = Invert Selection
 
 fav-created = Favorites created
+
+xcsim-username-prompt = Enter username/email
+xcsim-api-prompt = XC-SIM API URL
+xcsim-password-prompt = Enter password
+xcsim-login-success = XC-SIM login successful
+xcsim-login-failed = XC-SIM login failed
+xcsim-api-updated = XC-SIM API URL updated
+xcsim-download-updated = XC-SIM download URL updated
+xcsim-login = Login
+xcsim-server = Server
+xcsim-not-logged-in = Not logged in
+xcsim-logging-in = Logging in...
+
+filter-rpe-charts = RPE Charts (*.pez)
+filter-zip-charts = ZIP Charts (*.zip)

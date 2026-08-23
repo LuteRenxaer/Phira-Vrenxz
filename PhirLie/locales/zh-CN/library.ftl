@@ -51,3 +51,18 @@ multi-select-all = 全选
 multi-select-invert = 反选
 
 fav-created = 收藏夹已创建
+
+xcsim-username-prompt = 请输入用户名/邮箱
+xcsim-api-prompt = XC-SIM API 地址
+xcsim-password-prompt = 请输入密码
+xcsim-login-success = XC-SIM 登录成功
+xcsim-login-failed = XC-SIM 登录失败
+xcsim-api-updated = XC-SIM API 地址已更新
+xcsim-download-updated = XC-SIM 下载地址已更新
+xcsim-login = 登录
+xcsim-server = 服务器
+xcsim-not-logged-in = 未登录
+xcsim-logging-in = 登录中...
+
+filter-rpe-charts = RPE 谱面 (*.pez)
+filter-zip-charts = ZIP 谱面 (*.zip)

@@ -1242,11 +1242,11 @@ impl ChartList {
             render_switch(ui, rr, t, &mut self.full_screen_judge_btn, config.full_screen_judge);
         }
         item! {
-            render_title(ui, std::borrow::Cow::Borrowed("Arcaea 判定模式"), Some(std::borrow::Cow::Borrowed("启用后使用 Arcaea 计分（满分10000000+物量），禁用成绩上传")));
+            render_title(ui, tl!("item-arcaca-judgement"), Some(tl!("item-arcaca-judgement-sub")));
             render_switch(ui, rr, t, &mut self.arcaea_judgement_btn, config.arcaea_judgement);
         }
         item! {
-            render_title(ui, std::borrow::Cow::Borrowed("FNF 判定模式"), Some(std::borrow::Cow::Borrowed("启用后使用 FNF 计分（Sick350/Good200/Bad100），禁用成绩上传")));
+            render_title(ui, tl!("item-fnf-judgement"), Some(tl!("item-fnf-judgement-sub")));
             render_switch(ui, rr, t, &mut self.fnf_judgement_btn, config.fnf_judgement);
         }
         (w, h)

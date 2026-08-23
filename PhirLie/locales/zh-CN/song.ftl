@@ -154,3 +154,11 @@ still-loading = 仍在加载中…
 
 export = 导出
 exporting = 导出中…
+
+author-platform = 平台：{ $platform }
+author-view-profile = 查看主页
+xcsim-no-preview = XC-SIM 谱面没有预览音频
+xcsim-downloading = 正在下载 XC-SIM 谱面
+xcsim-missing-id = XC-SIM 谱面缺少 ID
+xcsim-downloading-from = 正在从 XC-SIM 下载谱面
+xcsim-saving = 正在保存谱面

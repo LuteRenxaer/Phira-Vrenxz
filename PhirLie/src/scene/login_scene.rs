@@ -296,7 +296,7 @@ impl Scene for LoginScene {
                     .color(WHITE)
                     .draw();
 
-                ui.text("v1.3.1")
+                ui.text("v1.3.15")
                     .pos(0., -0.10 + 1.4 * 0.4 + 0.06)
                     .anchor(0.5, 0.)
                     .size(0.4)

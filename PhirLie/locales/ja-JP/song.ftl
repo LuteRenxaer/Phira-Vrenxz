@@ -67,3 +67,11 @@ mods-nightcore = ナイトコア
 mods-nightcore-sub = より高速で譜面をプレイします
 mods-rainbow = レインボー
 mods-rainbow-sub = ゲームを *少しだけ* カラフルにします
+
+author-platform = プラットフォーム：{ $platform }
+author-view-profile = プロフィールを見る
+xcsim-no-preview = XC-SIM譜面にプレビュー音声がありません
+xcsim-downloading = XC-SIM譜面をダウンロード中
+xcsim-missing-id = XC-SIM譜面にIDがありません
+xcsim-downloading-from = XC-SIMから譜面をダウンロード中
+xcsim-saving = 譜面を保存中

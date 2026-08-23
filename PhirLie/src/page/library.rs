@@ -727,8 +727,8 @@ pub fn request_export(suggested_name: String) {
             if let Some(output_path) = rfd::FileDialog::new()
                 .set_title(tl!("multi-export-title"))
                 .set_file_name(&suggested_name)
-                .add_filter("RPE 谱面 (*.pez)", &["pez"])
-                .add_filter("ZIP 谱面 (*.zip)", &["zip"])
+                .add_filter(tl!("filter-rpe-charts").as_ref(), &["pez"])
+                .add_filter(tl!("filter-zip-charts").as_ref(), &["zip"])
                 .save_file()
             {
                 let config = File::create(&output_path).map(|file| ExportConfig {
@@ -901,12 +901,12 @@ impl Page for LibraryPage {
         if self.tabs.selected().ty == ChartListType::XCSim && !crate::xcsim::is_logged_in() {
             if self.xcsim_login_btn.touch(touch, t) {
                 self.xcsim_login_step = 0;
-                request_input("xcsim_username", InputBox::new().prompt("请输入用户名/邮箱"));
+                request_input("xcsim_username", InputBox::new().prompt(tl!("xcsim-username-prompt")));
                 return Ok(true);
             }
             if self.xcsim_server_btn.touch(touch, t) {
                 let current = crate::xcsim::api_base_url();
-                request_input("xcsim_server_api", InputBox::new().default_text(&current).prompt("XC-SIM API 地址"));
+                request_input("xcsim_server_api", InputBox::new().default_text(&current).prompt(tl!("xcsim-api-prompt")));
                 return Ok(true);
             }
         }
@@ -990,7 +990,11 @@ impl Page for LibraryPage {
         if self.tabs.selected_mut().view.multi_select.is_some() {
             if self.multi_operation_btn.touch(touch, t) {
                 let is_online = self.tabs.selected().ty != ChartListType::Local;
-                let mut options = vec!["multi-export", "multi-create-fav", "multi-manage-fav"];
+                let is_builtin = self.tabs.selected().ty == ChartListType::Builtin;
+                let mut options = vec!["multi-export"];
+                if !is_builtin {
+                    options.extend(["multi-create-fav", "multi-manage-fav"]);
+                }
                 if is_online {
                     options.insert(0, "multi-download");
                 }
@@ -1140,11 +1144,11 @@ impl Page for LibraryPage {
                         data.xcsim_account.access_token = Some(token);
                         data.xcsim_account.refresh_token = Some(refresh_token);
                         let _ = crate::save_data();
-                        show_message("XC-SIM 登录成功").ok();
+                        show_message(tl!("xcsim-login-success")).ok();
                         self.load_xcsim();
                     }
                     Err(err) => {
-                        show_error(err.context("XC-SIM 登录失败"));
+                        show_error(err.context(tl!("xcsim-login-failed").to_string()));
                     }
                 }
                 self.xcsim_login_task = None;
@@ -1236,7 +1240,7 @@ impl Page for LibraryPage {
             } else if id == "xcsim_username" {
                 self.xcsim_login_username = text;
                 self.xcsim_login_step = 1;
-                request_input("xcsim_password", InputBox::new().mode(inputbox::InputMode::Password).prompt("请输入密码"));
+                request_input("xcsim_password", InputBox::new().mode(inputbox::InputMode::Password).prompt(tl!("xcsim-password-prompt")));
             } else if id == "xcsim_password" {
                 let username = std::mem::take(&mut self.xcsim_login_username);
                 self.xcsim_login_step = 0;
@@ -1252,7 +1256,7 @@ impl Page for LibraryPage {
                     data.xcsim_api_url = Some(text);
                 }
                 let _ = crate::save_data();
-                show_message("XC-SIM API 地址已更新").ok();
+                show_message(tl!("xcsim-api-updated")).ok();
             } else if id == "xcsim_server_download" {
                 let data = crate::get_data_mut();
                 if text.is_empty() {
@@ -1261,7 +1265,7 @@ impl Page for LibraryPage {
                     data.xcsim_download_url = Some(text);
                 }
                 let _ = crate::save_data();
-                show_message("XC-SIM 下载地址已更新").ok();
+                show_message(tl!("xcsim-download-updated")).ok();
             } else if id == "new_fav" {
                 if text.is_empty() {
                     use crate::page::favorites::{tl as ftl, L10N_LOCAL};
@@ -1861,10 +1865,10 @@ impl Page for LibraryPage {
                 if chosen == ChartListType::XCSim && !crate::xcsim::is_logged_in() {
                     r.w = 0.16;
                     r.x -= r.w + 0.02;
-                    self.xcsim_login_btn.render_text(ui, r, t, "登录", 0.5, true);
+                    self.xcsim_login_btn.render_text(ui, r, t, tl!("xcsim-login"), 0.5, true);
                     r.w = 0.12;
                     r.x -= r.w + 0.02;
-                    self.xcsim_server_btn.render_text(ui, r, t, "服务器", 0.45, true);
+                    self.xcsim_server_btn.render_text(ui, r, t, tl!("xcsim-server"), 0.45, true);
                 }
             });
         }

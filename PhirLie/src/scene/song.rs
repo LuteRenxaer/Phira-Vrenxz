@@ -515,7 +515,7 @@ impl SongScene {
                             let bytes = reqwest::get(&preview_url).await?.bytes().await?;
                             with_effects(AudioClip::decode(bytes.to_vec())?, None)
                         } else {
-                            bail!("XC-SIM 谱面没有预览音频");
+                            bail!(tl!("xcsim-no-preview").to_string());
                         }
                     } else {
                         let chart = Ptr::<Chart>::new(id.unwrap()).fetch().await?;
@@ -665,7 +665,7 @@ impl SongScene {
 
     pub fn global_start_download_xcsim(chart: BriefChartInfo, local_path: Option<String>) -> Result<Downloading> {
         let progress = Arc::new(Mutex::new(None));
-        let status = Arc::new(Mutex::new(Cow::Borrowed("正在下载 XC-SIM 谱面")));
+        let status = Arc::new(Mutex::new(Cow::Owned(tl!("xcsim-downloading").to_string())));
         let status_shared = Arc::clone(&status);
         let atomicity = Arc::new(Mutex::new(()));
         Ok(Downloading {
@@ -682,12 +682,12 @@ impl SongScene {
                     let path = std::path::Path::new(&path);
                     tokio::fs::create_dir(path).await?;
 
-                    let id = chart.id.ok_or_else(|| anyhow::anyhow!("XC-SIM 谱面缺少 ID"))?;
+                    let id = chart.id.ok_or_else(|| anyhow::anyhow!(tl!("xcsim-missing-id").to_string()))?;
                     let access_token = crate::xcsim::account().access_token.clone();
-                    *status.lock().unwrap() = Cow::Borrowed("正在从 XC-SIM 下载谱面");
+                    *status.lock().unwrap() = Cow::Owned(tl!("xcsim-downloading-from").to_string());
                     crate::xcsim::download_chart(access_token.as_deref(), id, path).await?;
 
-                    *status.lock().unwrap() = Cow::Borrowed("正在保存谱面");
+                    *status.lock().unwrap() = Cow::Owned(tl!("xcsim-saving").to_string());
                     let dir = prpr::dir::Dir::new(path)?;
                     let mut info: ChartInfo = serde_yaml::from_reader(dir.open("info.yml")?)?;
                     info.id = Some(id);
@@ -1341,6 +1341,8 @@ impl SongScene {
                     rank: it.rank,
                     score: if self.ldb_std {
                         format!("{:07}", it.inner.std_score.unwrap_or(0.) as i64)
+                    } else if self.chart_type == ChartType::XCSim {
+                        format!("{:08}", it.inner.score)
                     } else {
                         format!("{:07}", it.inner.score)
                     },
@@ -1422,14 +1424,14 @@ impl SongScene {
             }
 
             if let Some(author) = &self.level_author {
-                dy!(ui.text("谱师").size(0.4).color(semi_white(0.7)).draw().h + 0.02);
+                dy!(ui.text(tl!("info-charter")).size(0.4).color(semi_white(0.7)).draw().h + 0.02);
                 // 谱师名字
                 dy!(ui.text(&author.name).pos(pad, 0.).size(0.7).color(WHITE).draw().h + 0.01);
                 // 平台
-                dy!(ui.text(format!("平台：{}", author.terrace)).pos(pad, 0.).size(0.45).color(semi_white(0.7)).draw().h + 0.01);
+                dy!(ui.text(tl!("author-platform", "platform" => author.terrace.as_str())).pos(pad, 0.).size(0.45).color(semi_white(0.7)).draw().h + 0.01);
                 // 链接按钮
                 let link_r = Rect::new(pad, 0., mw, 0.08);
-                self.level_author_btn.render_text(ui, link_r, rt, "查看主页", 0.5, true);
+                self.level_author_btn.render_text(ui, link_r, rt, tl!("author-view-profile"), 0.5, true);
                 dy!(link_r.h + 0.03);
             }
 
@@ -2930,7 +2932,7 @@ impl Scene for SongScene {
                 self.info_btn.set(ui, r);
                 ui.dx(-r.w - 0.025);
 
-                if self.local_path.as_ref().is_none_or(|it| !it.starts_with(':')) {
+                if self.local_path.as_ref().is_none_or(|it| !it.starts_with(':') && !it.starts_with("builtin:")) {
 
                     let is_fav = if let Some(fav) = self.is_fav {
                         fav

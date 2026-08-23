@@ -61,9 +61,15 @@ item-touch-debug = 觸摸除錯
 item-touch-debug-sub = 遊玩過程中顯示觸摸點
 load-cali-failed = 載入音訊失敗
 about-update-log =
-  版本號：V1.3.1
+  版本號：V1.3.15
   更新內容：
-  修復一些bug
+  1.停用整個遊戲的成績上傳功能，無需開關
+  2.XC-SIM譜面庫載入時保持頁數顯示為1/0
+  3.XC-SIM預設API改為http，連接埠20003
+  4.修復全螢幕判定，實現玩家點哪就判定
+  5.修復內建譜面可以收藏的bug
+  6.XC-SIM譜面強制開啟Arcaea判定模式
+  7.計分榜適配10000000+計分顯示
 
   原版開發：Prpr,Phira
   營運維護：Lute_Rencai
@@ -222,6 +228,10 @@ item-startup-screen = 顯示啟動畫面
 item-startup-screen-sub = 進入主頁前顯示啟動畫面（含語言選擇）
 item-full-screen-judge = 全螢幕判定
 item-full-screen-judge-sub = 啟用全螢幕判定（實驗性功能）
+item-arcaca-judgement = Arcaea 判定模式
+item-arcaca-judgement-sub = 啟用後使用 Arcaea 計分（滿分10000000+物量），停用成績上傳
+item-fnf-judgement = FNF 判定模式
+item-fnf-judgement-sub = 啟用後使用 FNF 計分（Sick350/Good200/Bad100），停用成績上傳
 item-combo-text = Combo 顯示文字
 item-combo-text-default = COMBO
 item-combo-text-edit = 修改

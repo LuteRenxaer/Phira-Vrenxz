@@ -117,6 +117,11 @@ item-touch-debug-sub = 游玩过程中显示触摸点
 item-full-screen-judge = 全屏判定
 item-full-screen-judge-sub = 启用全屏判定（实验性功能）
 
+item-arcaca-judgement = Arcaea 判定模式
+item-arcaca-judgement-sub = 启用后使用 Arcaea 计分（满分10000000+物量），禁用成绩上传
+item-fnf-judgement = FNF 判定模式
+item-fnf-judgement-sub = 启用后使用 FNF 计分（Sick350/Good200/Bad100），禁用成绩上传
+
 item-combo-text = Combo 显示文本
 item-combo-text-default = COMBO
 item-combo-text-edit = 修改
@@ -226,9 +231,15 @@ tutorial-start = 开始教程
 tutorial-load-failed = 加载新手教程失败
 
 about-update-log =
-  版本号：V1.3.1
+  版本号：V1.3.15
   更新内容：
-  修复一些bug
+  1.禁用整个游戏的成绩上传功能，无需开关
+  2.XC-SIM谱面库加载时保持页数显示为1/0
+  3.XC-SIM默认API改为http，端口20003
+  4.修复全屏判定，实现玩家打哪就判定
+  5.修复内置谱面可以收藏的bug
+  6.XC-SIM谱面强制开启Arcaea判定模式
+  7.计分榜适配10000000+计分显示
 
   原版开发：Prpr,Phira
   运营维护：Lute_Rencai
