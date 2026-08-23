@@ -170,7 +170,7 @@ impl Default for Config {
             character_name: "星野(临战)".to_string(),
             character_model_path: None,
             character_default_expr: 0,
-            character_pet_expr: 25,
+            character_pet_expr: 24,
             character_voice_dir: None,
             character_model_offset_x: 0.,
             character_model_offset_y: 0.,

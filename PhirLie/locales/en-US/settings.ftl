@@ -226,25 +226,9 @@ tutorial-start = Start Tutorial
 tutorial-load-failed = Failed to load tutorial
 
 about-update-log =
-  Version: V1.3.0beta3
+  Version: V1.3.1
   Update notes:
-  1. Added UI scale feature, scales menu UI/fonts/touch, background not scaled
-  2. Show score enabled by default, disabled by default on low resolution
-  3. Profile page beautified, parallelogram style, shadows removed
-  4. Fixed input box copy/paste not working
-  5. Chart export supports pez format
-  6. Support batch downloading charts
-  7. Added disable character feature, character and character page buttons hidden when disabled
-  8. Added character portrait (2D model) on home page, can pat head with random voice lines
-  9. New character config page, import custom models, configure name/expression/voice/position/scale/pet area
-  10. Replaced original input box with in-game input box
-  11. Added old home style mode, switchable legacy background and music
-  12. New custom section in settings, adjust UI position/home UI offset/accent color etc.
-  13. Redesigned pause screen, ending.rs style layout
-  14. Fixed Spine multi-texture model compatibility and expression stacking
-  15. Settings menu bar scrollable, character config panel scrollable
-  16. Fixed video playback/chart unlock animation crashes
-  17. Fixed drag/flick keyboard judgment, IME stuck issues
+  Fixed some bugs
 
   Original development: Prpr, Phira
   Operations & maintenance: Lute_Rencai
@@ -257,6 +241,7 @@ about-update-log =
   Jihe Linyu
   Bug QA:
   Jihe Linyu
+  Jungle
   Art:
   Jihe Linyu
   Lute_Rencai

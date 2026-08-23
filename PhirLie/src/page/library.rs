@@ -401,10 +401,12 @@ impl LibraryPage {
             self.tabs.selected_mut().view.reset_scroll();
             self.tabs.selected_mut().view.clear();
             self.xcsim_charts = None;
+            self.online_total_page = 0;
             return;
         }
         self.tabs.selected_mut().view.reset_scroll();
         self.tabs.selected_mut().view.clear();
+        self.online_total_page = 0;
         let page = self.current_page;
         let search = self.search_str.clone();
         let access_token = crate::xcsim::account().access_token.clone();

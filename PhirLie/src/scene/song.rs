@@ -1155,48 +1155,7 @@ impl SongScene {
                 rks: it.rks,
                 historic_best: record.map_or(0, |it| it.score as u32),
             });
-            let upload_fn: Option<UploadFn> = if is_xcsim {
-                None
-            } else {
-                Some(Arc::new(move |data: Vec<u8>| {
-                    Task::new(async move {
-                        #[derive(Serialize)]
-                        #[serde(rename_all = "camelCase")]
-                        struct Req {
-                            chart: i32,
-                            token: String,
-                            chart_updated: Option<DateTime<Utc>>,
-                        }
-                        #[derive(Deserialize)]
-                        #[serde(rename_all = "camelCase")]
-                        struct Resp {
-                            id: i32,
-                            exp_delta: f64,
-                            new_best: bool,
-                            improvement: u32,
-                            new_rks: f32,
-                        }
-                        let resp: Resp = recv_raw(Client::post(
-                            "/play/upload",
-                            &Req {
-                                chart: id.unwrap(),
-                                token: STANDARD.encode(data),
-                                chart_updated,
-                            },
-                        ))
-                        .await?
-                        .json()
-                        .await?;
-                        RECORD_ID.store(resp.id, Ordering::Relaxed);
-                        Ok(RecordUpdateState {
-                            best: resp.new_best,
-                            improvement: resp.improvement,
-                            gain_exp: resp.exp_delta as f32,
-                            new_rks: Some(resp.new_rks),
-                        })
-                    })
-                }))
-            };
+            let upload_fn: Option<UploadFn> = None;
 
             if is_unlock {
                 #[cfg(not(feature = "video"))]

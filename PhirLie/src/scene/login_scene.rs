@@ -296,7 +296,7 @@ impl Scene for LoginScene {
                     .color(WHITE)
                     .draw();
 
-                ui.text(concat!("v", env!("CARGO_PKG_VERSION")))
+                ui.text("v1.3.1")
                     .pos(0., -0.10 + 1.4 * 0.4 + 0.06)
                     .anchor(0.5, 0.)
                     .size(0.4)
