@@ -140,8 +140,30 @@ jobs:
             APP_PATH="$PWD/$APP_PATH"
           fi
           echo "Using APP_PATH=$APP_PATH"
+          echo ""
+          echo "=== .app contents ==="
           ls -la "$APP_PATH"
+          echo ""
+          echo "=== .app executable check ==="
+          APP_BINARY="$APP_PATH/PhirLie"
+          if [ -f "$APP_BINARY" ]; then
+            ls -lh "$APP_BINARY"
+            file "$APP_BINARY"
+          else
+            echo "WARNING: No executable found at $APP_BINARY"
+            echo "Looking for executables..."
+            find "$APP_PATH" -type f -perm +111 -maxdepth 1
+          fi
+          echo ""
+          echo "=== Info.plist check ==="
+          if [ -f "$APP_PATH/Info.plist" ]; then
+            plutil -p "$APP_PATH/Info.plist" 2>/dev/null || cat "$APP_PATH/Info.plist"
+          else
+            echo "WARNING: No Info.plist found!"
+          fi
+
           PAYLOAD_DIR="ipa/Payload"
+          rm -rf ipa
           mkdir -p "$PAYLOAD_DIR"
           cp -R "$APP_PATH" "$PAYLOAD_DIR/"
 
@@ -152,9 +174,14 @@ jobs:
 
           cd ipa
           IPA_NAME="${{ env.APP_NAME }}-ios-${{ github.ref_name }}.ipa"
-          zip -r "../$IPA_NAME" Payload/
+          # Use -X to exclude Mac resource forks, -y for symlinks
+          zip -r -X -y "../$IPA_NAME" Payload/
           cd ..
 
+          echo ""
+          echo "=== IPA structure verification ==="
+          unzip -l "$IPA_NAME" | head -30
+          echo ""
           echo "IPA created: $IPA_NAME"
           ls -lh "$IPA_NAME"
           # Copy to workspace root for clean artifact download
