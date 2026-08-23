@@ -69,6 +69,8 @@ echo ""
 echo "[2/5] Generating Xcode project with xcodegen..."
 cd "$XCODE_DIR"
 xcodegen generate
+# Force object version to 56 (Xcode 14+) for Xcode 15 compatibility
+sed -i '' 's/objectVersion = [0-9]*;/objectVersion = 56;/' PhirLie.xcodeproj/project.pbxproj
 echo "  Project generated: $XCODE_DIR/PhirLie.xcodeproj"
 
 # ---- Build Rust static library (device) ----

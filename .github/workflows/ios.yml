@@ -72,8 +72,11 @@ jobs:
         run: |
           cd "$XCODE_PROJECT_DIR"
           xcodegen generate
+          # Force object version to 56 (Xcode 14+) for Xcode 15.4 compatibility
+          sed -i '' 's/objectVersion = [0-9]*;/objectVersion = 56;/' PhirLie.xcodeproj/project.pbxproj
           echo "Generated project:"
           ls -la PhirLie.xcodeproj
+          grep objectVersion PhirLie.xcodeproj/project.pbxproj
 
       - name: Build Rust static library (device)
         run: |
