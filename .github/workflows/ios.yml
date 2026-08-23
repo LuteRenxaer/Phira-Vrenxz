@@ -163,7 +163,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-ios-ipa
-          path: "*.ipa"
+          path: "**/*.ipa"
           retention-days: 30
 
       - name: Upload build log (on failure)
