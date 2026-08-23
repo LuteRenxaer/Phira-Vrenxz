@@ -80,13 +80,25 @@ jobs:
 
       - name: Build Rust static library (device)
         run: |
-          cargo build --release --target aarch64-apple-ios --features video -p PhirLie
+          set +e
+          cargo build --release --target aarch64-apple-ios --features video -p PhirLie 2>&1 | tee cargo_build.log
+          BUILD_EXIT=${PIPESTATUS[0]}
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo ""
+            echo "========== BUILD ERRORS =========="
+            grep -n "^error" cargo_build.log | head -30
+            echo ""
+            echo "========== LAST 80 LINES =========="
+            tail -80 cargo_build.log
+            exit $BUILD_EXIT
+          fi
           echo "Device static lib:"
           ls -lh target/aarch64-apple-ios/release/libPhirLie.a
 
       - name: Build app (Release)
         id: build
         run: |
+          set -o pipefail
           CONFIG="${{ github.event.inputs.configuration || 'Release' }}"
           cd "$XCODE_PROJECT_DIR"
 
@@ -106,6 +118,15 @@ jobs:
 
           # Find the .app bundle
           APP_PATH=$(find build/DerivedData -name "PhirLie.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: PhirLie.app not found. DerivedData contents:"
+            find build/DerivedData -name "*.app" -type d 2>/dev/null || true
+            echo "--- Build products dir ---"
+            ls -la build/DerivedData/Build/Products/ 2>/dev/null || true
+            echo "--- Last 50 lines of build.log ---"
+            tail -50 build.log
+            exit 1
+          fi
           echo "APP_PATH=$APP_PATH" >> $GITHUB_OUTPUT
           echo "Built app: $APP_PATH"
           ls -la "$APP_PATH"
