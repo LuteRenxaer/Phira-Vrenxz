@@ -294,6 +294,7 @@ impl Page for SettingsPage {
         let data = get_data();
         let config = &data.config;
         if self.list_debug.take_crash_request() {
+            tracing::info!("CRASH REQUEST TAKEN: creating CrashScene");
             NextScene::Overlay(Box::new(CrashScene::new(
                 CrashCode::ManualCrash,
                 "".to_string(),
@@ -1297,6 +1298,7 @@ impl DebugList {
             return Ok(Some(true));
         }
         if self.crash_btn.touch(touch, t) {
+            tracing::info!("CRASH BTN CLICKED: setting crash_requested = true");
             self.crash_requested = true;
             return Ok(Some(false));
         }

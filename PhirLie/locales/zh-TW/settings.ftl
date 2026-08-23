@@ -60,6 +60,26 @@ item-chart-debug-sub = 顯示判定線編號和朝向
 item-touch-debug = 觸摸除錯
 item-touch-debug-sub = 遊玩過程中顯示觸摸點
 load-cali-failed = 載入音訊失敗
+about-update-log =
+  版本號：V1.3.1
+  更新內容：
+  修復一些bug
+
+  原版開發：Prpr,Phira
+  營運維護：Lute_Rencai
+  測試人員：
+  洋洋醬～
+  幾何鄰嶼
+  DVD
+  開發:
+  Lute_Rencai
+  幾何鄰嶼
+  bug質檢員:
+  幾何鄰嶼
+  Jungle
+  美術:
+  幾何鄰嶼
+  Lute_Rencai
 about-content =
     Phira v{ $version }
 

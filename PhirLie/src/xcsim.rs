@@ -6,8 +6,8 @@ use serde_json::json;
 
 use crate::get_data;
 
-pub const DEFAULT_XCSIM_API_URL: &str = "https://xcapi-dchk.hotanyan.net";
-pub const DEFAULT_XCSIM_DOWNLOAD_URL: &str = "https://xcapi-dchk.hotanyan.net:20004";
+pub const DEFAULT_XCSIM_API_URL: &str = "http://xcapi-dchk.hotanyan.net:20003";
+pub const DEFAULT_XCSIM_DOWNLOAD_URL: &str = "http://xcapi-dchk.hotanyan.net:20004";
 
 pub fn api_base_url() -> String {
     get_data()

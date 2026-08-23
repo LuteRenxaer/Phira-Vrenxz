@@ -430,7 +430,7 @@ impl GameScene {
                 ui.fill_circle(pause_center.x, pause_center.y, 0.05, Color::new(1., 1., 1., 0.5));
             }
 
-            ui.text("PHIRLIE v1.3.0beta2")
+            ui.text("PHIRLIE v1.3.1")
                 .pos(pause_center.x + 0.08, pause_center.y)
                 .anchor(0., 0.5)
                 .size(0.4)
@@ -934,9 +934,11 @@ impl GameScene {
                 for touch in ui.ensure_touches() {
                     touch.position *= asp;
                 }
+                // 将练习模式控制元素放在播放按钮下方，避免与统计面板和谱面重叠
+                ui.dy(-0.22);
                 ui.scope(|ui| {
                     ui.dx(0.3);
-                    ui.dy(-0.3);
+                    ui.dy(-0.28);
                     ui.slider(tl!("speed"), 0.5..2.0, 0.05, &mut self.res.config.speed, Some(0.5));
                 });
                 ui.dy(0.06);
@@ -978,7 +980,7 @@ impl GameScene {
                         .find(|it| it.phase == TouchPhase::Started && r.contains(it.position))
                         .map(|it| (0, it.id));
                 }
-                ui.text(fmt_time(t as f32)).pos(0., -0.23).anchor(0.5, 0.).size(0.8).draw();
+                ui.text(fmt_time(t as f32)).pos(0., 0.14).anchor(0.5, 0.).size(0.8).color(Color::new(1., 1., 1., 0.5)).draw();
                 if let Some((ctrl, id)) = &self.exercise_press {
                     if let Some(touch) = Judge::get_touches().iter().rfind(|it| it.id == *id) {
                         let x = touch.position.x;
@@ -1014,7 +1016,7 @@ impl GameScene {
                         }
                     }
                 }
-                ui.dy(0.2);
+                ui.dy(-0.14);
                 let r = ui.text(tl!("to")).size(0.8).anchor(0.5, 0.).draw();
                 let mut tx = ui
                     .text(fmt_time(self.exercise_range.start as f32))
