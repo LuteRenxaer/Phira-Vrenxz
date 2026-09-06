@@ -69,6 +69,38 @@ impl LoadingScene {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         mode: GameMode,
+        info: ChartInfo,
+        config: Config,
+        fs: Box<dyn FileSystem>,
+        player: Option<BasicPlayer>,
+        get_size_fn: Option<Rc<dyn Fn() -> (u32, u32)>>,
+        upload_fn: Option<UploadFn>,
+        update_fn: Option<UpdateFn>,
+        save_fn: Option<SaveFn>,
+        _preload: Option<(SafeTexture, SafeTexture, crate::core::Color)>,
+    ) -> Result<Self> {
+        Self::new_preview(
+            mode,
+            info,
+            config,
+            fs,
+            player,
+            get_size_fn,
+            upload_fn,
+            update_fn,
+            save_fn,
+            _preload,
+            false,
+            None,
+        )
+        .await
+    }
+
+    /// 与 [`LoadingScene::new`] 相同的加载场景，但以“谱面预览”模式启动谱面：
+    /// `preview_mode` 下 GameScene 自然播完不结算，`interrupt` 置位（如多人房主开始游戏）立即退出。
+    #[allow(clippy::too_many_arguments)]
+    pub async fn new_preview(
+        mode: GameMode,
         mut info: ChartInfo,
         config: Config,
         mut fs: Box<dyn FileSystem>,
@@ -78,6 +110,8 @@ impl LoadingScene {
         update_fn: Option<UpdateFn>,
         save_fn: Option<SaveFn>,
         _preload: Option<(SafeTexture, SafeTexture, crate::core::Color)>,
+        preview_mode: bool,
+        interrupt: Option<Arc<std::sync::atomic::AtomicBool>>,
     ) -> Result<Self> {
         async fn load(fs: &mut Box<dyn FileSystem>, path: &str) -> Result<(Texture2D, Texture2D)> {
             let image = image::load_from_memory(&fs.load_file(path).await?).context("Failed to decode image")?;
@@ -127,7 +161,7 @@ impl LoadingScene {
         if info.tip.is_none() {
             info.tip = Some(crate::config::TIPS.choose(&mut thread_rng()).unwrap().to_owned());
         }
-        let future = Box::pin(GameScene::new(
+        let future = Box::pin(GameScene::new_preview(
             mode,
             info.clone(),
             config,
@@ -138,6 +172,8 @@ impl LoadingScene {
             upload_fn,
             update_fn,
             save_fn,
+            preview_mode,
+            interrupt,
         ));
         let charter = Regex::new(r"\[!:[0-9]+:([^:]*)\]").unwrap().replace_all(&info.charter, "$1").to_string();
         Ok(Self {

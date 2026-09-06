@@ -601,15 +601,10 @@ async fn join_room_impl(
     }
     room.broadcast(ServerCommand::OnJoinRoom(user.to_info()))
         .await;
-    // 发送欢迎消息
-    let web_url = if let Some(_web_port) = user.server.config.web_port {
-        format!("你可以使用【云崽】芙卡洛斯的 #phira 指令来查看该服务器的房间列表。")
-    } else {
-        "".to_string()
-    };
+    // 发送欢迎消息（进房提示）
     room.broadcast(ServerCommand::Message(Message::Chat {
         user: 0, // 使用0表示系统消息
-        content: format!("欢迎 {} 加入房间！{}", user.name, web_url),
+        content: format!("Welcome \"{}\"欢迎进入房间喵!", user.name),
     }))
     .await;
     room.send(Message::JoinRoom {

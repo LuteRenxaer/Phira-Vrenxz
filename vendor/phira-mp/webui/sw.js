@@ -1,6 +1,6 @@
-// Service Worker for Phira Management Interface PWA
+// Service Worker for Phira-Vrenxz Server PWA
 
-const CACHE_NAME = 'phira-mgmt-v1.1';
+const CACHE_NAME = 'phira-vrenxz-web-v2.0';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -27,14 +27,28 @@ self.addEventListener('install', event => {
 
 // 拦截请求并提供缓存的资源
 self.addEventListener('fetch', event => {
+  const request = event.request;
+  // 页面导航走网络优先：HTML 每次由服务端注入服务器地址，不能被旧缓存卡住
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then(response => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
   event.respondWith(
-    caches.match(event.request)
+    caches.match(request)
       .then(response => {
         // 如果找到缓存的响应则返回它，否则发起网络请求
         if (response) {
           return response;
         }
-        return fetch(event.request);
+        return fetch(request);
       }
     )
   );
@@ -47,7 +61,7 @@ self.addEventListener('activate', event => {
       return Promise.all(
         cacheNames.map(cacheName => {
           if (cacheName !== CACHE_NAME) {
-            console.log('删除旧缓存', cacheName);
+            console.log('删除旧缓存:', cacheName);
             return caches.delete(cacheName);
           }
         })
