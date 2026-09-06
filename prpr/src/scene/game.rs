@@ -5,7 +5,7 @@ prpr_l10n::tl_file!("game");
 use super::{
     draw_background,
     ending::RecordUpdateState,
-    loading::{BasicPlayer, SaveFn, UpdateFn, UploadFn},
+    loading::{BasicPlayer, FinishedStats, SaveFn, UpdateFn, UploadFn},
     request_input, return_input, show_message, take_input, EndingScene, NextScene, Scene,
 };
 use crate::{
@@ -1279,8 +1279,18 @@ impl GameScene {
             GameMode::Normal | GameMode::NoRetry | GameMode::View => {
                 let historic_best = self.player.as_ref().map_or(0, |it| it.historic_best);
                 if let Some(new_rec) = &record {
+                    // 本局自然完成且成绩有效：把完整结算交给 SaveFn（多人面板据此上报完成而非放弃）
                     if let Some(f) = &self.save_fn {
-                        f(new_rec.clone())?;
+                        f(FinishedStats {
+                            score: result.score,
+                            accuracy: result.accuracy as f32,
+                            full_combo: new_rec.full_combo,
+                            max_combo: result.max_combo,
+                            perfect: result.counts[0],
+                            good: result.counts[1],
+                            bad: result.counts[2],
+                            miss: result.counts[3],
+                        })?;
                     }
                     if let Some(best) = &mut self.best_record {
                         best.update(new_rec);

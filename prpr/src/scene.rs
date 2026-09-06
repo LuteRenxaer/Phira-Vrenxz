@@ -13,7 +13,7 @@ mod game;
 pub use game::{GameMode, GameScene, SimpleRecord};
 
 mod loading;
-pub use loading::{BasicPlayer, LoadingScene, SaveFn, UpdateFn, UploadFn};
+pub use loading::{BasicPlayer, FinishedStats, LoadingScene, SaveFn, UpdateFn, UploadFn};
 
 use crate::{
     core::BOLD_FONT,

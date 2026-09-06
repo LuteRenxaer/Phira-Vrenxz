@@ -45,7 +45,7 @@ use prpr::{
     judge::{icon_index, Judge},
     scene::{
         request_file, request_input, return_file, return_input, show_error, show_message, take_file, take_input, BasicPlayer, GameMode, LoadingScene,
-        LocalSceneTask, NextScene, RecordUpdateState, SaveFn, Scene, SimpleRecord, UpdateFn, UploadFn,
+        LocalSceneTask, NextScene, RecordUpdateState, SaveFn, Scene, SimpleRecord, UpdateFn, UploadFn, FinishedStats,
     },
     task::Task,
     time::TimeManager,
@@ -87,6 +87,10 @@ static CONFIRM_UPLOAD: AtomicBool = AtomicBool::new(false);
 static CONFIRM_AUTOCOMPLETE: AtomicBool = AtomicBool::new(false);
 static SKIP_AUTOCOMPLETE: AtomicBool = AtomicBool::new(false);
 pub static RECORD_ID: AtomicI32 = AtomicI32::new(-1);
+
+/// 最近一局“自然完成且成绩有效”的结算（由引擎 SaveFn 在谱面正常打完时写入，
+/// 多人面板据此上报 client.played 而非误判 abort；单人游玩不会消费，保留不影响）。
+pub static LAST_MP_FINISH: Mutex<Option<prpr::scene::FinishedStats>> = Mutex::new(None);
 
 /// Matches any `@name#id (role)` or `@name#id` or `@name (role)` or `@name`.
 /// Parentheses may be ASCII `()` or fullwidth `（）`; whitespace before `(` is optional.
@@ -1116,7 +1120,16 @@ impl SongScene {
 
         let save_fn: Option<SaveFn> = Some(Box::new({
             let local_path = local_path.to_string();
-            move |new_rec| -> Result<()> {
+            move |stats: FinishedStats| -> Result<()> {
+                // 自然完成且成绩有效（引擎仅在 record 有效时调用本回调）：
+                // 记录本次结算供多人面板读取（面板在每局 GameStart 清空、取走后置空），
+                // 使“正常打完”上报 client.played 而非被误判为 abort。
+                *LAST_MP_FINISH.lock().unwrap() = Some(stats);
+                let new_rec = SimpleRecord {
+                    score: stats.score as i32,
+                    accuracy: stats.accuracy,
+                    full_combo: stats.full_combo,
+                };
                 let rec = get_data_mut()
                     .charts
                     .iter_mut()
