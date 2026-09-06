@@ -103,6 +103,11 @@ struct State {
     cb_upload_chart: RCallback<()>,
     cb_download_chart: RCallback<Vec<u8>>,
 
+    cb_set_room_password: RCallback<()>,
+    cb_join_room_with_password: RCallback<JoinRoomResponse>,
+    cb_kick_user: RCallback<()>,
+    cb_transfer_host: RCallback<()>,
+
     local_chart_events: Mutex<VecDeque<LocalChartEvent>>,
 
     live_players: DashMap<i32, Arc<LivePlayer>>,
@@ -163,6 +168,11 @@ impl Client {
 
             cb_upload_chart: Callback::default(),
             cb_download_chart: Callback::default(),
+
+            cb_set_room_password: Callback::default(),
+            cb_join_room_with_password: Callback::default(),
+            cb_kick_user: Callback::default(),
+            cb_transfer_host: Callback::default(),
 
             local_chart_events: Mutex::default(),
 
@@ -473,6 +483,66 @@ impl Client {
             .await
     }
 
+    /// 房主设置 / 清除房间密码（空串 = 清除）
+    #[inline]
+    pub async fn set_room_password(&self, password: impl Into<String>) -> Result<()> {
+        self.rcall(
+            ClientCommand::SetRoomPassword {
+                password: password.into().try_into()?,
+            },
+            &self.state.cb_set_room_password,
+        )
+        .await
+    }
+
+    /// 加入带密码房间
+    #[inline]
+    pub async fn join_room_with_password(
+        &self,
+        id: RoomId,
+        monitor: bool,
+        password: impl Into<String>,
+    ) -> Result<()> {
+        let resp = self
+            .rcall(
+                ClientCommand::JoinRoomWithPassword {
+                    id: id.clone(),
+                    monitor,
+                    password: password.into().try_into()?,
+                },
+                &self.state.cb_join_room_with_password,
+            )
+            .await?;
+        *self.state.room.write().await = Some(ClientRoomState {
+            id,
+            state: resp.state,
+            live: resp.live,
+            locked: false,
+            cycle: false,
+            is_host: false,
+            is_ready: false,
+            users: resp.users.into_iter().map(|it| (it.id, it)).collect(),
+        });
+        Ok(())
+    }
+
+    /// 房主踢出指定玩家
+    #[inline]
+    pub async fn kick_user(&self, user: i32) -> Result<()> {
+        self.rcall(ClientCommand::KickUser { user }, &self.state.cb_kick_user)
+            .await
+    }
+
+    /// 房主移交房主身份给指定玩家
+    #[inline]
+    pub async fn transfer_host(&self, user: i32) -> Result<()> {
+        self.rcall(
+            ClientCommand::TransferHost { user },
+            &self.state.cb_transfer_host,
+        )
+        .await
+    }
+
     /// 上传本地谱面包到服务端（经 game 连接，兼容内网穿透）
     #[inline]
     pub async fn upload_chart(&self, id: impl Into<String>, data: Vec<u8>) -> Result<()> {
@@ -627,14 +697,33 @@ async fn process(state: Arc<State>, cmd: ServerCommand) {
                     state.room.write().await.as_mut().unwrap().cycle = cycle;
                 }
                 Message::LeaveRoom { user, .. } => {
-                    state
-                        .room
-                        .write()
-                        .await
-                        .as_mut()
-                        .unwrap()
-                        .users
-                        .remove(&user);
+                    let is_me = state.me.read().await.as_ref().is_some_and(|it| it.id == user);
+                    let mut guard = state.room.write().await;
+                    if let Some(room) = guard.as_mut() {
+                        room.users.remove(&user);
+                        if is_me {
+                            // 自己离开/被移出：清空本地房间状态
+                            state.live_players.clear();
+                            *guard = None;
+                        }
+                    }
+                }
+                // 被房主踢出：清空本地房间状态并标记
+                Message::Kicked { user, .. } => {
+                    let is_me = state.me.read().await.as_ref().is_some_and(|it| it.id == user);
+                    if is_me {
+                        state.live_players.clear();
+                        *state.room.write().await = None;
+                    } else {
+                        state
+                            .room
+                            .write()
+                            .await
+                            .as_mut()
+                            .unwrap()
+                            .users
+                            .remove(&user);
+                    }
                 }
                 _ => {}
             }
@@ -763,6 +852,18 @@ async fn process(state: Arc<State>, cmd: ServerCommand) {
         }
         ServerCommand::DownloadChart(res) => {
             cb(&state.cb_download_chart, res).await;
+        }
+        ServerCommand::SetRoomPassword(res) => {
+            cb(&state.cb_set_room_password, res).await;
+        }
+        ServerCommand::JoinRoomWithPassword(res) => {
+            cb(&state.cb_join_room_with_password, res).await;
+        }
+        ServerCommand::KickUser(res) => {
+            cb(&state.cb_kick_user, res).await;
+        }
+        ServerCommand::TransferHost(res) => {
+            cb(&state.cb_transfer_host, res).await;
         }
     }
 }

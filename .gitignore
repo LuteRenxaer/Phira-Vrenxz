@@ -1,6 +1,8 @@
 inner.rs
 
 /target
+/vendor/phira-mp/server-src/target/
+/vendor/phira-mp/*/target/
 /assets/font.ttf
 /cache
 /data

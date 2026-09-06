@@ -33,6 +33,18 @@ const ENTER_TRANSIT: f32 = 0.5;
 const USER_LIST_TRANSIT: f32 = 0.4;
 const WIDTH: f32 = 1.6;
 
+// 服务器公共房间列表 JSON（GET /api/rooms 返回字段的子集）
+#[derive(Debug, Clone, serde::Deserialize)]
+struct PublicRoom {
+    id: String,
+    #[serde(rename = "player_count")]
+    player_count: usize,
+    state: String,
+    locked: bool,
+    #[serde(default)]
+    mode: String,
+}
+
 const CHAT_ENABLED: bool = cfg!(feature = "chat");
 
 fn screen_size() -> (u32, u32) {
@@ -122,6 +134,24 @@ pub struct MPPanel {
     user_list_p: Smooth<f32>,
     user_list_scroll: Scroll,
     icon_user: SafeTexture,
+
+    // 房间管理（房主视图）
+    password_btn: DRectButton,
+    kick_user_btn: DRectButton,
+    transfer_host_btn: DRectButton,
+    // 谱面预览（autoplay）
+    preview_btn: DRectButton,
+    // 预览前需要先下载谱面（下载完成后自动开始预览）
+    preview_pending: bool,
+    // 记录"加入需要密码"的房间 id，用于二次请求密码（一次有效）
+    join_pwd_pending: Option<String>,
+
+    // 快速进房：公共房间列表
+    room_list_btn: DRectButton,
+    room_list_p: Smooth<f32>,
+    room_list_scroll: Scroll,
+    room_list: Option<Vec<PublicRoom>>,
+    room_list_task: Option<Task<Result<Vec<PublicRoom>>>>,
 }
 
 impl MPPanel {
@@ -189,11 +219,87 @@ impl MPPanel {
             user_list_p: Smooth::default(),
             user_list_scroll: Scroll::new(),
             icon_user,
+
+            password_btn: DRectButton::new(),
+            kick_user_btn: DRectButton::new(),
+            transfer_host_btn: DRectButton::new(),
+            preview_btn: DRectButton::new(),
+            preview_pending: false,
+            join_pwd_pending: None,
+
+            room_list_btn: DRectButton::new(),
+            room_list_p: Smooth::default(),
+            room_list_scroll: Scroll::new(),
+            room_list: None,
+            room_list_task: None,
         }
     }
 
     fn clone_client(&self) -> Arc<Client> {
         Arc::clone(self.client.as_ref().unwrap())
+    }
+
+    /// 房间列表浮层：命中第几行（与 render 中几何一致）。点不到返回 None。
+    fn hit_room_list_row(&self, pos: macroquad::prelude::Vec2) -> Option<usize> {
+        const PANEL_W: f32 = 0.92;
+        const MAX_ROWS: usize = 10;
+        const ROW_H: f32 = 0.13;
+        const GAP: f32 = 0.015;
+        let rooms = self.room_list.as_deref().unwrap_or(&[]);
+        let n = rooms.len().min(MAX_ROWS);
+        if n == 0 {
+            return None;
+        }
+        let header = 0.3 + n as f32 * (ROW_H + GAP);
+        // panel_h 与 render 相同（受 ui.top*2 限制；本命中直接忽略截断情形）
+        let panel_h = header;
+        let panel_x = -PANEL_W / 2.;
+        let panel_y = -panel_h / 2.;
+        let x0 = panel_x + 0.03;
+        let y0 = panel_y + 0.03 + 0.085 + 0.02;
+        if pos.x < x0 || pos.x > x0 + PANEL_W - 0.06 {
+            return None;
+        }
+        for (i, _) in rooms.iter().take(MAX_ROWS).enumerate() {
+            let y = y0 + i as f32 * (ROW_H + GAP);
+            if pos.y >= y && pos.y <= y + ROW_H {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    /// 从 mp_address（如 `mp2.phira.cn:12345`）推导 Web API 地址（游戏端口 + 1）
+    fn web_base() -> Option<String> {
+        let addr = get_data().config.mp_address.clone();
+        let (host, port) = addr.rsplit_once(':')?;
+        let port: u16 = port.parse().ok()?;
+        let host = host.trim_end_matches('.').to_owned();
+        Some(format!("http://{host}:{}", port + 1))
+    }
+
+    /// 拉取公共房间列表（GET {web}/api/rooms）
+    fn load_room_list(&mut self) {
+        if self.room_list_task.is_some() {
+            return;
+        }
+        let Some(base) = Self::web_base() else {
+            show_message(mtl!("room-list-failed")).error();
+            return;
+        };
+        self.room_list_task = Some(Task::new(async move {
+            let url = format!("{base}/api/rooms");
+            let resp = reqwest::get(&url).await?.error_for_status()?;
+            let rooms: Vec<PublicRoom> = resp.json().await?;
+            Ok(rooms)
+        }));
+    }
+
+    /// 打开房间列表浮层
+    fn open_room_list(&mut self, t: f32) {
+        self.room_list_scroll.y_scroller.reset();
+        self.room_list_p.goto(1., t, USER_LIST_TRANSIT);
+        self.load_room_list();
     }
 
     fn has_task(&self) -> bool {
@@ -324,8 +430,88 @@ impl MPPanel {
         self.download_task = Some(Task::new(async move { Ptr::new(id).fetch().await }));
     }
 
+    /// 谱面是否已在本地（download/{id} 或 download/{uuid}）
+    fn local_chart_ready(&self, id: Option<i32>, uuid: Option<&str>) -> bool {
+        let id = match (id, uuid) {
+            (Some(id), _) => id.to_string(),
+            (None, Some(uuid)) => uuid.to_string(),
+            _ => return false,
+        };
+        Path::new(&format!("{}/download/{id}/info.yml", dir::charts().ok().unwrap_or_default())).exists()
+    }
+
+    /// 预览当前房主选定的谱面（autoplay；结束时自动回到房间，不影响正式开局）
+    fn start_preview(&mut self) {
+        let Some(client) = self.client.clone() else { return };
+        let state = match client.blocking_state() {
+            Some(s) => s,
+            None => return,
+        };
+        // 在线谱 / 本地谱
+        let (id, uuid, path): (Option<i32>, Option<String>, Option<String>) = match (&state.state, &self.local_chart) {
+            (RoomState::SelectChart(Some(id)), _) => (Some(*id), None, Some(format!("download/{id}"))),
+            (RoomState::LocalChart, Some((uuid, _))) => (None, Some(uuid.clone()), Some(format!("download/{uuid}"))),
+            _ => (None, None, None),
+        };
+        let Some(path) = path else {
+            show_message(mtl!("preview-unavailable")).error();
+            return;
+        };
+        // 本地没有缓存：先下载（下载完成后由 post_download 自动进入预览）
+        if !self.local_chart_ready(id, uuid.as_deref()) {
+            self.chart_id = id.or(self.chart_id);
+            self.preview_pending = true;
+            if let Some(id) = self.chart_id {
+                self.check_download_preview(id);
+            } else {
+                show_message(mtl!("preview-unavailable")).error();
+            }
+            return;
+        }
+        let res = self.launch_preview(path, id);
+        if let Err(err) = res {
+            show_error(err.context(mtl!("preview-failed")));
+        }
+    }
+
+    fn check_download_preview(&mut self, id: i32) {
+        self.download_task = Some(Task::new(async move { Ptr::new(id).fetch().await }));
+    }
+
+    /// 以 autoplay 方式进入谱面预览（client 传 None：不参与 live/上报，不影响房间）
+    fn launch_preview(&mut self, path: String, id: Option<i32>) -> Result<()> {
+        use crate::scene::SongScene;
+        use prpr::config::Mods;
+        use prpr::scene::GameMode;
+        self.scene_task = SongScene::global_launch(
+            id,
+            &path,
+            Mods::AUTOPLAY,
+            GameMode::NoRetry,
+            None,
+            None,
+            None,
+            false,
+            false,
+        )?;
+        Ok(())
+    }
+
     fn post_download(&mut self) {
         let client = self.clone_client();
+        if self.preview_pending {
+            self.preview_pending = false;
+            // 谱面下载完成后进入预览
+            let Some(id) = self.chart_id else {
+                show_message(mtl!("preview-unavailable")).error();
+                return;
+            };
+            let path = format!("download/{id}");
+            if let Err(err) = self.launch_preview(path, Some(id)) {
+                show_error(err.context(mtl!("preview-failed")));
+            }
+            return;
+        }
         if self.download_next {
             self.task = Some(Task::new(async move {
                 client.request_start().await.with_context(|| mtl!("request-start-failed"))?;
@@ -528,6 +714,31 @@ impl MPPanel {
             }
             return true;
         }
+        if self.room_list_p.transiting(t) {
+            return true;
+        }
+        if *self.room_list_p.to() > 0.5 {
+            // 命中房间行 → 快速加入
+            if matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled) {
+                let hit = self.hit_room_list_row(touch.position);
+                if let Some(room) = hit.and_then(|idx| self.room_list.as_ref().and_then(|r| r.get(idx))) {
+                    self.room_list_p.goto(0., t, USER_LIST_TRANSIT);
+                    let client = self.clone_client();
+                    if let Ok(id) = room.id.clone().try_into() {
+                        self.join_room_task = Some(Task::new(async move {
+                            client.join_room(id, false).await?;
+                            client.room_state().await.ok_or_else(|| anyhow!("expected room state"))
+                        }));
+                    }
+                    return true;
+                }
+                // 点击空白处关闭
+                if hit.is_none() {
+                    self.room_list_p.goto(0., t, USER_LIST_TRANSIT);
+                }
+            }
+            return true;
+        }
         if !(self.side_enter_time > 0. && tm.real_time() as f32 > self.side_enter_time + ENTER_TRANSIT) {
             return true;
         }
@@ -581,6 +792,18 @@ impl MPPanel {
                                 self.task = Some(Task::new(async move { client.lock_room(to).await.with_context(|| mtl!("lock-room-failed")) }));
                                 return true;
                             }
+                            if self.password_btn.touch(touch, t) {
+                                request_input("set_pwd", InputBox::new());
+                                return true;
+                            }
+                            if self.kick_user_btn.touch(touch, t) {
+                                request_input("kick_user", InputBox::new());
+                                return true;
+                            }
+                            if self.transfer_host_btn.touch(touch, t) {
+                                request_input("transfer_host", InputBox::new());
+                                return true;
+                            }
                             if self.cycle_room_btn.touch(touch, t) {
                                 let to = !state.cycle;
                                 let client = self.clone_client();
@@ -609,6 +832,18 @@ impl MPPanel {
                                 let to = !state.locked;
                                 let client = self.clone_client();
                                 self.task = Some(Task::new(async move { client.lock_room(to).await.with_context(|| mtl!("lock-room-failed")) }));
+                                return true;
+                            }
+                            if self.password_btn.touch(touch, t) {
+                                request_input("set_pwd", InputBox::new());
+                                return true;
+                            }
+                            if self.kick_user_btn.touch(touch, t) {
+                                request_input("kick_user", InputBox::new());
+                                return true;
+                            }
+                            if self.transfer_host_btn.touch(touch, t) {
+                                request_input("transfer_host", InputBox::new());
                                 return true;
                             }
                             if self.cycle_room_btn.touch(touch, t) {
@@ -649,6 +884,10 @@ impl MPPanel {
                     }
                     _ => {}
                 }
+                if self.preview_btn.touch(touch, t) {
+                    self.start_preview();
+                    return true;
+                }
                 if self.user_list_btn.touch(touch, t) {
                     self.user_list_scroll.y_scroller.reset();
                     self.user_list_p.goto(1., t, USER_LIST_TRANSIT);
@@ -661,6 +900,10 @@ impl MPPanel {
                 }
                 if self.join_room_btn.touch(touch, t) {
                     request_input("join_room", InputBox::new());
+                    return true;
+                }
+                if self.room_list_btn.touch(touch, t) {
+                    self.open_room_list(t);
                     return true;
                 }
                 if self.disconnect_btn.touch(touch, t) {
@@ -692,6 +935,9 @@ impl MPPanel {
         self.msg_scroll.update(t);
         if self.user_list_p.now(t) > 1e-4 {
             self.user_list_scroll.update(t);
+        }
+        if self.room_list_p.now(t) > 1e-4 {
+            self.room_list_scroll.update(t);
         }
         if let Some(client) = &self.client {
             self.msgs.extend(client.blocking_take_messages().into_iter().map(|msg| {
@@ -749,6 +995,13 @@ impl MPPanel {
                             }
                             M::DownloadReady { user, .. } => {
                                 format!("{} 谱面下载完成", client.user_name(user))
+                            }
+                            M::Kicked { user, name, .. } => {
+                                if Some(user) == client.me().as_ref().map(|it| it.id) {
+                                    mtl!("msg-kicked-me").into_owned()
+                                } else {
+                                    mtl!("msg-kicked", "user" => name.as_str())
+                                }
                             }
                         };
                         Message {
@@ -906,13 +1159,45 @@ impl MPPanel {
                 self.task = None;
             }
         }
+        if let Some(task) = &mut self.room_list_task {
+            if let Some(res) = task.take() {
+                match res {
+                    Ok(rooms) => {
+                        self.room_list = Some(rooms);
+                    }
+                    Err(err) => {
+                        show_error(err.context(mtl!("room-list-failed")));
+                        self.room_list = Some(Vec::new());
+                    }
+                }
+                self.room_list_task = None;
+            }
+        }
         if let Some(task) = &mut self.join_room_task {
             if let Some(res) = task.take() {
                 match res {
                     Err(err) => {
-                        show_error(err.context(mtl!("join-room-failed")));
+                        // 若房间需要密码，请用户输入密码后重试（仅第一次失败时询问）
+                        let need_pwd = self.join_pwd_pending.is_some()
+                            && {
+                                let msg = format!("{err}");
+                                msg.contains("密码") || msg.to_lowercase().contains("password")
+                            };
+                        if need_pwd {
+                            let room_id = self.join_pwd_pending.take().unwrap();
+                            self.join_pwd_pending = Some(room_id);
+                            request_input(
+                                "join_room_pwd",
+                                InputBox::new().title(mtl!("join-room-password-title")),
+                            );
+                            self.task = None;
+                        } else {
+                            self.join_pwd_pending = None;
+                            show_error(err.context(mtl!("join-room-failed")));
+                        }
                     }
                     Ok(state) => {
+                        self.join_pwd_pending = None;
                         self.chart_id = match state {
                             RoomState::SelectChart(id) => id,
                             _ => None,
@@ -932,13 +1217,58 @@ impl MPPanel {
                 }
                 "join_room" => {
                     let client = self.clone_client();
-                    if let Ok(id) = text.try_into() {
+                    if let Ok(id) = <RoomId as TryFrom<String>>::try_from(text.clone()) {
+                        self.join_pwd_pending = Some(id.to_string());
                         self.join_room_task = Some(Task::new(async move {
                             client.join_room(id, false).await?;
                             client.room_state().await.ok_or_else(|| anyhow!("expected room state"))
                         }));
                     } else {
                         show_message(mtl!("join-room-invalid-id")).error();
+                    }
+                }
+                // 加入失败且提示需要密码 → 请求输入密码后带密码重试
+                "join_room_pwd" => {
+                    if let Some(room_id) = self.join_pwd_pending.take() {
+                        let client = self.clone_client();
+                        let password = text.clone();
+                        if let Ok(id) = room_id.try_into() {
+                            self.join_room_task = Some(Task::new(async move {
+                                client.join_room_with_password(id, false, password).await?;
+                                client.room_state().await.ok_or_else(|| anyhow!("expected room state"))
+                            }));
+                        } else {
+                            show_message(mtl!("join-room-invalid-id")).error();
+                        }
+                    } else {
+                        return_input(id, text);
+                    }
+                }
+                "set_pwd" => {
+                    let client = self.clone_client();
+                    let password = text.clone();
+                    self.task = Some(Task::new(async move {
+                        client.set_room_password(password).await.with_context(|| mtl!("set-password-failed"))
+                    }));
+                }
+                "kick_user" => {
+                    if let Ok(id) = text.trim().parse::<i32>() {
+                        let client = self.clone_client();
+                        self.task = Some(Task::new(async move {
+                            client.kick_user(id).await.with_context(|| mtl!("kick-user-failed"))
+                        }));
+                    } else {
+                        show_message(mtl!("kick-user-invalid-id")).error();
+                    }
+                }
+                "transfer_host" => {
+                    if let Ok(id) = text.trim().parse::<i32>() {
+                        let client = self.clone_client();
+                        self.task = Some(Task::new(async move {
+                            client.transfer_host(id).await.with_context(|| mtl!("transfer-host-failed"))
+                        }));
+                    } else {
+                        show_message(mtl!("transfer-host-invalid-id")).error();
                     }
                 }
                 _ => return_input(id, text),
@@ -1142,7 +1472,7 @@ impl MPPanel {
         }
 
         let mut br = Rect::new(mr.right() + 0.02, mr.y, r.right() - mr.right() - 0.02, 0.1);
-        let mut btns = SmallVec::<[(&mut DRectButton, String); 5]>::new();
+        let mut btns = SmallVec::<[(&mut DRectButton, String); 10]>::new();
         if let Some(state) = client.blocking_state() {
             match state.state {
                 RoomState::SelectChart(_) => {
@@ -1150,6 +1480,9 @@ impl MPPanel {
                         btns.push((&mut self.request_start_btn, mtl!("request-start").into_owned()));
                         btns.push((&mut self.lock_room_btn, mtl!("lock-room", "current" => state.locked.to_string())));
                         btns.push((&mut self.cycle_room_btn, mtl!("cycle-room", "current" => state.cycle.to_string())));
+                        btns.push((&mut self.password_btn, mtl!("set-password").into_owned()));
+                        btns.push((&mut self.kick_user_btn, mtl!("kick-user").into_owned()));
+                        btns.push((&mut self.transfer_host_btn, mtl!("transfer-host").into_owned()));
                     }
                     btns.push((&mut self.leave_room_btn, mtl!("leave-room").into_owned()));
                 }
@@ -1162,6 +1495,9 @@ impl MPPanel {
                         }
                         btns.push((&mut self.lock_room_btn, mtl!("lock-room", "current" => state.locked.to_string())));
                         btns.push((&mut self.cycle_room_btn, mtl!("cycle-room", "current" => state.cycle.to_string())));
+                        btns.push((&mut self.password_btn, mtl!("set-password").into_owned()));
+                        btns.push((&mut self.kick_user_btn, mtl!("kick-user").into_owned()));
+                        btns.push((&mut self.transfer_host_btn, mtl!("transfer-host").into_owned()));
                     } else if self.local_ready {
                         btns.push((&mut self.cancel_ready_btn, mtl!("cancel-ready").into_owned()));
                     } else if self.pending_download.is_some() {
@@ -1178,11 +1514,39 @@ impl MPPanel {
                 }
                 _ => {}
             }
+            // 谱面预览（autoplay）：选好谱后、正式开始前都可用
+            let local_uuid_ready = match (&state.state, &self.local_chart) {
+                (RoomState::LocalChart, Some((uuid, _))) => {
+                    let ok = Path::new(&format!("{}/download/{uuid}/info.yml", dir::charts().unwrap_or_default())).exists();
+                    ok
+                }
+                _ => false,
+            };
+            let previewable = match (&state.state, &self.local_chart) {
+                (RoomState::SelectChart(Some(_)), _) => true,
+                (RoomState::LocalChart, Some(_)) => local_uuid_ready,
+                (RoomState::WaitingForReady, _) => self.chart_id.is_some(),
+                _ => false,
+            };
+            if previewable {
+                btns.push((&mut self.preview_btn, mtl!("preview").into_owned()));
+            }
             btns.push((&mut self.user_list_btn, mtl!("user-list").into_owned()));
         } else {
             btns.push((&mut self.create_room_btn, mtl!("create-room").into_owned()));
             btns.push((&mut self.join_room_btn, mtl!("join-room").into_owned()));
+            btns.push((&mut self.room_list_btn, mtl!("room-list").into_owned()));
             btns.push((&mut self.disconnect_btn, mtl!("disconnect").into_owned()));
+        }
+        // 动态布局：按钮多时自动压缩行高，避免溢出面板
+        {
+            let n = btns.len();
+            if n > 0 {
+                let gap = 0.02;
+                let avail = (r.bottom() - 0.02) - mr.y;
+                let h = ((avail - gap * (n as f32 - 1.)) / n as f32).min(0.1).max(0.045);
+                br.h = h;
+            }
         }
         for (btn, text) in btns {
             btn.render_shadow(ui, br, t, |ui, path| {
@@ -1236,7 +1600,12 @@ impl MPPanel {
                                 let Some(user) = iter.next() else { unreachable!() };
                                 ui.fill_path(&r.rounded(0.008), semi_black(0.15));
                                 ui.avatar(r.x + 0.055, r.center().y, 0.04, t, UserManager::opt_avatar(user.id, &self.icon_user));
-                                ui.text(user.name)
+                                let label = if client.blocking_is_host().unwrap_or(false) {
+                                    format!("{} (#{})", user.name, user.id)
+                                } else {
+                                    user.name.clone()
+                                };
+                                ui.text(label)
                                     .pos(r.x + 0.105, r.center().y)
                                     .anchor(0., 0.5)
                                     .no_baseline()
@@ -1248,6 +1617,69 @@ impl MPPanel {
                         }
                         (width, (rn as f32 * (h + pad) - pad).max(0.))
                     });
+                });
+            });
+        }
+
+        // 公共房间列表浮层（快速进房）
+        let p = self.room_list_p.now(t);
+        if p > 1e-4 {
+            ui.abs_scope(|ui| {
+                ui.alpha(p, |ui| {
+                    ui.fill_rect(ui.screen_rect(), semi_black(p * 0.5));
+                    let panel_w = 0.92;
+                    let max_rows = 10;
+                    let row_h = 0.13;
+                    let rooms = self.room_list.as_deref().unwrap_or(&[]);
+                    let n = rooms.len().min(max_rows);
+                    let panel_h = (0.3 + n as f32 * (row_h + 0.015)).min(ui.top * 2. - 0.1);
+                    let panel_r = Rect::new(-panel_w / 2., -panel_h / 2., panel_w, panel_h);
+                    ui.fill_path(&panel_r.rounded(0.015), semi_black(0.3));
+                    let cx = panel_r.x + 0.03;
+                    let mut y = panel_r.y + 0.03;
+                    ui.text(mtl!("room-list-title"))
+                        .pos(cx, y)
+                        .size(0.5)
+                        .color(semi_white(0.9))
+                        .draw();
+                    y += 0.085;
+                    if self.room_list.is_none() && self.room_list_task.is_some() {
+                        ui.text(mtl!("room-list-loading")).pos(cx, y).size(0.4).color(semi_white(0.6)).draw();
+                    }
+                    let empty = rooms.is_empty() && self.room_list.is_some();
+                    if empty {
+                        ui.text(mtl!("room-list-empty")).pos(cx, y + 0.05).size(0.4).color(semi_white(0.6)).draw();
+                    }
+                    let mut shown = 0;
+                    for room in rooms.iter().take(max_rows) {
+                        let r = Rect::new(panel_r.x + 0.03, y + 0.02, panel_w - 0.06, row_h);
+                        ui.fill_path(&r.rounded(0.008), semi_black(0.2));
+                        let label = format!("#{}  ·  {} 人  ·  {}", room.id, room.player_count, room.state);
+                        ui.text(label)
+                            .pos(r.x + 0.03, r.center().y)
+                            .anchor(0., 0.5)
+                            .size(0.42)
+                            .max_width(r.w - 0.2)
+                            .color(if room.locked { semi_white(0.5) } else { WHITE })
+                            .draw();
+                        if room.locked {
+                            ui.text(mtl!("room-locked-tag"))
+                                .pos(r.right() - 0.05, r.center().y)
+                                .anchor(1., 0.5)
+                                .size(0.36)
+                                .color(semi_white(0.6))
+                                .draw();
+                        }
+                        y += row_h + 0.015;
+                        shown += 1;
+                    }
+                    if rooms.len() > max_rows {
+                        ui.text(mtl!("room-list-more"))
+                            .pos(cx, y + 0.02)
+                            .size(0.35)
+                            .color(semi_white(0.5))
+                            .draw();
+                    }
                 });
             });
         }

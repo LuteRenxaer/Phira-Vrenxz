@@ -12,6 +12,25 @@ create-invalid-id = 房間 ID 應由不多於 20 個大小寫英文字母、數�
 join-room = 加入房間
 join-room-invalid-id = 房間 ID 無效
 join-room-failed = 加入房間失敗
+join-room-password-title = 輸入房間密碼
+room-list = 公共房間
+room-list-title = 公共房間（點擊加入）
+room-list-loading = 載入中…
+room-list-empty = 暫無可加入的房間
+room-list-failed = 取得房間列表失敗
+room-list-more = …還有更多房間，請直接輸入房間號
+room-locked-tag = 🔒
+
+set-password = 設定房間密碼
+set-password-failed = 設定房間密碼失敗
+clear-password = 清除房間密碼
+kick-user = 踢出玩家(ID)
+kick-user-failed = 踢出玩家失敗
+kick-user-invalid-id = 無效的玩家 ID（請在玩家列表中查看 #ID）
+transfer-host = 移交房主(ID)
+transfer-host-failed = 移交房主失敗
+transfer-host-invalid-id = 無效的玩家 ID（請在玩家列表中查看 #ID）
+
 leave-room = 離開房間
 leave-room-failed = 離開房間失敗
 disconnect = 中斷連線
@@ -19,6 +38,9 @@ request-start = 開始遊戲
 request-start-no-chart = 你尚未選擇譜面
 request-start-failed = 開始遊戲失敗
 user-list = 使用者列表
+preview = 預覽譜面
+preview-failed = 預覽失敗
+preview-unavailable = 目前沒有可預覽的譜面
 lock-room =
     { $current ->
         [true] 解鎖房間
@@ -62,6 +84,8 @@ msg-played =
     }
 msg-game-end = 遊戲結束
 msg-abort = `{ $user }` 放棄了遊戲
+msg-kicked-me = 你已被房主移出房間
+msg-kicked = `{ $user }` 已被房主移出房間
 msg-room-lock =
     { $lock ->
         [true] 房間已鎖定
