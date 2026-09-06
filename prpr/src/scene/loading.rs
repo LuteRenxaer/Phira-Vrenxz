@@ -43,7 +43,19 @@ fn draw_illustration(tex: Texture2D, x: f32, y: f32, w: f32, h: f32, color: Colo
 
 pub type UploadFn = Arc<dyn Fn(Vec<u8>) -> Task<Result<RecordUpdateState>>>;
 pub type UpdateFn = Box<dyn FnMut(f64, &mut Resource, &mut Judge) + Send>;
-pub type SaveFn = Box<dyn Fn(SimpleRecord) -> Result<()> + Send>;
+/// 一局完整游玩的有效结算（非跳过、非 UNRATED 等）。
+#[derive(Clone, Copy, Debug)]
+pub struct FinishedStats {
+    pub score: u32,
+    pub accuracy: f32,
+    pub full_combo: bool,
+    pub max_combo: u32,
+    pub perfect: u32,
+    pub good: u32,
+    pub bad: u32,
+    pub miss: u32,
+}
+pub type SaveFn = Box<dyn Fn(FinishedStats) -> Result<()> + Send>;
 
 pub struct BasicPlayer {
     pub avatar: Option<SafeTexture>,

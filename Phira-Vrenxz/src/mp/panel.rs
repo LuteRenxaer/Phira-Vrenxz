@@ -2,7 +2,7 @@ use crate::{
     client::{Chart, Ptr, UserManager},
     dir, get_data,
     mp::L10N_LOCAL,
-    scene::{Downloading, SongScene, RECORD_ID},
+    scene::{Downloading, SongScene, LAST_MP_FINISH, RECORD_ID},
 };
 use anyhow::{anyhow, Context, Result};
 use inputbox::InputBox;
@@ -1927,6 +1927,8 @@ impl MPPanel {
                 if !self.game_start_consumed {
                     self.game_start_consumed = true;
                     RECORD_ID.store(-1, Ordering::Relaxed);
+                    // 开局清空上一局结算记录，避免残留导致误判“完成”
+                    *LAST_MP_FINISH.lock().unwrap() = None;
                     self.need_upload = true;
                     self.entered = false;
                     // 本地谱面分享：从本地 download/{uuid} 加载
@@ -2243,10 +2245,15 @@ impl MPPanel {
         }
 
         if self.need_upload && self.entered {
-            let id = RECORD_ID.load(Ordering::Relaxed);
-            if id != -1 {
+            // 谱面自然打完（引擎在 record 有效时才写入 LAST_MP_FINISH）→ 上报真实成绩；
+            // 中途退出/跳过/失败未产生有效结算 → 仍按放弃(abort)处理。
+            if let Some(stats) = LAST_MP_FINISH.lock().unwrap().take() {
                 let client = self.clone_client();
-                self.task = Some(Task::new(async move { client.played(id, 0, 0., false, 0, 0, 0, 0, 0).await }));
+                self.task = Some(Task::new(async move {
+                    client
+                        .played(0, stats.score, stats.accuracy, stats.full_combo, stats.max_combo, stats.perfect, stats.good, stats.bad, stats.miss)
+                        .await
+                }));
             } else {
                 let client = self.clone_client();
                 self.task = Some(Task::new(async move { client.abort().await }));
