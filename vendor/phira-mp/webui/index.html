@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>服务器管理界面</title>
+    <title>Phira-Vrenxz 服务器管理界面</title>
     
     <!-- PWA相关标签 -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#007bff">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Phira管理">
+    <meta name="apple-mobile-web-app-title" content="Phira-Vrenxz管理">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192'%3E%3Crect width='192' height='192' fill='%23007bff'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='48' fill='white'%3EP%3C/text%3E%3C/svg%3E">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192'%3E%3Crect width='192' height='192' fill='%23007bff'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='36' fill='white'%3EPV%3C/text%3E%3C/svg%3E">
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -195,7 +195,7 @@
 
     <!-- 主界面 -->
     <div class="container" id="mainContent" style="display: none;">
-        <h1>服务器管理界面</h1>
+        <h1>Phira-Vrenxz 服务器管理界面</h1>
         
         <div class="tabs">
             <div class="tab active" onclick="switchTab('connections')">连接管理</div>
@@ -332,7 +332,7 @@
                         </div>
                         <div class="form-group">
                             <label for="banUserName">玩家名称:</label>
-                            <input type="text" id="banUserName" readonly />
+                            <input type="text" id="banUserName" />
                         </div>
                         <div class="form-group">
                             <label for="banType">封禁类型:</label>
@@ -1126,7 +1126,7 @@
         }
         
         // 显示手动输入ID的封禁模态框
-        async function showBanModalWithManualId() {
+        function showBanModalWithManualId() {
             const userId = document.getElementById('manualUserId').value.trim();
             if (!userId) {
                 alert('请输入用户ID');
@@ -1159,25 +1159,10 @@
                 document.getElementById('banUserId').value = targetSession.user_id;
                 document.getElementById('banUserName').value = targetSession.user_name;
             } else {
-                // 如果找不到，通过API获取用户信息
-                try {
-                    const response = await fetch(`https://phira.5wyxi.com/user/${userId}`);
-                    if (response.ok) {
-                        const userData = await response.json();
-                        document.getElementById('banUserId').value = userId;
-                        document.getElementById('banUserName').value = userData.name || `未知用户 (ID: ${userId})`;
-                    } else {
-                        // 如果API请求失败，仍然允许封禁
-                        document.getElementById('banUserId').value = userId;
-                        document.getElementById('banUserName').value = `未知用户 (ID: ${userId})`;
-                        console.warn(`无法获取用户ID ${userId} 的信息`);
-                    }
-                } catch (error) {
-                    console.error('获取用户信息失败:', error);
-                    // 如果API请求失败，仍然允许封禁
-                    document.getElementById('banUserId').value = userId;
-                    document.getElementById('banUserName').value = `未知用户 (ID: ${userId})`;
-                }
+                // 找不到在线会话：不依赖外部站点，仅填 ID，可手动补充名字
+                document.getElementById('banUserId').value = userId;
+                document.getElementById('banUserName').value = `未知用户 (ID: ${userId})`;
+                document.getElementById('banUserName').focus();
             }
             
             document.getElementById('banReason').value = '';

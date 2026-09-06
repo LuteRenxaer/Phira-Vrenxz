@@ -842,10 +842,33 @@ async fn home_page_handler() -> axum::response::Redirect {
 
 
 // 房间列表页面处理函数
-async fn room_list_page_handler() -> Html<String> {
+async fn room_list_page_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Html<String> {
     // 读取webui/room/index.html文件内容
-    let html_content = std::fs::read_to_string("webui/room/index.html")
+    let mut html_content = std::fs::read_to_string("webui/room/index.html")
         .unwrap_or_else(|_| "<h1>房间列表页面文件不存在</h1>".to_string());
+    // 注入游戏服务器地址：从请求 Host 头取主机名，游戏端口 = web 端口 - 1
+    let host = headers
+        .get("host")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .unwrap_or_default();
+    let hostname = host.split(':').next().unwrap_or(&host).to_string();
+    let game_port = state
+        .server
+        .state()
+        .config
+        .web_port
+        .map(|p| p.saturating_sub(1))
+        .unwrap_or(12345);
+    let game_server = if hostname.is_empty() {
+        format!("127.0.0.1:{game_port}")
+    } else {
+        format!("{hostname}:{game_port}")
+    };
+    html_content = html_content.replace("__PHIRA_GAME_SERVER__", &game_server);
     Html(html_content)
 }
 

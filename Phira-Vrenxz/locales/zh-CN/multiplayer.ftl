@@ -4,6 +4,7 @@ multiplayer = 多人游戏
 connect = 连接
 connect-must-login = 登录后才能进入多人游戏
 connect-success = 连接成功
+server-welcome = Welcome Phira-V Server!
 connect-failed = 连接失败
 connect-authenticate-failed = 鉴权失败
 reconnect = 断线重连中…
@@ -48,6 +49,11 @@ user-list = 用户列表
 preview = 预览谱面
 preview-failed = 预览失败
 preview-unavailable = 当前没有可预览的谱面
+# 预览谱面期间房主点了开始：回到房间后询问是否准备
+preview-interrupted-title = 房主要开始游戏啦！
+preview-interrupted-content = 房主要开始游戏啦！是否准备？
+preview-ready = 准备
+preview-not-now = 暂不
 
 lock-room = { $current ->
   [true] 解锁房间
@@ -115,3 +121,33 @@ msg-room-cycle = { $cycle ->
 mp-server-no-local-chart = 当前服务器不支持本地谱面
 mp-syncing-chart = 正在同步谱面...
 mp-sync-failed = 谱面同步失败: { $err }
+
+# —— 新版面板 UI ——
+mp-connect-hint = 连接服务器后，即可与好友一起游玩
+mp-close-hint = 点击面板外任意处关闭
+mp-lobby-connected = 已连接到服务器
+mp-lobby-not-room = 尚未进入房间
+mp-room-tag = 房间 #{ $id }
+mp-player-count = 玩家（{ $n }）
+mp-you = 我
+mp-watching = 观战
+mp-ready-tag = 已就绪
+mp-host = 房主
+mp-state-choose = 选择谱面中…
+mp-state-chosen = 已选谱面 #{ $id }
+mp-state-local = 本地谱面分享中
+mp-state-wait = 等待开始
+mp-state-playing = 对局进行中
+mp-locked-tag = 已锁定
+mp-cycle-tag = 循环模式
+mp-n-players = { $n } 名玩家
+mp-chat-caption = 房间消息
+mp-msg-none = 暂无消息
+mp-manage-title = 管理 { $name }
+mp-manage-transfer = 设为房主
+mp-manage-kick = 移出房间
+mp-manage-cancel = 取消
+user-list-hint = 点击空白处关闭
+room-list-tap-hint = 点击房间行加入 · 点击空白处关闭
+mp-room-locked = 🔒 需密码
+mp-room-counts = { $players } 名玩家 / { $spectators } 名观战

@@ -3,17 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Phira 房间列表</title>
+    <title>Phira-Vrenxz 房间列表</title>
     
     <!-- PWA相关标签 -->
     <link rel="manifest" href="../manifest.json">
     <meta name="theme-color" content="#4F9EFD">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Phira房间">
+    <meta name="apple-mobile-web-app-title" content="Phira-Vrenxz房间">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192'%3E%3Crect width='192' height='192' fill='%234F9EFD'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='48' fill='white'%3EP%3C/text%3E%3C/svg%3E">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192'%3E%3Crect width='192' height='192' fill='%234F9EFD'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='42' fill='white'%3EPV%3C/text%3E%3C/svg%3E">
     <script src="http://cdn.tailwindcss.com"></script>
     <link href="http://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        // 游戏服务器地址由服务端注入（room_list_page_handler 会替换下面的占位符）。
+        // 兜底：与网页同主机时使用默认游戏端口。
+        window.PHIRA_GAME_SERVER = "__PHIRA_GAME_SERVER__";
+        if (!window.PHIRA_GAME_SERVER || window.PHIRA_GAME_SERVER.indexOf('__PHIRA_GAME_SERVER__') >= 0) {
+            window.PHIRA_GAME_SERVER = window.location.hostname + ':31205';
+        }
+    </script>
     <script>
         tailwind.config = {
             theme: {
@@ -115,10 +123,10 @@
         <header class="flex justify-between items-center mb-8">
             <div class="flex items-center gap-3">
                 <div class="text-primary text-3xl">
-                    <i class="fa fa-6"></i>
+                    <i class="fa fa-gamepad"></i>
                 </div>
                 <h1 class="text-[clamp(1.5rem,3vw,2.5rem)] font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-dark">
-                    天才威のPhira多人联机
+                    Phira-Vrenxz 房间列表
                 </h1>
             </div>
             <!-- 刷新按钮已移除 -->
@@ -154,16 +162,16 @@
         </main>
         
         <footer class="mt-12 text-center text-gray-cool/70 text-sm py-4 border-t border-primary/10">
-            <p>Phira 房间列表 &copy; 2025 | 数据来源于 <a href="http://110.42.63.208:31206/api/rooms" class="text-primary hover:underline transition-all duration-300"></a>天才威のPhira多人联机</a></p>
+            <p>Phira-Vrenxz 房间列表 &copy; 2025 | 数据来源于 <a href="/api/rooms" class="text-primary hover:underline transition-all duration-300">服务器实时数据</a></p>
         </footer>
     </div>
     
     <!-- 创建房间模态框 -->
     <div id="createRoomModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] hidden flex items-center justify-center transition-all duration-300 opacity-0" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0;">
         <div class="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full mx-4 transform scale-95 transition-all duration-300" style="position: relative;">
-            <h3 class="text-xl font-bold text-dark mb-4">加入房间</h3>
-            <p class="text-gray-cool mb-4">"创建房间"与"加入房间"功能目前仅支持Phira-Firefly</p>
-            <input type="text" id="roomInput" placeholder="输入房间号..." class="w-full px-4 py-2 rounded-lg border border-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50 mb-4">
+            <h3 class="text-xl font-bold text-dark mb-4">创建房间</h3>
+            <p class="text-gray-cool mb-4">将唤起已安装的 Phira-Vrenxz 客户端创建房间，确定继续吗？</p>
+            <input type="text" id="roomInput" placeholder="输入房间号（留空则自动生成）..." class="w-full px-4 py-2 rounded-lg border border-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50 mb-4">
             <button id="confirmCreateBtn" class="btn-primary w-full">确定</button>
         </div>
     </div>
@@ -172,7 +180,7 @@
     <div id="joinRoomModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] hidden flex items-center justify-center transition-all duration-300 opacity-0" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0;">
         <div class="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full mx-4 transform scale-95 transition-all duration-300" style="position: relative;">
             <h3 class="text-xl font-bold text-dark mb-4">确认加入</h3>
-            <p class="text-gray-cool mb-4">"创建房间"与"加入房间"功能目前仅支持Phira-Firefly，确定继续吗？</p>
+            <p class="text-gray-cool mb-4">将唤起已安装的 Phira-Vrenxz 客户端加入房间，确定继续吗？</p>
             <div class="flex gap-4">
                 <button id="cancelJoinBtn" class="flex-1 py-2 px-4 rounded-md border border-gray-cool/30 text-gray-cool hover:bg-gray-100 transition-all duration-300">取消</button>
                 <button id="confirmJoinBtn" class="flex-1 btn-primary">确定</button>
@@ -287,7 +295,7 @@
         // 获取房间数据
         async function fetchRooms() {
             try {
-                const response = await fetch('http://110.42.63.208:31206/api/rooms', {
+                const response = await fetch('/api/rooms', {
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json'
@@ -852,7 +860,7 @@
                     setTimeout(() => {
                         createRoomModal.classList.add('hidden');
                         // 跳转到指定URL
-                        const url = `phira://room/create/${roomId}&server=mp.tianstudio.top:31205`;
+                        const url = `phira://room/create/${roomId}&server=${window.PHIRA_GAME_SERVER}`;
                         window.location.href = url;
                     }, 300);
                 }
@@ -877,7 +885,7 @@
                     setTimeout(() => {
                         joinRoomModal.classList.add('hidden');
                         // 跳转到指定URL
-                        const url = `phira://room/join/${currentRoomId}&server=mp.tianstudio.top:31205`;
+                        const url = `phira://room/join/${currentRoomId}&server=${window.PHIRA_GAME_SERVER}`;
                         window.location.href = url;
                     }, 300);
                 }

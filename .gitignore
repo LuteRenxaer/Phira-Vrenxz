@@ -56,3 +56,6 @@ inner.rs
 *.log
 strip_comments.py
 backup_*
+
+# local server run logs
+mp-local*

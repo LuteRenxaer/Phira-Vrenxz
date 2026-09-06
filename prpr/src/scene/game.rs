@@ -37,7 +37,7 @@ use std::{
     path::PathBuf,
     process::{Command, Stdio},
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex},
     time::Duration,
 };
 use tracing::{debug, warn};
@@ -122,6 +122,11 @@ pub struct GameScene {
     next_scene: Option<NextScene>,
 
     pub mode: GameMode,
+    /// 谱面预览等“受控播放”标记：为 true 时播放结束不进入 EndingScene 结算页、不写记录，直接退出返回。
+    preview_mode: bool,
+    /// 预览被打断的外部信号（如多人模式房主点了开始）：置位后 update() 检测到会立即结束预览并弹回。
+    /// 仅预览等受控播放会传入，普通游玩为 None，不受影响。
+    interrupt: Option<Arc<AtomicBool>>,
     pub res: Resource,
     pub chart: Chart,
     pub judge: Judge,
@@ -262,6 +267,26 @@ impl GameScene {
     pub async fn new(
         mode: GameMode,
         info: ChartInfo,
+        config: Config,
+        fs: Box<dyn FileSystem>,
+        player: Option<BasicPlayer>,
+        background: SafeTexture,
+        illustration: SafeTexture,
+        upload_fn: Option<UploadFn>,
+        update_fn: Option<UpdateFn>,
+        save_fn: Option<SaveFn>,
+    ) -> Result<Self> {
+        Self::new_preview(mode, info, config, fs, player, background, illustration, upload_fn, update_fn, save_fn, false, None).await
+    }
+
+    /// 谱面预览等“受控播放”构造：`preview_mode` 为 true 时自然播完不结算（见
+    /// [`GameScene::finish_and_show_result`]）；`interrupt` 是外部线程写入的打断信号，
+    /// 置位后预览立即结束并弹回（用于多人模式房主开始游戏等场景）。普通游玩保持
+    /// `preview_mode = false, interrupt = None`，行为与 [`GameScene::new`] 完全一致。
+    #[allow(clippy::too_many_arguments)]
+    pub async fn new_preview(
+        mode: GameMode,
+        info: ChartInfo,
         mut config: Config,
         mut fs: Box<dyn FileSystem>,
         player: Option<BasicPlayer>,
@@ -270,6 +295,8 @@ impl GameScene {
         upload_fn: Option<UploadFn>,
         update_fn: Option<UpdateFn>,
         save_fn: Option<SaveFn>,
+        preview_mode: bool,
+        interrupt: Option<Arc<AtomicBool>>,
     ) -> Result<Self> {
         match mode {
             GameMode::TweakOffset => {
@@ -355,6 +382,8 @@ impl GameScene {
             next_scene: None,
 
             mode,
+            preview_mode,
+            interrupt,
             res,
             chart,
             judge,
@@ -1214,6 +1243,11 @@ impl GameScene {
     }
 
     fn finish_and_show_result(&mut self) -> Result<()> {
+        // 谱面预览：自然播完也不进 EndingScene 结算页、不写记录，直接结束返回（用于多人预览）
+        if self.preview_mode {
+            self.should_exit = true;
+            return Ok(());
+        }
         let mut record_data = None;
         #[cfg(closed)]
         if !self.track_skipped {
@@ -1325,6 +1359,11 @@ impl Scene for GameScene {
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
         self.res.audio.recover_if_needed()?;
+        // 预览期间被外部打断（如多人房间房主点了开始）：立即结束预览，不结算、直接弹回
+        if self.preview_mode && self.interrupt.as_ref().is_some_and(|it| it.load(Ordering::Relaxed)) {
+            self.should_exit = true;
+            return Ok(());
+        }
         // 更新暂停界面渐变（跳过谱面动画期间强制隐藏暂停菜单）
         let target = if self.skip_done { 0. } else if tm.paused() { 1. } else { 0. };
         self.pause_alpha += (target - self.pause_alpha) * 0.15;

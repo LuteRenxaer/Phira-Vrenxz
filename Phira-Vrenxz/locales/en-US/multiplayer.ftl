@@ -4,6 +4,7 @@ multiplayer = Multiplayer
 connect = Connect
 connect-must-login = You must login to access multiplayer functionality.
 connect-success = Connected successfully.
+server-welcome = Welcome Phira-V Server!
 connect-failed = Failed to connect.
 connect-authenticate-failed = Authorization failed.
 reconnect = Reconnecting…
@@ -48,6 +49,11 @@ user-list = Users
 preview = Preview Chart
 preview-failed = Failed to preview.
 preview-unavailable = No chart available to preview.
+# After the host starts the game while you were previewing: ask whether to get ready
+preview-interrupted-title = The host is starting the game!
+preview-interrupted-content = The host is starting the game! Ready to join?
+preview-ready = Ready
+preview-not-now = Not now
 
 lock-room = { $current ->
   [true] Unlock Room
@@ -115,3 +121,33 @@ msg-room-cycle = { $cycle ->
 mp-server-no-local-chart = This server does not support local charts
 mp-syncing-chart = Syncing chart...
 mp-sync-failed = Chart sync failed: { $err }
+
+# —— new panel UI ——
+mp-connect-hint = Connect to a server to play with friends
+mp-close-hint = Tap outside to close
+mp-lobby-connected = Connected to server
+mp-lobby-not-room = Not in a room yet
+mp-room-tag = Room #{ $id }
+mp-player-count = Players ({ $n })
+mp-you = You
+mp-watching = Watching
+mp-ready-tag = Ready
+mp-host = Host
+mp-state-choose = Choosing chart…
+mp-state-chosen = Chart selected #{ $id }
+mp-state-local = Sharing a local chart
+mp-state-wait = Waiting to start
+mp-state-playing = Playing
+mp-locked-tag = Locked
+mp-cycle-tag = Cycle mode
+mp-n-players = { $n } players
+mp-chat-caption = Room chat
+mp-msg-none = No messages yet
+mp-manage-title = Manage { $name }
+mp-manage-transfer = Make host
+mp-manage-kick = Kick out
+mp-manage-cancel = Cancel
+user-list-hint = Tap outside to close
+room-list-tap-hint = Tap a row to join · tap outside to close
+mp-room-locked = 🔒 Password
+mp-room-counts = { $players } players / { $spectators } watching

@@ -969,6 +969,40 @@ impl SongScene {
         is_unlock: bool,
         is_xcsim: bool,
     ) -> Result<LocalSceneTask> {
+        Self::global_launch_preview(
+            id,
+            local_path,
+            mods,
+            mode,
+            client,
+            background_output,
+            record,
+            is_unlock,
+            is_xcsim,
+            false,
+            None,
+        )
+    }
+
+    /// 与 [`SongScene::global_launch`] 相同的启动流程，但以“谱面预览”模式播放（autoplay 试听等）：
+    /// `preview_mode` 下谱面自然播完不进入结算页（引擎层直接弹回）；`interrupt` 为外部写入的
+    /// 打断信号（如多人模式房主点了开始），置位后预览立即结束。普通游玩请用
+    /// [`SongScene::global_launch`]（等价于 `preview_mode = false, interrupt = None`）。
+    #[must_use = "futures do nothing unless you `.await` or poll them"]
+    #[allow(clippy::too_many_arguments)]
+    pub fn global_launch_preview(
+        id: Option<i32>,
+        local_path: &str,
+        mods: Mods,
+        mode: GameMode,
+        client: Option<Arc<phira_mp_client::Client>>,
+        background_output: Option<Arc<Mutex<Option<SafeTexture>>>>,
+        record: Option<SimpleRecord>,
+        is_unlock: bool,
+        is_xcsim: bool,
+        preview_mode: bool,
+        interrupt: Option<Arc<AtomicBool>>,
+    ) -> Result<LocalSceneTask> {
         let mut fs = fs_from_path(local_path)?;
         let can_rated = id.is_some() || local_path.starts_with(':');
         #[cfg(feature = "video")]
@@ -1159,7 +1193,7 @@ impl SongScene {
                 #[cfg(not(feature = "video"))]
                 {
                     warn!("this build does not support unlock video.");
-                    LoadingScene::new(
+                    LoadingScene::new_preview(
                         mode,
                         info,
                         config,
@@ -1170,6 +1204,8 @@ impl SongScene {
                         update_fn,
                         save_fn,
                         None,
+                        preview_mode,
+                        interrupt,
                     )
                     .await
                     .map(|it| NextScene::Overlay(Box::new(it)))
@@ -1197,7 +1233,7 @@ impl SongScene {
                 }
             } else {
 
-                LoadingScene::new(
+                LoadingScene::new_preview(
                     mode,
                     info,
                     config,
@@ -1208,6 +1244,8 @@ impl SongScene {
                     update_fn,
                     save_fn,
                     None,
+                    preview_mode,
+                    interrupt,
                 )
                 .await
                 .map(|it| NextScene::Overlay(Box::new(it)))
