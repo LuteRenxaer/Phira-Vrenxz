@@ -24,6 +24,8 @@ pub struct RoomInfo {
     pub players: Vec<String>,
     pub current_chart: Option<CurrentChart>,
     pub is_competition: bool,
+    /// 观战者（monitor）人数
+    pub spectator_count: usize,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -422,6 +424,7 @@ pub async fn get_rooms_info_from_state(state: &ServerState) -> Vec<RoomInfo> {
     for (uuid, room) in rooms.iter() {
         let users = room.users().await;
         let player_count = users.len();
+        let monitors = room.monitors().await;
         
         let room_state = room.client_room_state().await;
         let state_text = match room_state {
@@ -448,6 +451,7 @@ pub async fn get_rooms_info_from_state(state: &ServerState) -> Vec<RoomInfo> {
             players: player_names,
             current_chart,
             is_competition: is_competition_room,
+            spectator_count: monitors.len(),
         });
     }
     

@@ -43,6 +43,8 @@ struct PublicRoom {
     locked: bool,
     #[serde(default)]
     mode: String,
+    #[serde(rename = "spectator_count", default)]
+    spectator_count: usize,
 }
 
 const CHAT_ENABLED: bool = cfg!(feature = "chat");
@@ -1690,7 +1692,7 @@ impl MPPanel {
                     for room in rooms.iter().take(max_rows) {
                         let r = Rect::new(panel_r.x + 0.03, y + 0.02, panel_w - 0.06, row_h);
                         ui.fill_path(&r.rounded(0.008), semi_black(0.2));
-                        let label = format!("#{}  ·  {} 人  ·  {}", room.id, room.player_count, room.state);
+                        let label = format!("#{}  ·  {}人/{}观  ·  {}", room.id, room.player_count, room.spectator_count, room.state);
                         ui.text(label)
                             .pos(r.x + 0.03, r.center().y)
                             .anchor(0., 0.5)
