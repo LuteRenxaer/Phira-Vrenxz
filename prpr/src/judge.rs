@@ -421,7 +421,7 @@ impl Judge {
         });
     }
 
-    fn touch_transform(flip_x: bool) -> impl Fn(&mut Touch) {
+    fn touch_transform(flip_x: bool, flip_y: bool) -> impl Fn(&mut Touch) {
         let vp = get_viewport();
         move |touch| {
             let p = touch.position;
@@ -432,13 +432,16 @@ impl Judge {
             if flip_x {
                 touch.position.x *= -1.;
             }
+            if flip_y {
+                touch.position.y *= -1.;
+            }
         }
     }
 
     pub fn get_touches() -> Vec<Touch> {
         TOUCHES.with(|it| {
             let guard = it.borrow();
-            let tr = Self::touch_transform(false);
+            let tr = Self::touch_transform(false, false);
             guard
                 .touches
                 .iter()
@@ -498,7 +501,7 @@ impl Judge {
                     time: f64::NEG_INFINITY,
                 });
             }
-            let tr = Self::touch_transform(res.config.flip_x());
+            let tr = Self::touch_transform(res.config.flip_x(), res.config.flip_y());
             touches
                 .into_iter()
                 .map(|mut it| {

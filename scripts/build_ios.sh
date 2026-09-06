@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# PhirLie iOS IPA Build Script (macOS only)
+# Phira-Vrenxz iOS IPA Build Script (macOS only)
 # =============================================================================
 # Usage:
 #   ./scripts/build_ios.sh [release|debug]
@@ -12,7 +12,7 @@
 #   - xcodegen: brew install xcodegen
 #
 # Output:
-#   PhirLie-ios.ipa in the project root
+#   Phira-Vrenxz-ios.ipa in the project root
 # =============================================================================
 
 set -euo pipefail
@@ -20,15 +20,15 @@ set -euo pipefail
 # ---- Configuration ----
 CONFIG="${1:-release}"
 CONFIG_CAP="$(tr '[:lower:]' '[:upper:]' <<< "${CONFIG:0:1}")${CONFIG:1}"
-APP_NAME="PhirLie"
-BUNDLE_ID="com.teamflos.PhirLie"
+APP_NAME="Phira-Vrenxz"
+BUNDLE_ID="com.teamflos.PhiraVrenxz"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-XCODE_DIR="$PROJECT_ROOT/PhirLie/xcode"
+XCODE_DIR="$PROJECT_ROOT/Phira-Vrenxz/xcode"
 DERIVED_DATA="$XCODE_DIR/build/DerivedData"
 
 echo "========================================"
-echo "  PhirLie iOS Build"
+echo "  Phira-Vrenxz iOS Build"
 echo "  Configuration: $CONFIG_CAP"
 echo "  Project Root: $PROJECT_ROOT"
 echo "========================================"
@@ -70,8 +70,8 @@ echo "[2/5] Generating Xcode project with xcodegen..."
 cd "$XCODE_DIR"
 xcodegen generate
 # Force object version to 56 (Xcode 14+) for Xcode 15 compatibility
-sed -i '' 's/objectVersion = [0-9]*;/objectVersion = 56;/' PhirLie.xcodeproj/project.pbxproj
-echo "  Project generated: $XCODE_DIR/PhirLie.xcodeproj"
+sed -i '' 's/objectVersion = [0-9]*;/objectVersion = 56;/' Phira-Vrenxz.xcodeproj/project.pbxproj
+echo "  Project generated: $XCODE_DIR/Phira-Vrenxz.xcodeproj"
 
 # ---- Build Rust static library (device) ----
 echo ""
@@ -79,11 +79,11 @@ echo "[3/5] Building Rust static library for aarch64-apple-ios..."
 cd "$PROJECT_ROOT"
 export IPHONEOS_DEPLOYMENT_TARGET=14.0
 if [ "$CONFIG" = "release" ]; then
-    cargo build --release --target aarch64-apple-ios --features video -p PhirLie
+    cargo build --release --target aarch64-apple-ios --features video -p Phira-Vrenxz
 else
-    cargo build --target aarch64-apple-ios --features video -p PhirLie
+    cargo build --target aarch64-apple-ios --features video -p Phira-Vrenxz
 fi
-echo "  Static library: target/aarch64-apple-ios/$CONFIG/libPhirLie.a"
+echo "  Static library: target/aarch64-apple-ios/$CONFIG/libphira_vrenxz.a"
 
 # ---- Build iOS app ----
 echo ""
@@ -92,8 +92,8 @@ cd "$XCODE_DIR"
 rm -rf build/DerivedData
 
 xcodebuild build \
-    -project PhirLie.xcodeproj \
-    -scheme PhirLie \
+    -project Phira-Vrenxz.xcodeproj \
+    -scheme Phira-Vrenxz \
     -configuration "$CONFIG_CAP" \
     -sdk iphoneos \
     -derivedDataPath "$DERIVED_DATA" \

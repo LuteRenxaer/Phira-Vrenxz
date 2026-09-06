@@ -4,3 +4,5 @@ hitFx: [5, 6]
 holdAtlas: [50, 50]
 holdAtlasMH: [50, 95]
 description: 绘制和音效都由几何邻屿完成
+colorPerfect: 0xe1FFE48A
+colorGood: 0xe1FF8888

@@ -5,7 +5,7 @@ offset-cancel = 取消
 offset-reset = 重置
 offset-save = 保存
 speed = 速度
-game-over = 游戏失败
+game-over = 跳过谱面
 
 ex-time-out-of-range = 时间不在范围内
 ex-invalid-format = 格式有误

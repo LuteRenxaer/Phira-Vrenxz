@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phira 房间列表</title>
+    
+    <!-- PWA相关标签 -->
+    <link rel="manifest" href="../manifest.json">
+    <meta name="theme-color" content="#4F9EFD">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Phira房间">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192'%3E%3Crect width='192' height='192' fill='%234F9EFD'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='48' fill='white'%3EP%3C/text%3E%3C/svg%3E">
+    <script src="http://cdn.tailwindcss.com"></script>
+    <link href="http://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#4F9EFD',
+                        secondary: '#81C3FD',
+                        dark: '#2563EB',
+                        light: '#EBF4FF',
+                        success: '#10B981',
+                        warning: '#F59E0B',
+                        danger: '#EF4444',
+                        'gray-cool': '#6B7280',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .bg-wallpaper {
+                background: linear-gradient(135deg, #add8e6 0%, #87ceeb 100%);
+                background-size: cover;
+                background-position: center;
+                background-attachment: fixed;
+                position: relative;
+                transition: background-position 0.1s ease-out;
+            }
+            .bg-wallpaper::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: rgba(255, 255, 255, 0.3);
+                z-index: 0;
+            }
+            .bg-wallpaper > * {
+                position: relative;
+                z-index: 1;
+            }
+            .room-card {
+                @apply bg-white/80 backdrop-blur-md rounded-lg p-4 shadow-lg border border-primary/20 transition-all duration-300 hover:shadow-xl hover:translate-y-[-2px];
+            }
+            .highlight-animation {
+                animation: highlight 1s ease-out;
+                border-radius: 8px;
+            }
+            @keyframes highlight {
+                0% { background-color: rgba(79, 158, 253, 0.1); }
+                50% { background-color: rgba(79, 158, 253, 0.3); }
+                100% { background-color: rgba(79, 158, 253, 0); }
+            }
+            .player-item {
+                @apply flex items-center gap-2 text-gray-700 py-1 px-2 rounded-md hover:bg-light/50 transition-colors;
+            }
+            .status-badge {
+                @apply px-2 py-0.5 rounded-full text-xs font-medium;
+            }
+            .btn-primary {
+                @apply bg-primary hover:bg-dark text-white py-2 px-4 rounded-md transition-all duration-300 shadow-md hover:shadow-lg transform hover:-translate-y-0.5;
+            }
+            .ripple {
+                position: absolute;
+                border-radius: 50%;
+                background: rgba(255, 255, 255, 0.6);
+                transform: translate(-50%, -50%);
+                pointer-events: none;
+                animation: ripple-animation 0.6s linear;
+            }
+            
+            @keyframes ripple-animation {
+                0% {
+                    width: 0;
+                    height: 0;
+                    opacity: 0.6;
+                }
+                100% {
+                    width: 300px;
+                    height: 300px;
+                    opacity: 0;
+                }
+            }
+        }
+    </style>
+</head>
+<body class="bg-wallpaper min-h-screen font-sans text-gray-800 overflow-x-hidden">
+    <div id="particles" class="fixed inset-0 z-0"></div>
+    <div id="ripple-container" class="fixed inset-0 pointer-events-none z-20"></div>
+    
+    <div class="container mx-auto px-4 py-8 relative z-10">
+        <header class="flex justify-between items-center mb-8">
+            <div class="flex items-center gap-3">
+                <div class="text-primary text-3xl">
+                    <i class="fa fa-6"></i>
+                </div>
+                <h1 class="text-[clamp(1.5rem,3vw,2.5rem)] font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-dark">
+                    天才威のPhira多人联机
+                </h1>
+            </div>
+            <!-- 刷新按钮已移除 -->
+        </header>
+        
+        <main class="max-w-4xl mx-auto">
+            <div class="flex justify-between items-center mb-6">
+                <div class="relative w-full max-w-md">
+                    <input type="text" id="roomSearch" placeholder="搜索房间号..." class="w-full px-4 py-2 rounded-lg border border-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50 bg-white/80 backdrop-blur-md">
+                    <i class="fa fa-search absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-cool"></i>
+                </div>
+                <button id="createRoomBtn" class="btn-primary ml-4 whitespace-nowrap">
+                    <i class="fa fa-plus mr-2"></i>创建房间
+                </button>
+            </div>
+            <div id="roomsContainer" class="space-y-6">
+                <div id="loadingState" class="flex flex-col items-center justify-center py-16">
+                    <div class="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-4"></div>
+                    <p class="text-gray-cool text-lg">正在获取房间列表...</p>
+                </div>
+                <div id="emptyState" class="hidden flex flex-col items-center justify-center py-16">
+                    <div class="text-gray-400 text-5xl mb-4"><i class="fa fa-server"></i></div>
+                    <p class="text-gray-cool text-lg mb-2">当前没有可用房间</p>
+                    <p class="text-gray-cool/70">尝试创建一个新房间或稍后再来查看</p>
+                </div>
+                <div id="errorState" class="hidden flex flex-col items-center justify-center py-16">
+                    <div class="text-danger text-5xl mb-4"><i class="fa fa-exclamation-triangle"></i></div>
+                    <p class="text-danger text-lg mb-2">无法获取房间列表</p>
+                    <p class="text-gray-cool/70 mb-4">请检查网络连接或稍后重试</p>
+                    <button id="retryBtn" class="btn-primary"><i class="fa fa-refresh mr-2"></i>重试</button>
+                </div>
+            </div>
+        </main>
+        
+        <footer class="mt-12 text-center text-gray-cool/70 text-sm py-4 border-t border-primary/10">
+            <p>Phira 房间列表 &copy; 2025 | 数据来源于 <a href="http://110.42.63.208:31206/api/rooms" class="text-primary hover:underline transition-all duration-300"></a>天才威のPhira多人联机</a></p>
+        </footer>
+    </div>
+    
+    <!-- 创建房间模态框 -->
+    <div id="createRoomModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] hidden flex items-center justify-center transition-all duration-300 opacity-0" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0;">
+        <div class="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full mx-4 transform scale-95 transition-all duration-300" style="position: relative;">
+            <h3 class="text-xl font-bold text-dark mb-4">加入房间</h3>
+            <p class="text-gray-cool mb-4">"创建房间"与"加入房间"功能目前仅支持Phira-Firefly</p>
+            <input type="text" id="roomInput" placeholder="输入房间号..." class="w-full px-4 py-2 rounded-lg border border-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50 mb-4">
+            <button id="confirmCreateBtn" class="btn-primary w-full">确定</button>
+        </div>
+    </div>
+    
+    <!-- 加入房间确认模态框 -->
+    <div id="joinRoomModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] hidden flex items-center justify-center transition-all duration-300 opacity-0" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0;">
+        <div class="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full mx-4 transform scale-95 transition-all duration-300" style="position: relative;">
+            <h3 class="text-xl font-bold text-dark mb-4">确认加入</h3>
+            <p class="text-gray-cool mb-4">"创建房间"与"加入房间"功能目前仅支持Phira-Firefly，确定继续吗？</p>
+            <div class="flex gap-4">
+                <button id="cancelJoinBtn" class="flex-1 py-2 px-4 rounded-md border border-gray-cool/30 text-gray-cool hover:bg-gray-100 transition-all duration-300">取消</button>
+                <button id="confirmJoinBtn" class="flex-1 btn-primary">确定</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 动态背景效果
+        document.addEventListener('mousemove', (e) => {
+            const x = e.clientX / window.innerWidth;
+            const y = e.clientY / window.innerHeight;
+            const moveX = (x - 0.5) * 20;
+            const moveY = (y - 0.5) * 20;
+            document.body.style.backgroundPosition = `${50 + moveX}% ${50 + moveY}%`;
+        });
+        
+        // 创建粒子背景
+        function createParticles() {
+            const particles = document.getElementById('particles');
+            const count = Math.floor(window.innerWidth / 15);
+            for (let i = 0; i < count; i++) {
+                const particle = document.createElement('div');
+                const size = Math.random() * 5 + 1;
+                particle.className = 'absolute rounded-full bg-white/20';
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                particle.style.left = `${Math.random() * 100}%`;
+                particle.style.top = `${Math.random() * 100}%`;
+                particle.style.animation = `float ${Math.random() * 10 + 10}s linear infinite`;
+                particle.style.animationDelay = `${Math.random() * 10}s`;
+                particles.appendChild(particle);
+            }
+        }
+        
+        // 添加浮动动画
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes float {
+                0% { transform: translateY(0) translateX(0); }
+                25% { transform: translateY(-10px) translateX(10px); }
+                50% { transform: translateY(-20px) translateX(0); }
+                75% { transform: translateY(-10px) translateX(-10px); }
+                100% { transform: translateY(0) translateX(0); }
+            }
+        `;
+        document.head.appendChild(style);
+        
+        // 存储上一次的房间数据
+        let previousRooms = null;
+        
+        // 获取房间ID的映射
+        function getRoomsById(rooms) {
+            const map = new Map();
+            if (rooms) {
+                rooms.forEach(room => map.set(room.id, room));
+            }
+            return map;
+        }
+        
+        // 比较两个房间对象的差异，返回变化的字段
+        function getRoomChanges(oldRoom, newRoom) {
+            const changes = {};
+            
+            if (!oldRoom || !newRoom) {
+                changes.full = true;
+                return changes;
+            }
+            
+            // 比较基本属性
+            if (oldRoom.state !== newRoom.state) changes.state = true;
+            if (oldRoom.locked !== newRoom.locked) changes.locked = true;
+            if (oldRoom.mode !== newRoom.mode) changes.mode = true;
+            if (oldRoom.player_count !== newRoom.player_count) changes.playerCount = true;
+            
+            // 比较当前谱面
+            if (!oldRoom.current_chart && !newRoom.current_chart) {
+                // 两者都没有谱面
+            } else if (!oldRoom.current_chart || !newRoom.current_chart) {
+                changes.chart = true;
+            } else if (oldRoom.current_chart.id !== newRoom.current_chart.id ||
+                       oldRoom.current_chart.name !== newRoom.current_chart.name) {
+                changes.chart = true;
+            }
+            
+            // 比较玩家列表
+            if (!oldRoom.players && !newRoom.players) {
+                // 两者都没有玩家
+            } else if (!oldRoom.players || !newRoom.players ||
+                       oldRoom.players.length !== newRoom.players.length) {
+                changes.players = true;
+            } else {
+                // 检查玩家是否完全相同
+                const playersChanged = !oldRoom.players.every((player, index) => 
+                    player === newRoom.players[index]);
+                if (playersChanged) changes.players = true;
+            }
+            
+            return changes;
+        }
+        
+        // 添加强调动画
+        function addHighlightAnimation(element) {
+            if (element) {
+                element.classList.add('highlight-animation');
+                setTimeout(() => {
+                    element.classList.remove('highlight-animation');
+                }, 1000);
+            }
+        }
+        
+        // 获取房间数据
+        async function fetchRooms() {
+            try {
+                const response = await fetch('http://110.42.63.208:31206/api/rooms', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                if (!response.ok) {
+                    throw new Error('网络响应错误');
+                }
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                console.error('获取房间数据失败:', error);
+                return null;
+            }
+        }
+        
+        // 获取或创建房间元素
+        function getOrCreateRoomElement(container, room, isNew = false) {
+            // 检查是否已存在该房间的元素
+            let roomElement = null;
+            const existingElements = container.querySelectorAll('.room-card');
+            
+            for (let i = 0; i < existingElements.length; i++) {
+                const element = existingElements[i];
+                const idElement = element.querySelector('h2');
+                if (idElement && idElement.textContent.includes(`#${room.id}`)) {
+                    roomElement = element;
+                    break;
+                }
+            }
+            
+            // 如果不存在，则创建新元素
+            if (!roomElement) {
+                roomElement = document.createElement('div');
+                roomElement.className = `room-card ${isNew ? 'opacity-0 transform translate-y-4' : ''} transition-all duration-500`;
+                
+                const header = document.createElement('div');
+                header.className = 'flex justify-between items-start mb-4';
+                
+                const leftHeader = document.createElement('div');
+                const roomId = document.createElement('h2');
+                roomId.className = 'text-xl font-bold text-dark mb-1';
+                roomId.textContent = `房间 #${room.id}`;
+                leftHeader.appendChild(roomId);
+                
+                // 为状态和锁定创建容器
+                leftHeader.appendChild(createStatusContainer(room));
+                
+                // 添加加入房间按钮
+                const joinButton = document.createElement('button');
+                joinButton.className = 'text-sm py-1 px-3 rounded-md transition-all duration-300';
+                
+                // 根据房间状态设置按钮样式
+                if (room.state === '游戏中' || room.locked) {
+                    joinButton.classList.add('bg-gray-300', 'text-gray-500', 'cursor-not-allowed');
+                    joinButton.disabled = true;
+                } else {
+                    joinButton.classList.add('btn-primary');
+                }
+                
+                joinButton.textContent = '加入房间';
+                joinButton.dataset.roomId = room.id;
+                
+                header.appendChild(leftHeader);
+                header.appendChild(joinButton);
+                roomElement.appendChild(header);
+                
+                // 添加详细信息
+                roomElement.appendChild(createDetails(room));
+                
+                container.appendChild(roomElement);
+                
+                // 为新房间添加动画
+                if (isNew) {
+                    setTimeout(() => {
+                        roomElement.classList.remove('opacity-0', 'translate-y-4');
+                    }, 100);
+                }
+            }
+            
+            return roomElement;
+        }
+        
+        // 创建状态容器
+        function createStatusContainer(room) {
+            const statusContainer = document.createElement('div');
+            statusContainer.className = 'flex items-center gap-2';
+            const statusBadge = document.createElement('span');
+            statusBadge.className = 'status-badge';
+            
+            if (room.state === '准备中') {
+                statusBadge.classList.add('bg-success/20', 'text-success');
+            } else if (room.state === '游戏中') {
+                statusBadge.classList.add('bg-warning/20', 'text-warning');
+            } else {
+                statusBadge.classList.add('bg-gray-cool/20', 'text-gray-cool');
+            }
+            statusBadge.textContent = room.state;
+            statusContainer.appendChild(statusBadge);
+            
+            if (room.locked) {
+                const lockIcon = document.createElement('i');
+                lockIcon.className = 'fa fa-lock text-danger';
+                lockIcon.title = '已锁定';
+                statusContainer.appendChild(lockIcon);
+            }
+            
+            return statusContainer;
+        }
+        
+        // 创建详细信息部分
+        function createDetails(room) {
+            const details = document.createElement('div');
+            details.className = 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-4';
+            
+            const leftDetails = document.createElement('div');
+            const modeItem = document.createElement('div');
+            modeItem.className = 'flex items-center gap-2 mb-2';
+            modeItem.innerHTML = `<i class="fa fa-refresh text-primary"></i> <span class="font-medium">轮换模式:</span> <span>${room.mode}</span>`;
+            leftDetails.appendChild(modeItem);
+            
+            const playersItem = document.createElement('div');
+            playersItem.className = 'flex flex-col gap-1';
+            playersItem.innerHTML = `<div class="flex items-center gap-2"><i class="fa fa-users text-primary"></i> <span class="font-medium">玩家列表:</span></div>`;
+            
+            if (room.players && room.players.length > 0) {
+                room.players.forEach(player => {
+                    const playerElement = document.createElement('div');
+                    playerElement.className = 'player-item';
+                    playerElement.innerHTML = `<i class="fa fa-user text-gray-cool/70"></i> <span>${player}</span>`;
+                    playersItem.appendChild(playerElement);
+                });
+            } else {
+                const noPlayers = document.createElement('div');
+                noPlayers.className = 'text-gray-cool/70 italic pl-6';
+                noPlayers.textContent = '无玩家';
+                playersItem.appendChild(noPlayers);
+            }
+            
+            leftDetails.appendChild(playersItem);
+            details.appendChild(leftDetails);
+            
+            const rightDetails = document.createElement('div');
+            const playerCount = document.createElement('div');
+            playerCount.className = 'flex items-center gap-2 mb-2';
+            playerCount.innerHTML = `<i class="fa fa-user-circle text-primary"></i> <span class="font-medium">玩家数量:</span> <span>${room.player_count}</span>`;
+            rightDetails.appendChild(playerCount);
+            
+            const chartItem = document.createElement('div');
+            chartItem.className = 'flex flex-col gap-1';
+            chartItem.innerHTML = `<div class="flex items-center gap-2"><i class="fa fa-music text-primary"></i> <span class="font-medium">当前谱面:</span></div>`;
+            
+            if (room.current_chart) {
+                const chartDetails = document.createElement('div');
+                chartDetails.className = 'pl-6 text-gray-700';
+                chartDetails.textContent = `${room.current_chart.name}（谱面ID：#${room.current_chart.id}）`;
+                chartItem.appendChild(chartDetails);
+            } else {
+                const noChart = document.createElement('div');
+                noChart.className = 'text-gray-cool/70 italic pl-6';
+                noChart.textContent = '未选择谱面';
+                chartItem.appendChild(noChart);
+            }
+            
+            rightDetails.appendChild(chartItem);
+            details.appendChild(rightDetails);
+            
+            return details;
+        }
+        
+        // 更新房间元素
+        function updateRoomElement(roomElement, room, changes) {
+            if (!roomElement) return;
+            
+            // 如果整个房间都变了，直接替换
+            if (changes.full) {
+                const parent = roomElement.parentNode;
+                const nextSibling = roomElement.nextSibling;
+                parent.removeChild(roomElement);
+                
+                const newElement = document.createElement('div');
+                newElement.className = 'room-card opacity-0 transform translate-y-4 transition-all duration-500';
+                
+                const header = document.createElement('div');
+                header.className = 'flex justify-between items-start mb-4';
+                
+                const leftHeader = document.createElement('div');
+                const roomId = document.createElement('h2');
+                roomId.className = 'text-xl font-bold text-dark mb-1';
+                roomId.textContent = `房间 #${room.id}`;
+                leftHeader.appendChild(roomId);
+                leftHeader.appendChild(createStatusContainer(room));
+                
+                // 添加加入房间按钮
+                const joinButton = document.createElement('button');
+                joinButton.className = 'text-sm py-1 px-3 rounded-md transition-all duration-300';
+                
+                // 根据房间状态设置按钮样式
+                if (room.state === '游戏中' || room.locked) {
+                    joinButton.classList.add('bg-gray-300', 'text-gray-500', 'cursor-not-allowed');
+                    joinButton.disabled = true;
+                } else {
+                    joinButton.classList.add('btn-primary');
+                }
+                
+                joinButton.textContent = '加入房间';
+                joinButton.dataset.roomId = room.id;
+                
+                header.appendChild(leftHeader);
+                header.appendChild(joinButton);
+                newElement.appendChild(header);
+                newElement.appendChild(createDetails(room));
+                
+                if (nextSibling && nextSibling.classList && nextSibling.classList.contains('h-px')) {
+                    parent.insertBefore(newElement, nextSibling);
+                } else {
+                    parent.appendChild(newElement);
+                }
+                
+                setTimeout(() => {
+                    newElement.classList.remove('opacity-0', 'translate-y-4');
+                }, 100);
+                
+                return;
+            }
+            
+            // 更新状态
+            if (changes.state || changes.locked) {
+                const statusContainer = roomElement.querySelector('.flex.items-center.gap-2');
+                if (statusContainer) {
+                    const parent = statusContainer.parentNode;
+                    parent.removeChild(statusContainer);
+                    parent.appendChild(createStatusContainer(room));
+                    
+                    // 添加强调动画
+                    const header = roomElement.querySelector('.flex.justify-between');
+                    addHighlightAnimation(header);
+                }
+            }
+            
+            // 更新模式
+            if (changes.mode) {
+                const modeItem = roomElement.querySelector('.fa-refresh').parentElement;
+                if (modeItem) {
+                    modeItem.innerHTML = `<i class="fa fa-refresh text-primary"></i> <span class="font-medium">轮换模式:</span> <span>${room.mode}</span>`;
+                    addHighlightAnimation(modeItem);
+                }
+            }
+            
+            // 更新玩家数量
+            if (changes.playerCount) {
+                const playerCountItem = roomElement.querySelector('.fa-user-circle').parentElement;
+                if (playerCountItem) {
+                    playerCountItem.innerHTML = `<i class="fa fa-user-circle text-primary"></i> <span class="font-medium">玩家数量:</span> <span>${room.player_count}</span>`;
+                    addHighlightAnimation(playerCountItem);
+                }
+            }
+            
+            // 更新玩家列表
+            if (changes.players) {
+                const playersItem = roomElement.querySelector('.fa-users').parentElement.parentElement;
+                if (playersItem) {
+                    playersItem.innerHTML = `<div class="flex items-center gap-2"><i class="fa fa-users text-primary"></i> <span class="font-medium">玩家列表:</span></div>`;
+                    
+                    if (room.players && room.players.length > 0) {
+                        room.players.forEach(player => {
+                            const playerElement = document.createElement('div');
+                            playerElement.className = 'player-item';
+                            playerElement.innerHTML = `<i class="fa fa-user text-gray-cool/70"></i> <span>${player}</span>`;
+                            playersItem.appendChild(playerElement);
+                        });
+                    } else {
+                        const noPlayers = document.createElement('div');
+                        noPlayers.className = 'text-gray-cool/70 italic pl-6';
+                        noPlayers.textContent = '无玩家';
+                        playersItem.appendChild(noPlayers);
+                    }
+                    
+                    addHighlightAnimation(playersItem);
+                }
+            }
+            
+            // 更新谱面
+            if (changes.chart) {
+                const chartItem = roomElement.querySelector('.fa-music').parentElement.parentElement;
+                if (chartItem) {
+                    chartItem.innerHTML = `<div class="flex items-center gap-2"><i class="fa fa-music text-primary"></i> <span class="font-medium">当前谱面:</span></div>`;
+                    
+                    if (room.current_chart) {
+                        const chartDetails = document.createElement('div');
+                        chartDetails.className = 'pl-6 text-gray-700';
+                        chartDetails.textContent = `${room.current_chart.name}（谱面ID：#${room.current_chart.id}）`;
+                        chartItem.appendChild(chartDetails);
+                    } else {
+                        const noChart = document.createElement('div');
+                        noChart.className = 'text-gray-cool/70 italic pl-6';
+                        noChart.textContent = '未选择谱面';
+                        chartItem.appendChild(noChart);
+                    }
+                    
+                    addHighlightAnimation(chartItem);
+                }
+            }
+        }
+        
+        // 渲染房间列表
+        function renderRooms(rooms, showLoading = true) {
+            const container = document.getElementById('roomsContainer');
+            const loadingState = document.getElementById('loadingState');
+            const emptyState = document.getElementById('emptyState');
+            const errorState = document.getElementById('errorState');
+            
+            if (showLoading) {
+                loadingState.classList.add('hidden');
+            }
+            emptyState.classList.add('hidden');
+            errorState.classList.add('hidden');
+            
+            if (!rooms) {
+                errorState.classList.remove('hidden');
+                return;
+            }
+            
+            if (rooms.length === 0) {
+                emptyState.classList.remove('hidden');
+                // 清除所有房间元素
+                while (container.children.length > 3) {
+                    container.removeChild(container.lastChild);
+                }
+                return;
+            }
+            
+            const currentRoomsById = getRoomsById(rooms);
+            const oldRoomsById = getRoomsById(previousRooms);
+            
+            // 标记所有当前房间ID
+            const currentRoomIds = new Set(rooms.map(room => room.id));
+            
+            // 处理已存在的房间
+            const existingElements = container.querySelectorAll('.room-card');
+            const elementsToKeep = new Set();
+            
+            existingElements.forEach(element => {
+                const idElement = element.querySelector('h2');
+                if (idElement) {
+                    const roomId = idElement.textContent.match(/#(\S+)/)?.[1];
+                    if (roomId && currentRoomsById.has(roomId)) {
+                        elementsToKeep.add(element);
+                        const oldRoom = oldRoomsById.get(roomId);
+                        const newRoom = currentRoomsById.get(roomId);
+                        const changes = getRoomChanges(oldRoom, newRoom);
+                        
+                        if (Object.keys(changes).length > 0) {
+                            updateRoomElement(element, newRoom, changes);
+                        }
+                    }
+                }
+            });
+            
+            // 删除已不存在的房间
+            existingElements.forEach(element => {
+                if (!elementsToKeep.has(element)) {
+                    // 添加淡出动画
+                    element.classList.add('opacity-0', 'transform', 'translate-y-4');
+                    setTimeout(() => {
+                        if (element.parentNode) {
+                            element.parentNode.removeChild(element);
+                            // 同时移除可能存在的分隔线
+                            const nextSibling = element.nextSibling;
+                            if (nextSibling && nextSibling.classList && nextSibling.classList.contains('h-px')) {
+                                nextSibling.parentNode.removeChild(nextSibling);
+                            }
+                        }
+                    }, 500);
+                }
+            });
+            
+            // 添加新房间
+            const existingRoomIds = new Set();
+            existingElements.forEach(element => {
+                const idElement = element.querySelector('h2');
+                if (idElement) {
+                    const roomId = idElement.textContent.match(/#(\S+)/)?.[1];
+                    if (roomId) existingRoomIds.add(roomId);
+                }
+            });
+            
+            rooms.forEach((room, index) => {
+                if (!existingRoomIds.has(room.id)) {
+                    const roomElement = getOrCreateRoomElement(container, room, true);
+                    
+                    // 检查是否需要添加分隔线
+                    const roomElements = container.querySelectorAll('.room-card');
+                    const isLastElement = roomElements[roomElements.length - 1] === roomElement;
+                    if (!isLastElement) {
+                        const existingDivider = roomElement.nextSibling;
+                        if (!existingDivider || !existingDivider.classList || !existingDivider.classList.contains('h-px')) {
+                            const divider = document.createElement('div');
+                            divider.className = 'h-px bg-primary/10 my-6';
+                            container.insertBefore(divider, roomElement.nextSibling);
+                        }
+                    }
+                }
+            });
+            
+            // 确保分隔线正确
+            const roomElements = container.querySelectorAll('.room-card');
+            for (let i = 0; i < roomElements.length; i++) {
+                const element = roomElements[i];
+                const nextSibling = element.nextSibling;
+                const isLast = i === roomElements.length - 1;
+                
+                if (isLast) {
+                    // 最后一个元素不应该有分隔线
+                    if (nextSibling && nextSibling.classList && nextSibling.classList.contains('h-px')) {
+                        nextSibling.parentNode.removeChild(nextSibling);
+                    }
+                } else {
+                    // 非最后一个元素应该有分隔线
+                    if (!nextSibling || !nextSibling.classList || !nextSibling.classList.contains('h-px')) {
+                        const divider = document.createElement('div');
+                        divider.className = 'h-px bg-primary/10 my-6';
+                        container.insertBefore(divider, element.nextSibling);
+                    }
+                }
+            }
+            
+            // 存储当前数据作为下一次比较的基准
+            previousRooms = JSON.parse(JSON.stringify(rooms));
+        }
+        
+        let ws = null;
+        
+        function connectWebSocket() {
+            // 确定WebSocket的URL
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                console.log('WebSocket连接已建立');
+                const loadingState = document.getElementById('loadingState');
+                loadingState.classList.add('hidden');
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'RoomsUpdate') {
+                        renderRooms(data.data, false); // 更新房间列表但不显示加载动画
+                    }
+                } catch (e) {
+                    console.error('解析WebSocket消息失败:', e);
+                }
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket错误:', error);
+                // 显示错误状态
+                const loadingState = document.getElementById('loadingState');
+                const errorState = document.getElementById('errorState');
+                loadingState.classList.add('hidden');
+                errorState.classList.remove('hidden');
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket连接已关闭，3秒后尝试重新连接');
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+        
+        async function init() {
+            createParticles();
+            
+            // 先尝试获取初始数据
+            const rooms = await fetchRooms();
+            renderRooms(rooms);
+            
+            // 连接WebSocket
+            connectWebSocket();
+            
+            document.getElementById('retryBtn').addEventListener('click', async () => {
+                const loadingState = document.getElementById('loadingState');
+                const errorState = document.getElementById('errorState');
+                errorState.classList.add('hidden');
+                loadingState.classList.remove('hidden');
+                
+                // 尝试重新连接WebSocket
+                if (ws) {
+                    ws.close();
+                }
+                connectWebSocket();
+            });
+            
+            // 搜索功能
+            const roomSearch = document.getElementById('roomSearch');
+            roomSearch.addEventListener('input', () => {
+                const searchTerm = roomSearch.value.trim().toLowerCase();
+                const roomCards = document.querySelectorAll('.room-card');
+                
+                roomCards.forEach(card => {
+                    const roomId = card.querySelector('h2').textContent.toLowerCase();
+                    if (roomId.includes(searchTerm)) {
+                        card.style.display = 'block';
+                    } else {
+                        card.style.display = 'none';
+                    }
+                });
+            });
+            
+            // 模态框元素
+            const createRoomModal = document.getElementById('createRoomModal');
+            const joinRoomModal = document.getElementById('joinRoomModal');
+            const roomInput = document.getElementById('roomInput');
+            const confirmCreateBtn = document.getElementById('confirmCreateBtn');
+            const confirmJoinBtn = document.getElementById('confirmJoinBtn');
+            const cancelJoinBtn = document.getElementById('cancelJoinBtn');
+            let currentRoomId = '';
+            
+            // 创建房间按钮点击事件
+            document.getElementById('createRoomBtn').addEventListener('click', () => {
+                createRoomModal.classList.remove('hidden');
+                // 触发渐显动画
+                setTimeout(() => {
+                    createRoomModal.style.opacity = '1';
+                    createRoomModal.querySelector('div').style.transform = 'scale(1)';
+                }, 10);
+                roomInput.value = '';
+            });
+            
+            // 点击模态框外部关闭
+            createRoomModal.addEventListener('click', (e) => {
+                if (e.target === createRoomModal) {
+                    // 触发渐隐动画
+                    createRoomModal.style.opacity = '0';
+                    createRoomModal.querySelector('div').style.transform = 'scale(0.95)';
+                    setTimeout(() => {
+                        createRoomModal.classList.add('hidden');
+                    }, 300);
+                }
+            });
+            
+            joinRoomModal.addEventListener('click', (e) => {
+                if (e.target === joinRoomModal) {
+                    // 触发渐隐动画
+                    joinRoomModal.style.opacity = '0';
+                    joinRoomModal.querySelector('div').style.transform = 'scale(0.95)';
+                    setTimeout(() => {
+                        joinRoomModal.classList.add('hidden');
+                    }, 300);
+                }
+            });
+            
+            // 确认创建房间
+            confirmCreateBtn.addEventListener('click', () => {
+                const roomId = roomInput.value.trim();
+                if (roomId) {
+                    // 触发渐隐动画
+                    createRoomModal.style.opacity = '0';
+                    createRoomModal.querySelector('div').style.transform = 'scale(0.95)';
+                    setTimeout(() => {
+                        createRoomModal.classList.add('hidden');
+                        // 跳转到指定URL
+                        const url = `phira://room/create/${roomId}&server=mp.tianstudio.top:31205`;
+                        window.location.href = url;
+                    }, 300);
+                }
+            });
+            
+            // 取消加入房间
+            cancelJoinBtn.addEventListener('click', () => {
+                // 触发渐隐动画
+                joinRoomModal.style.opacity = '0';
+                joinRoomModal.querySelector('div').style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    joinRoomModal.classList.add('hidden');
+                }, 300);
+            });
+            
+            // 确认加入房间
+            confirmJoinBtn.addEventListener('click', () => {
+                if (currentRoomId) {
+                    // 触发渐隐动画
+                    joinRoomModal.style.opacity = '0';
+                    joinRoomModal.querySelector('div').style.transform = 'scale(0.95)';
+                    setTimeout(() => {
+                        joinRoomModal.classList.add('hidden');
+                        // 跳转到指定URL
+                        const url = `phira://room/join/${currentRoomId}&server=mp.tianstudio.top:31205`;
+                        window.location.href = url;
+                    }, 300);
+                }
+            });
+            
+            // 事件委托处理加入房间按钮点击
+            document.getElementById('roomsContainer').addEventListener('click', (e) => {
+                if (e.target.classList.contains('btn-primary') && e.target.textContent.includes('加入房间')) {
+                    currentRoomId = e.target.dataset.roomId;
+                    joinRoomModal.classList.remove('hidden');
+                    // 触发渐显动画
+                    setTimeout(() => {
+                        joinRoomModal.style.opacity = '1';
+                        joinRoomModal.querySelector('div').style.transform = 'scale(1)';
+                    }, 10);
+                }
+            });
+        }
+        
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+    <script>
+        // 页面加载完成时设置适当的背景大小
+        document.addEventListener('DOMContentLoaded', function() {
+            const body = document.body;
+            body.style.backgroundSize = 'cover';
+        });
+        
+        // 实现鼠标移动时背景向相反方向移动的效果
+        document.addEventListener('mousemove', function(e) {
+            const body = document.body;
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
+            
+            // 计算鼠标相对于窗口中心的位置
+            const mouseX = e.clientX - windowWidth / 2;
+            const mouseY = e.clientY - windowHeight / 2;
+            
+            // 计算移动量（相对于窗口尺寸的百分比）
+            // 移动方向与鼠标移动方向相反
+            const moveX = mouseX * 0.02; // 2%的移动比例
+            const moveY = mouseY * 0.02;
+            
+            // 应用背景位置变化
+            body.style.backgroundPosition = `${50 + moveX}% ${50 + moveY}%`;
+        });
+        
+        // 窗口大小改变时调整背景大小
+        window.addEventListener('resize', function() {
+            const body = document.body;
+            body.style.backgroundSize = 'cover';
+        });
+    </script>
+    <script>
+        // 水波纹效果实现
+        document.addEventListener('mousedown', function(e) {
+            // 创建水波纹元素
+            const ripple = document.createElement('div');
+            ripple.className = 'ripple';
+            
+            // 设置水波纹位置（以鼠标点击位置为中心）
+            const rect = document.body.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            ripple.style.left = `${x}px`;
+            ripple.style.top = `${y}px`;
+            
+            // 添加水波纹到容器中
+            document.getElementById('ripple-container').appendChild(ripple);
+            
+            // 动画完成后移除元素
+            setTimeout(() => {
+                ripple.remove();
+            }, 600);
+        });
+    </script>
+    
+    <!-- PWA Service Worker注册 -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('../sw.js')
+                    .then(function(registration) {
+                        console.log('ServiceWorker 注册成功，范围为: ' + registration.scope);
+                    })
+                    .catch(function(error) {
+                        console.log('ServiceWorker 注册失败: ' + error);
+                    });
+            });
+        }
+    </script>
+</body>
+</html>

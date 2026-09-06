@@ -17,6 +17,11 @@ pub const HEIGHT_RATIO: f64 = 0.83175;
 
 pub const EPS: f64 = 1e-5;
 
+/// 屏幕上可见的 Note 数量达到该值时，Note 改用低分辨率贴图渲染（性能优化）
+pub const LOW_RES_NOTE_THRESHOLD: usize = 100;
+/// 未来 1 秒内需要击打的 Note 数量超过该值时，关闭打击特效（性能优化）
+pub const HIT_FX_DENSITY_THRESHOLD: usize = 20;
+
 pub type Point = nalgebra::Point2<f32>;
 pub type Vector = nalgebra::Vector2<f32>;
 pub type Matrix = nalgebra::Matrix3<f32>;
@@ -161,6 +166,38 @@ impl BpmList {
             self.cursor -= 1;
         }
         let (beats, start_time, bpm) = &self.elements[self.cursor];
+        beats + (time - start_time) / (60. / bpm)
+    }
+
+    /// 与 [`BpmList::time_beats`] 等价的只读版本（不修改内部游标），供并行渲染线程使用。
+    pub(crate) fn time_beats_at(&self, beats: f64) -> f64 {
+        let mut cursor = 0usize;
+        while let Some(kf) = self.elements.get(cursor + 1) {
+            if kf.0 > beats {
+                break;
+            }
+            cursor += 1;
+        }
+        while cursor != 0 && self.elements[cursor].0 > beats {
+            cursor -= 1;
+        }
+        let (start_beats, time, bpm) = &self.elements[cursor];
+        time + (beats - start_beats) * (60. / bpm)
+    }
+
+    /// 与 [`BpmList::beat`] 等价的只读版本（不修改内部游标），供并行渲染线程使用。
+    pub(crate) fn beat_at(&self, time: f64) -> f64 {
+        let mut cursor = 0usize;
+        while let Some(kf) = self.elements.get(cursor + 1) {
+            if kf.1 > time {
+                break;
+            }
+            cursor += 1;
+        }
+        while cursor != 0 && self.elements[cursor].1 > time {
+            cursor -= 1;
+        }
+        let (beats, start_time, bpm) = &self.elements[cursor];
         beats + (time - start_time) / (60. / bpm)
     }
 }

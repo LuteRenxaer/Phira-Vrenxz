@@ -53,6 +53,9 @@ use inner::*;
 const WAIT_TIME: f64 = 0.5;
 const AFTER_TIME: f64 = 0.7;
 
+/// 内嵌跳关提示面板图片。
+const MESSAGE_PANEL_PNG: &[u8] = include_bytes!("../../../assets/icons/message_panel.png");
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SimpleRecord {
@@ -157,8 +160,19 @@ pub struct GameScene {
     fps_frame_count: u32,
     fps_total_time: f64,
     fps_last_frame_time: f64,
+    /// 实时帧率（指数平滑），设置里开启“显示平均帧率”后在游玩界面左上角显示
+    fps_smooth: f32,
 
     dead: bool,
+    skip_done: bool,
+    track_skipped: bool,
+    skip_transition_progress: f32,
+    skip_wait_timer: f32,
+    skip_fade_out_progress: f32,
+    skip_instant: bool,
+    skip_blur_material: Option<Material>,
+    skip_panel_texture: Option<Texture2D>,
+    skip_panel_load_failed: bool,
 }
 
 macro_rules! reset {
@@ -176,7 +190,14 @@ macro_rules! reset {
         $self.fps_frame_count = 0;
         $self.fps_total_time = 0.0;
         $self.fps_last_frame_time = $tm.real_time();
+        $self.fps_smooth = 0.0;
         $self.dead = false;
+        $self.skip_done = false;
+        $self.track_skipped = false;
+        $self.skip_transition_progress = 0.0;
+        $self.skip_wait_timer = 0.0;
+        $self.skip_fade_out_progress = 0.0;
+        $self.skip_instant = false;
     }};
 }
 
@@ -279,11 +300,29 @@ impl GameScene {
             config.speed *= 1.5;
         }
 
+        // 花样 mod：屏幕特效依赖全屏后处理管线（chart_target），勾选后强制开启该管线
+        if config.has_mod(Mods::RAINBOW) || config.has_mod(Mods::FX_TV) || config.has_mod(Mods::FX_SCANLINE) || config.has_mod(Mods::FX_GLITCH) {
+            config.disable_effect = false;
+        }
         if config.has_mod(Mods::RAINBOW) {
             chart
                 .extra
                 .effects
                 .push(Effect::new(0.0..f64::INFINITY, include_str!("rainbow.glsl"), Vec::new(), false).unwrap());
+        }
+
+        // 花样 mod：屏幕特效（老电视 / 扫描线 / 故障，FX_* 互斥；故障用参数更明显的专用版本）
+        for (flag, src) in [
+            (Mods::FX_TV, include_str!("../core/shaders/rpe/old_tv_pr.glsl")),
+            (Mods::FX_SCANLINE, include_str!("../core/shaders/rpe/scanline_pr.glsl")),
+            (Mods::FX_GLITCH, include_str!("../core/shaders/mod_glitch.glsl")),
+        ] {
+            if config.has_mod(flag) {
+                chart
+                    .extra
+                    .effects
+                    .push(Effect::new(0.0..f64::INFINITY, src, Vec::new(), false).unwrap());
+            }
         }
 
         let info_offset = info.offset;
@@ -355,20 +394,36 @@ impl GameScene {
             fps_frame_count: 0,
             fps_total_time: 0.0,
             fps_last_frame_time: 0.0,
+            fps_smooth: 0.0,
 
             dead: false,
+            skip_done: false,
+            track_skipped: false,
+            skip_transition_progress: 0.0,
+            skip_wait_timer: 0.0,
+            skip_fade_out_progress: 0.0,
+            skip_instant: false,
+            skip_blur_material: None,
+            skip_panel_texture: None,
+            skip_panel_load_failed: false,
         })
     }
 
     fn new_music(res: &mut Resource) -> Result<Music> {
-        res.audio.create_music(
-            res.music.clone(),
-            MusicParams {
-                amplifier: res.config.volume_music as _,
-                playback_rate: res.config.speed as _,
-                ..Default::default()
-            },
-        )
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            res.audio.create_music(
+                res.music.clone(),
+                MusicParams {
+                    amplifier: res.config.volume_music as _,
+                    playback_rate: res.config.speed as _,
+                    ..Default::default()
+                },
+            )
+        })) {
+            Ok(Ok(music)) => Ok(music),
+            Ok(Err(e)) => Err(e).context("Failed to create music player"),
+            Err(_) => anyhow::bail!("Music player panicked"),
+        }
     }
 
     fn touch_scale(&self) -> f32 {
@@ -400,6 +455,7 @@ impl GameScene {
         let pause_center = Point::new(pause_w * 4.0 - 1., top + eps * 3.5 - (1. - p) * 0.4 + pause_h / 2.);
         if res.config.interactive
             && !tm.paused()
+            && !self.skip_done
             && self.pause_rewind.is_none()
             && Judge::get_touches().iter().any(|touch| {
                 touch.phase == TouchPhase::Started && {
@@ -430,12 +486,25 @@ impl GameScene {
                 ui.fill_circle(pause_center.x, pause_center.y, 0.05, Color::new(1., 1., 1., 0.5));
             }
 
-            ui.text("PHIRLIE v1.3.15")
+            // 版本水印
+            let wm_label = format!("Phira-Vrenxz v{}", env!("CARGO_PKG_VERSION"));
+            ui.text(&wm_label)
                 .pos(pause_center.x + 0.08, pause_center.y)
                 .anchor(0., 0.5)
                 .size(0.4)
                 .color(semi_white(0.6))
                 .draw();
+
+            // 实时帧率：显示在版本水印正下方（指数平滑，稳定显示）
+            if res.config.show_fps && self.fps_smooth > 0.0 {
+                let wm_h = ui.text(&wm_label).size(0.4).measure().h;
+                ui.text(format!("FPS {:.0}", self.fps_smooth))
+                    .pos(pause_center.x + 0.08, pause_center.y + wm_h / 2. + 0.02)
+                    .anchor(0., 0.)
+                    .size(0.36)
+                    .color(semi_white(0.85))
+                    .draw();
+            }
 
             let margin = 0.03;
 
@@ -481,7 +550,7 @@ impl GameScene {
                     }
                     if res.config.show_acc {
                         ui.text(format!("{:05.2}%", self.judge.real_time_accuracy() * 100.))
-                            .pos(1. - margin, score_top + h)
+                            .pos(1. - margin + res.config.play_acc_offset_x, score_top + h + res.config.play_acc_offset_y)
                             .anchor(1., 0.)
                             .size(0.4)
                             .color(Color { a: c.a * 0.7, ..c })
@@ -628,6 +697,8 @@ impl GameScene {
     }
 
     fn overlay_ui(&mut self, ui: &mut Ui, tm: &mut TimeManager) -> Result<()> {
+        let res_off_x = self.res.config.result_offset_x;
+        let res_off_y = self.res.config.result_offset_y;
         let c = semi_white(self.res.alpha);
         let res = &mut self.res;
         if self.pause_alpha > 0.001 {
@@ -734,11 +805,12 @@ impl GameScene {
 
             let panel_w = 0.9;
             let panel_h = 0.13;
-            let panel_x = -panel_w / 2.;
+            // 结算统计面板整体可调偏移
+            let panel_x = -panel_w / 2. + res_off_x;
             let panel_gap = 0.04;
 
             // 面板1：Max Combo / Accuracy
-            let s1_y = 0.16;
+            let s1_y = 0.16 + res_off_y;
             let s1 = Rect::new(panel_x, s1_y, panel_w, panel_h);
             ui.fill_path(&s1.rounded(0.01), Color::new(0., 0., 0., 0.4));
             {
@@ -1140,6 +1212,79 @@ impl GameScene {
             None
         }
     }
+
+    fn finish_and_show_result(&mut self) -> Result<()> {
+        let mut record_data = None;
+        #[cfg(closed)]
+        if !self.track_skipped {
+            if let Some(upload_fn) = &self.upload_fn {
+                if !self.res.config.offline_mode
+                    && !self.res.config.mods.intersects(Mods::UNRATED)
+                    && !self.res.config.use_keyboard
+                    && self.res.config.speed >= 1.0 - 1e-3
+                {
+                    if let Some(player) = &self.player {
+                        if let Some(chart) = &self.res.info.id {
+                            record_data = Some(encode_record(self, player.id, *chart));
+                        }
+                    }
+                }
+            }
+        }
+        let result = self.judge.result();
+        let record = if self.track_skipped || self.res.config.mods.intersects(Mods::UNRATED) || self.res.config.speed < 1.0 - 1e-3 {
+            None
+        } else {
+            Some(SimpleRecord {
+                score: result.score as _,
+                accuracy: result.accuracy as _,
+                full_combo: result.max_combo == result.num_of_notes,
+            })
+        };
+        self.next_scene = match self.mode {
+            GameMode::Normal | GameMode::NoRetry | GameMode::View => {
+                let historic_best = self.player.as_ref().map_or(0, |it| it.historic_best);
+                if let Some(new_rec) = &record {
+                    if let Some(f) = &self.save_fn {
+                        f(new_rec.clone())?;
+                    }
+                    if let Some(best) = &mut self.best_record {
+                        best.update(new_rec);
+                    } else {
+                        self.best_record = record.clone();
+                    }
+                    if let Some(best) = &self.best_record {
+                        if let Some(player) = &mut self.player {
+                            player.historic_best = player.historic_best.max(best.score as _);
+                        }
+                    }
+                }
+                Some(NextScene::Overlay(Box::new(EndingScene::new(
+                    self.res.background.clone(),
+                    self.res.illustration.clone(),
+                    self.res.player.clone(),
+                    self.res.icons.clone(),
+                    self.res.arc_icon.clone(),
+                    self.res.icon_retry.clone(),
+                    self.res.icon_proceed.clone(),
+                    self.res.mod_icons.clone(),
+                    self.res.info.clone(),
+                    self.judge.result(),
+                    &self.res.config,
+                    self.res.res_pack.ending.clone(),
+                    self.upload_fn.as_ref().map(Arc::clone),
+                    self.player.as_ref().map(|it| it.rks),
+                    historic_best,
+                    record_data,
+                    self.best_record.clone(),
+                    if self.res.config.show_avg_fps { self.get_avg_fps() } else { None },
+                )?)))
+            }
+            GameMode::TweakOffset => Some(NextScene::PopWithResult(Box::new(None::<f32>))),
+            GameMode::Exercise => None,
+        };
+        Ok(())
+    }
 }
 
 impl Scene for GameScene {
@@ -1180,8 +1325,8 @@ impl Scene for GameScene {
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
         self.res.audio.recover_if_needed()?;
-        // 更新暂停界面渐变
-        let target = if tm.paused() { 1. } else { 0. };
+        // 更新暂停界面渐变（跳过谱面动画期间强制隐藏暂停菜单）
+        let target = if self.skip_done { 0. } else if tm.paused() { 1. } else { 0. };
         self.pause_alpha += (target - self.pause_alpha) * 0.15;
         if matches!(self.state, State::Playing) {
             tm.update(self.music.position());
@@ -1256,73 +1401,7 @@ impl Scene for GameScene {
             State::Ending => {
                 let t = time - self.res.track_length - WAIT_TIME;
                 if t >= AFTER_TIME + 0.3 {
-                    let mut record_data = None;
-                    #[cfg(closed)]
-                    if let Some(upload_fn) = &self.upload_fn {
-                        if !self.res.config.offline_mode
-                            && !self.res.config.mods.intersects(Mods::UNRATED)
-                            && !self.res.config.use_keyboard
-                            && self.res.config.speed >= 1.0 - 1e-3
-                        {
-                            if let Some(player) = &self.player {
-                                if let Some(chart) = &self.res.info.id {
-                                    record_data = Some(encode_record(self, player.id, *chart));
-                                }
-                            }
-                        }
-                    }
-                    let result = self.judge.result();
-                    let record = if self.res.config.mods.intersects(Mods::UNRATED) || self.res.config.speed < 1.0 - 1e-3 {
-                        None
-                    } else {
-                        Some(SimpleRecord {
-                            score: result.score as _,
-                            accuracy: result.accuracy as _,
-                            full_combo: result.max_combo == result.num_of_notes,
-                        })
-                    };
-                    self.next_scene = match self.mode {
-                        GameMode::Normal | GameMode::NoRetry | GameMode::View => {
-                            let historic_best = self.player.as_ref().map_or(0, |it| it.historic_best);
-                            if let Some(new_rec) = &record {
-                                if let Some(f) = &self.save_fn {
-                                    f(new_rec.clone())?;
-                                }
-                                if let Some(best) = &mut self.best_record {
-                                    best.update(new_rec);
-                                } else {
-                                    self.best_record = record.clone();
-                                }
-                                if let Some(best) = &self.best_record {
-                                    if let Some(player) = &mut self.player {
-                                        player.historic_best = player.historic_best.max(best.score as _);
-                                    }
-                                }
-                            }
-                            Some(NextScene::Overlay(Box::new(EndingScene::new(
-                                self.res.background.clone(),
-                                self.res.illustration.clone(),
-                                self.res.player.clone(),
-                                self.res.icons.clone(),
-                                self.res.arc_icon.clone(),
-                                self.res.icon_retry.clone(),
-                                self.res.icon_proceed.clone(),
-                                self.res.mod_icons.clone(),
-                                self.res.info.clone(),
-                                self.judge.result(),
-                                &self.res.config,
-                                self.res.res_pack.ending.clone(),
-                                self.upload_fn.as_ref().map(Arc::clone),
-                                self.player.as_ref().map(|it| it.rks),
-                                historic_best,
-                                record_data,
-                                self.best_record.clone(),
-                                if self.res.config.show_avg_fps { self.get_avg_fps() } else { None },
-                            )?)))
-                        }
-                        GameMode::TweakOffset => Some(NextScene::PopWithResult(Box::new(None::<f32>))),
-                        GameMode::Exercise => None,
-                    };
+                    self.finish_and_show_result()?;
                 }
                 self.res.alpha = (1. - (t / AFTER_TIME).min(1.).powi(2)) as f32;
                 self.res.track_length
@@ -1330,7 +1409,14 @@ impl Scene for GameScene {
         };
         let time = (time - offset as f64).max(0.);
         self.res.time = time;
-        if !tm.paused() && self.pause_rewind.is_none() && self.mode != GameMode::View {
+        // 性能自适应：按当前 Note 负载决定是否启用低分辨率渲染 / 关闭打击特效
+        {
+            let (visible_notes, upcoming_notes) = self.chart.load_metrics(&self.res);
+            // 阈值由“性能优化档位”决定（无优化档永不启用低清渲染）
+            self.res.low_res_notes = visible_notes >= self.res.config.eff_lowres_threshold();
+            self.res.suppress_hit_fx = upcoming_notes > self.res.config.eff_fx_density_threshold();
+        }
+        if !tm.paused() && self.pause_rewind.is_none() && self.mode != GameMode::View && !self.skip_done {
             self.gl.quad_gl.viewport(self.res.camera.viewport);
             self.judge.update(&mut self.res, &mut self.chart, &mut self.bad_notes);
             self.gl.quad_gl.viewport(None);
@@ -1349,29 +1435,34 @@ impl Scene for GameScene {
             WHITE
         };
         if !self.dead
+            && !self.skip_done
             && matches!(self.state, State::Playing)
             && (self.res.config.mods.contains(Mods::INSTANT_DEATH_AP) && counts[1] + counts[2] + counts[3] > 0
                 || self.res.config.mods.contains(Mods::INSTANT_DEATH_FC) && counts[2] + counts[3] > 0)
         {
+            self.dead = true;
+            self.skip_done = true;
+            self.track_skipped = true;
+            self.skip_transition_progress = 0.0;
+            self.skip_wait_timer = 0.0;
+            self.skip_fade_out_progress = 0.0;
+            self.skip_instant = true;
             if !self.music.paused() {
                 self.music.pause()?;
             }
-            tm.pause();
-            self.dead = true;
             #[cfg(target_env = "ohos")]
             miniquad::native::set_interceptor_state(false);
-            show_message(tl!("game-over")).error();
         }
         self.res.judge_line_color.a *= self.res.alpha;
         self.chart.update(&mut self.res);
         let res = &mut self.res;
         if res.config.interactive && is_key_pressed(KeyCode::Space) {
-            if tm.paused() {
+            if tm.paused() && !self.dead {
                 if matches!(self.state, State::Playing) {
                     self.music.play()?;
                     tm.resume();
                 }
-            } else if matches!(self.state, State::Playing | State::BeforeMusic) {
+            } else if matches!(self.state, State::Playing | State::BeforeMusic) && !self.dead {
                 if !self.music.paused() {
                     self.music.pause()?;
                 }
@@ -1380,7 +1471,7 @@ impl Scene for GameScene {
                 self.pause_need_blur = true;
             }
         }
-        if Self::interactive(res, &self.state) {
+        if Self::interactive(res, &self.state) && !self.skip_done {
             if is_key_pressed(KeyCode::Left) && res.config.use_keyboard {
                 res.time -= 1.;
                 let dst = (self.music.position() - 1.).max(0.);
@@ -1430,10 +1521,40 @@ impl Scene for GameScene {
                 _ => return_input(id, text),
             }
         }
+        // 跳关动画更新
+        if self.skip_done {
+            let dt = get_frame_time();
+            if self.skip_transition_progress < 1.0 {
+                self.skip_transition_progress = (self.skip_transition_progress + dt / 0.5).min(1.0);
+                if self.skip_transition_progress >= 1.0 {
+                    crate::ui::message_sound();
+                }
+            } else if self.skip_fade_out_progress < 1.0 {
+                self.skip_wait_timer += dt;
+                if self.skip_wait_timer >= 3.0 {
+                    self.skip_fade_out_progress = (self.skip_fade_out_progress + dt / 0.5).min(1.0);
+                }
+            } else {
+                if !self.music.paused() {
+                    self.music.pause()?;
+                }
+                tm.seek_to(self.res.track_length + WAIT_TIME + AFTER_TIME + 0.3);
+                self.state = State::Ending;
+                self.skip_done = false;
+                self.skip_transition_progress = 0.0;
+                self.skip_fade_out_progress = 0.0;
+                self.skip_wait_timer = 0.0;
+                self.skip_instant = false;
+                return Ok(());
+            }
+        }
         Ok(())
     }
 
     fn touch(&mut self, tm: &mut TimeManager, touch: &Touch) -> Result<bool> {
+        if self.skip_done {
+            return Ok(false);
+        }
         if self.mode == GameMode::Exercise && tm.paused() {
             let touch = Touch {
                 position: touch.position * self.touch_scale(),
@@ -1452,15 +1573,24 @@ impl Scene for GameScene {
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
-        if self.res.config.show_avg_fps {
+        if self.res.config.show_fps || self.res.config.show_avg_fps {
             let current_time = tm.real_time();
             if matches!(self.state, State::Playing) && !tm.paused() {
                 let frame_delta = current_time - self.fps_last_frame_time;
                 self.fps_total_time += frame_delta;
                 self.fps_frame_count += 1;
+                // 实时帧率平滑：1/帧间隔 做指数平均
+                if frame_delta > 0.0 {
+                    let inst = (1.0 / frame_delta) as f32;
+                    self.fps_smooth = if self.fps_smooth <= 0.0 { inst } else { self.fps_smooth * 0.9 + inst * 0.1 };
+                }
             }
             self.fps_last_frame_time = current_time;
         }
+
+        // 游玩中实时 FPS 覆盖层标记（提前快照，避免与 res 借用冲突）
+        let fps_overlay = self.res.config.show_fps && self.fps_smooth > 0.0;
+        let fps_overlay_active = fps_overlay && matches!(self.state, State::Playing) && !tm.paused();
 
         let res = &mut self.res;
         let asp = ui.viewport.2 as f32 / ui.viewport.3 as f32;
@@ -1510,7 +1640,8 @@ impl Scene for GameScene {
         self.bad_notes.retain(|dummy| dummy.render(res));
         let t = tm.real_time();
         let dt = (t - std::mem::replace(&mut self.last_update_time, t)) as f32;
-        if res.config.particle {
+        // 判定特效（粒子）是最吃性能的部分：没有存活粒子时直接跳过两遍粒子渲染管线
+        if res.config.eff_particles() && !res.emitter.is_empty() {
             res.emitter.draw(dt);
         }
 
@@ -1524,6 +1655,17 @@ impl Scene for GameScene {
         let watermark_text = res.config.custom_watermark().to_string();
 
         self.ui(ui, tm)?;
+
+        // 游玩中实时帧率（左上角）
+        if fps_overlay_active {
+            let fps_text = format!("FPS {:.0}", self.fps_smooth);
+            ui.text(&fps_text)
+                .pos(-0.9, combo_top + 0.02)
+                .anchor(0., 0.5)
+                .size(0.42)
+                .color(semi_white(0.9 * alpha))
+                .draw();
+        }
 
         if combo_debug {
             let debug_info = format!(
@@ -1602,19 +1744,140 @@ impl Scene for GameScene {
                     viewport: Some(ui.viewport),
                     ..Default::default()
                 });
-                draw_texture_ex(
-                    target.output().texture,
-                    -1.,
-                    -ui.top,
-                    WHITE,
-                    DrawTextureParams {
-                        dest_size: Some(vec2(2., ui.top * 2.)),
-                        ..Default::default()
-                    },
-                );
+                if self.skip_done {
+                    // 懒加载模糊材质
+                    if self.skip_blur_material.is_none() {
+                        const BLUR_VERTEX: &str = r#"#version 100
+attribute vec3 position;
+attribute vec2 texcoord;
+attribute vec4 color0;
+varying vec2 uv;
+uniform mat4 Model;
+uniform mat4 Projection;
+uniform vec2 UVScale;
+void main() {
+    gl_Position = Projection * Model * vec4(position, 1);
+    uv = (texcoord - vec2(0.5)) * UVScale + vec2(0.5);
+}"#;
+                        let blur_fragment = include_str!("../core/shaders/gaussian_blur.glsl");
+                        self.skip_blur_material = Some(
+                            load_material(
+                                BLUR_VERTEX,
+                                blur_fragment,
+                                MaterialParams {
+                                    uniforms: vec![
+                                        ("screenSize".to_owned(), UniformType::Float2),
+                                        ("blurSize".to_owned(), UniformType::Float1),
+                                        ("UVScale".to_owned(), UniformType::Float2),
+                                    ],
+                                    textures: vec!["screenTexture".to_owned()],
+                                    ..Default::default()
+                                },
+                            )
+                            .ok(),
+                        )
+                        .flatten();
+                    }
+                    if let Some(mat) = &self.skip_blur_material {
+                        let tex = target.output().texture;
+                        let screen_dim = vec2(tex.width(), tex.height());
+                        mat.set_uniform("screenSize", screen_dim);
+                        // 模糊强度随动画进度变化，最大8像素
+                        let blur_amount = self.skip_transition_progress.min(1.0) * 8.0;
+                        mat.set_uniform("blurSize", blur_amount);
+                        mat.set_texture("screenTexture", tex);
+                        let vp = ui.viewport;
+                        mat.set_uniform("UVScale", vec2(vp.2 as _, vp.3 as _) / screen_dim);
+                        gl_use_material(*mat);
+                        draw_rectangle(-1., -ui.top, 2., ui.top * 2., WHITE);
+                        gl_use_default_material();
+                    } else {
+                        draw_texture_ex(
+                            target.output().texture,
+                            -1.,
+                            -ui.top,
+                            WHITE,
+                            DrawTextureParams {
+                                dest_size: Some(vec2(2., ui.top * 2.)),
+                                ..Default::default()
+                            },
+                        );
+                    }
+                } else {
+                    draw_texture_ex(
+                        target.output().texture,
+                        -1.,
+                        -ui.top,
+                        WHITE,
+                        DrawTextureParams {
+                            dest_size: Some(vec2(2., ui.top * 2.)),
+                            ..Default::default()
+                        },
+                    );
+                }
                 pop_camera_state();
             }
         }
+
+        // 跳关提示面板在模糊之后渲染，水平拉伸展开（Out Quart）
+        if self.skip_done && self.skip_transition_progress >= 1.0 {
+            // 确保渲染到屏幕（而不是离屏 chart_target），并使用与 ui.text 一致的 UI 坐标系统
+            self.gl.quad_gl.render_pass(self.res.camera.render_pass());
+            self.gl.quad_gl.viewport(Some(ui.viewport));
+            push_camera_state();
+            set_camera(&ui.camera());
+            // 懒加载纹理（失败后不再重试）
+            if self.skip_panel_texture.is_none() && !self.skip_panel_load_failed {
+                match image::load_from_memory(MESSAGE_PANEL_PNG) {
+                    Ok(img) => {
+                        let rgba = img.to_rgba8();
+                        let (w, h) = (rgba.width(), rgba.height());
+                        let pixels = rgba.into_raw();
+                        self.skip_panel_texture = Some(Texture2D::from_rgba8(w as u16, h as u16, &pixels));
+                    }
+                    Err(_) => {
+                        self.skip_panel_load_failed = true;
+                    }
+                }
+            }
+            if let Some(tex) = self.skip_panel_texture {
+                // 进入拉伸：Out Quart，前0.5秒
+                let in_t = (self.skip_wait_timer / 0.5).min(1.0);
+                let in_eased = 1.0 - (1.0 - in_t).powi(4);
+                // 退出拉伸：Out Quart，用 skip_fade_out_progress
+                let out_eased = 1.0 - (1.0 - self.skip_fade_out_progress).powi(4);
+                // 最终拉伸进度 = 进入 - 退出
+                let stretch_eased = (in_eased - out_eased).clamp(0.0, 1.0);
+                // 面板最大宽度为屏幕的60%，高度按图片比例
+                let max_w = 1.2;
+                let panel_h = max_w * tex.height() as f32 / tex.width() as f32;
+                let panel_w = max_w * stretch_eased;
+                let panel_x = -panel_w / 2.0;
+                let panel_y = -panel_h / 2.0;
+                draw_texture_ex(
+                    tex,
+                    panel_x,
+                    panel_y,
+                    WHITE,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(panel_w, panel_h)),
+                        ..Default::default()
+                    },
+                );
+                // 面板上的"跳过谱面"文字
+                if stretch_eased >= 0.8 {
+                    let text_fade = ((stretch_eased - 0.8) / 0.2).clamp(0.0, 1.0);
+                    ui.text("跳过谱面")
+                        .pos(0., 0.)
+                        .anchor(0.5, 0.5)
+                        .size(0.5)
+                        .color(Color::new(1.0, 1.0, 1.0, text_fade))
+                        .draw();
+                }
+            }
+            pop_camera_state();
+        }
+
         Ok(())
     }
 
