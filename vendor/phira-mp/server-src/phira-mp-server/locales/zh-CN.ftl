@@ -11,3 +11,10 @@ start-no-chart-selected = 你还没有给芙宁娜选择谱面呢，你还是先
 chart-select-not-now = 现在还不是选谱面的时候
 
 chart-not-uploaded-yet = 房主还没上传完谱面呢，再等一会儿吧
+
+join-room-need-password = 这个房间设有密码，请输入密码后加入
+join-room-wrong-password = 房间密码错误
+kick-cant-kick-host-self = 房主不能踢出自己
+kick-user-not-found = 房间里没有这个玩家
+transfer-same-host = 这位玩家已经是房主了
+transfer-user-not-found = 房间里没有这位玩家

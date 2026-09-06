@@ -167,6 +167,8 @@ pub struct Room {
         pub judgement_stats: RwLock<HashMap<i32, PlayerJudgementStats>>, // 玩家判定统计
         pub judge_events: RwLock<Vec<JudgeEventWrapper>>, // 原始判定事件列表（仿照PhiraRecord）
         pub creator_id: RwLock<Option<i32>>, // 创建者ID
+        // 房间密码（Some=有密码；None/空串=无密码）。房主可设/清除。
+        pub password: RwLock<Option<String>>,
     }
 impl Room {
     async fn get_user_name_by_id(&self, uid: i32) -> Option<String> {
@@ -246,6 +248,9 @@ impl Room {
                 let uname = self.get_user_name_by_id(*user).await.unwrap_or_else(|| format!("用户#{}", user));
                 format!("谱面下载完成：{}", uname)
             }
+            Kicked { user, name } => {
+                format!("被房主移出房间：{} ({})", name, user)
+            }
         }
     }
     pub fn new(id: RoomId, host: Weak<User>, creator_id: Option<i32>) -> Self {
@@ -269,6 +274,7 @@ impl Room {
             judgement_stats: RwLock::default(),
             judge_events: RwLock::default(),
             creator_id: RwLock::new(creator_id),
+            password: RwLock::new(None),
         }
     }
     
@@ -329,6 +335,26 @@ impl Room {
         let mut events = self.judge_events.write().await;
         events.clear();
         let _ = self.judgement_tx.send("[]".to_string());
+    }
+
+    // 玩家游玩结束后，用客户端上报的真实成绩回填判定统计，
+    // 使管理端 Judge 显示真实分数/准确率/判定数/最大连击。
+    pub async fn update_final_stats(&self, user_id: i32, user_name: String, record: &Record) {
+        let mut stats = self.judgement_stats.write().await;
+        let s = stats
+            .entry(user_id)
+            .or_insert_with(|| PlayerJudgementStats::new(user_id, user_name));
+        s.perfect = record.perfect.max(0) as u32;
+        s.good = record.good.max(0) as u32;
+        s.bad = record.bad.max(0) as u32;
+        s.miss = record.miss.max(0) as u32;
+        s.max_combo = record.max_combo.max(0) as u32;
+        s.current_combo = record.max_combo.max(0) as u32;
+        s.score = record.score.max(0) as u32;
+        s.accuracy = record.accuracy;
+        let stats_vec: Vec<&PlayerJudgementStats> = stats.values().collect();
+        let stats_json = serde_json::to_string(&stats_vec).unwrap_or_default();
+        let _ = self.judgement_tx.send(stats_json);
     }
 
     pub fn is_live(&self) -> bool {
@@ -514,6 +540,52 @@ impl Room {
         }
     }
 
+    /// 房间是否有密码
+    pub async fn has_password(&self) -> bool {
+        self.password.read().await.as_ref().is_some_and(|it| !it.is_empty())
+    }
+
+    /// 校验密码是否正确
+    pub async fn check_password(&self, password: &str) -> bool {
+        let guard = self.password.read().await;
+        match guard.as_ref() {
+            Some(p) if !p.is_empty() => p == password,
+            _ => true,
+        }
+    }
+
+    /// 设置 / 清除房间密码（空串或 None = 清除）。仅房主调用。
+    pub async fn set_password(&self, password: Option<String>) {
+        let p = password.filter(|it| !it.is_empty());
+        *self.password.write().await = p;
+    }
+
+    /// 房主踢出指定玩家。返回 true 表示房间应被删除（全部离开）。
+    /// 注意：monitor 观察者不可被踢（回放录制器依赖）。
+    pub async fn kick_user(&self, target: &Arc<User>) -> bool {
+        // 先广播被踢通知（目标此刻仍在房间内，能收到）
+        self.send(Message::Kicked {
+            user: target.id,
+            name: target.name.clone(),
+        })
+        .await;
+        // 再执行正常离房流程（广播 LeaveRoom 等）
+        self.on_user_leave(target).await
+    }
+
+    /// 将房主身份移交给指定玩家（须为房间内玩家）。发送 NewHost 消息并同步 ChangeHost。
+    pub async fn transfer_host(&self, new_host: &Arc<User>) {
+        *self.host.write().await = Arc::downgrade(new_host);
+        new_host.try_send(ServerCommand::ChangeHost(true)).await;
+        // 通知房内所有人房主已变更
+        for user in self.users().await.into_iter().chain(self.monitors().await) {
+            if user.id != new_host.id {
+                user.try_send(ServerCommand::ChangeHost(false)).await;
+            }
+        }
+        self.send(Message::NewHost { user: new_host.id }).await;
+    }
+
     pub async fn check_all_ready(&self) {
         let guard = self.state.read().await;
         match guard.deref() {
@@ -625,6 +697,12 @@ impl Room {
                             new_host.try_send(ServerCommand::ChangeHost(true)).await;
                         }
                     }
+                    // 清空本地谱面残留状态并通知所有客户端退出本地谱面分享，
+                    // 避免本地谱面游玩结束后切换到在线谱面时状态错乱（卡在转圈/无法开始）。
+                    *self.local_chart.write().await = None;
+                    self.chart_uploaded.store(false, Ordering::SeqCst);
+                    self.broadcast(ServerCommand::ChangeLocalChart { local: false, chart_id: String::new() })
+                        .await;
                     self.on_state_change().await;
                 }
             }

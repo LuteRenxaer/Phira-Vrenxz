@@ -167,6 +167,8 @@ pub struct Room {
         pub judgement_stats: RwLock<HashMap<i32, PlayerJudgementStats>>, // 玩家判定统计
         pub judge_events: RwLock<Vec<JudgeEventWrapper>>, // 原始判定事件列表（仿照PhiraRecord）
         pub creator_id: RwLock<Option<i32>>, // 创建者ID
+        // 房间密码（Some=有密码；None/空串=无密码）。房主可设/清除。
+        pub password: RwLock<Option<String>>,
     }
 impl Room {
     async fn get_user_name_by_id(&self, uid: i32) -> Option<String> {
@@ -246,6 +248,9 @@ impl Room {
                 let uname = self.get_user_name_by_id(*user).await.unwrap_or_else(|| format!("用户#{}", user));
                 format!("谱面下载完成：{}", uname)
             }
+            Kicked { user, name } => {
+                format!("被房主移出房间：{} ({})", name, user)
+            }
         }
     }
     pub fn new(id: RoomId, host: Weak<User>, creator_id: Option<i32>) -> Self {
@@ -269,6 +274,7 @@ impl Room {
             judgement_stats: RwLock::default(),
             judge_events: RwLock::default(),
             creator_id: RwLock::new(creator_id),
+            password: RwLock::new(None),
         }
     }
     
@@ -532,6 +538,52 @@ impl Room {
             user.game_time
                 .store(f32::NEG_INFINITY.to_bits(), Ordering::SeqCst);
         }
+    }
+
+    /// 房间是否有密码
+    pub async fn has_password(&self) -> bool {
+        self.password.read().await.as_ref().is_some_and(|it| !it.is_empty())
+    }
+
+    /// 校验密码是否正确
+    pub async fn check_password(&self, password: &str) -> bool {
+        let guard = self.password.read().await;
+        match guard.as_ref() {
+            Some(p) if !p.is_empty() => p == password,
+            _ => true,
+        }
+    }
+
+    /// 设置 / 清除房间密码（空串或 None = 清除）。仅房主调用。
+    pub async fn set_password(&self, password: Option<String>) {
+        let p = password.filter(|it| !it.is_empty());
+        *self.password.write().await = p;
+    }
+
+    /// 房主踢出指定玩家。返回 true 表示房间应被删除（全部离开）。
+    /// 注意：monitor 观察者不可被踢（回放录制器依赖）。
+    pub async fn kick_user(&self, target: &Arc<User>) -> bool {
+        // 先广播被踢通知（目标此刻仍在房间内，能收到）
+        self.send(Message::Kicked {
+            user: target.id,
+            name: target.name.clone(),
+        })
+        .await;
+        // 再执行正常离房流程（广播 LeaveRoom 等）
+        self.on_user_leave(target).await
+    }
+
+    /// 将房主身份移交给指定玩家（须为房间内玩家）。发送 NewHost 消息并同步 ChangeHost。
+    pub async fn transfer_host(&self, new_host: &Arc<User>) {
+        *self.host.write().await = Arc::downgrade(new_host);
+        new_host.try_send(ServerCommand::ChangeHost(true)).await;
+        // 通知房内所有人房主已变更
+        for user in self.users().await.into_iter().chain(self.monitors().await) {
+            if user.id != new_host.id {
+                user.try_send(ServerCommand::ChangeHost(false)).await;
+            }
+        }
+        self.send(Message::NewHost { user: new_host.id }).await;
     }
 
     pub async fn check_all_ready(&self) {

@@ -16,6 +16,24 @@ create-invalid-id = 房间 ID 由不多于 20 个大小写英文字母、数字�
 join-room = 加入房间
 join-room-invalid-id = 无效的房间 ID
 join-room-failed = 加入房间失败
+join-room-password-title = 输入房间密码
+room-list = 公共房间
+room-list-title = 公共房间（点击加入）
+room-list-loading = 加载中…
+room-list-empty = 暂无可加入的房间
+room-list-failed = 获取房间列表失败
+room-list-more = …还有更多房间，请直接输入房间号
+room-locked-tag = 🔒
+
+set-password = 设置房间密码
+set-password-failed = 设置房间密码失败
+clear-password = 清除房间密码
+kick-user = 踢出玩家(ID)
+kick-user-failed = 踢出玩家失败
+kick-user-invalid-id = 无效的玩家 ID（在玩家列表中查看 #ID）
+transfer-host = 移交房主(ID)
+transfer-host-failed = 移交房主失败
+transfer-host-invalid-id = 无效的玩家 ID（在玩家列表中查看 #ID）
 
 leave-room = 离开房间
 leave-room-failed = 离开房间失败
@@ -27,6 +45,9 @@ request-start-no-chart = 你还没有选择谱面
 request-start-failed = 开始游戏失败
 
 user-list = 用户列表
+preview = 预览谱面
+preview-failed = 预览失败
+preview-unavailable = 当前没有可预览的谱面
 
 lock-room = { $current ->
   [true] 解锁房间
@@ -76,6 +97,8 @@ msg-played = `{ $user }` 结束了游玩：{ $score } ({ $accuracy }){ $full-com
 }
 msg-game-end = 游戏结束
 msg-abort = `{ $user }` 放弃了游戏
+msg-kicked-me = 你已被房主移出房间
+msg-kicked = `{ $user }` 已被房主移出房间
 msg-room-lock = { $lock ->
   [true] 房间已锁定
   *[other] 房间已解锁

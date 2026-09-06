@@ -193,6 +193,39 @@ pub enum ClientCommand {
     CancelLocalChart,
     // LocalChart: 玩家取消已就绪（尚未开始游玩前可取消）
     CancelDownloadReady,
+
+    // 新版客户端直传最终成绩；追加在枚举末尾，保持原版命令编号兼容。
+    PlayedWithScore {
+        id: i32,
+        score: u32,
+        accuracy: f32,
+        full_combo: bool,
+        max_combo: u32,
+        perfect: u32,
+        good: u32,
+        bad: u32,
+        miss: u32,
+    },
+
+    // ===== 房间管理增强（追加在末尾，保持旧命令编号兼容）=====
+    // 房主设置/清除房间密码（空串 = 清除密码）
+    SetRoomPassword {
+        password: Varchar<32>,
+    },
+    // 加入带密码房间
+    JoinRoomWithPassword {
+        id: RoomId,
+        monitor: bool,
+        password: Varchar<32>,
+    },
+    // 房主踢出指定玩家
+    KickUser {
+        user: i32,
+    },
+    // 房主将房主身份移交给指定玩家
+    TransferHost {
+        user: i32,
+    },
 }
 
 #[derive(Clone, Debug, BinaryData)]
@@ -263,6 +296,11 @@ pub enum Message {
     // LocalChart: 玩家下载完成，通知房主
     DownloadReady {
         user: i32,
+    },
+    // 房主踢出玩家（被踢者收到后应清空本地房间状态）
+    Kicked {
+        user: i32,
+        name: String,
     },
 }
 
@@ -375,4 +413,10 @@ pub enum ServerCommand {
     // 本地谱面分享：上传回执 / 下载数据
     UploadChart(SResult<()>),
     DownloadChart(SResult<Vec<u8>>),
+
+    // ===== 房间管理增强回执（追加在末尾，保持旧编号兼容）=====
+    SetRoomPassword(SResult<()>),
+    JoinRoomWithPassword(SResult<JoinRoomResponse>),
+    KickUser(SResult<()>),
+    TransferHost(SResult<()>),
 }

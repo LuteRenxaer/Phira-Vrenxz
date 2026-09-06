@@ -16,6 +16,24 @@ create-invalid-id = A Room ID should be 20 characters max, and only contain A-Z,
 join-room = Join Room
 join-room-invalid-id = Invalid room ID.
 join-room-failed = Failed to join room.
+join-room-password-title = Enter room password
+room-list = Public Rooms
+room-list-title = Public Rooms (tap to join)
+room-list-loading = Loading…
+room-list-empty = No joinable rooms.
+room-list-failed = Failed to load rooms.
+room-list-more = …more rooms available, enter room ID directly.
+room-locked-tag = 🔒
+
+set-password = Set Room Password
+set-password-failed = Failed to set room password.
+clear-password = Clear Room Password
+kick-user = Kick Player (ID)
+kick-user-failed = Failed to kick player.
+kick-user-invalid-id = Invalid player ID (see #ID in player list).
+transfer-host = Transfer Host (ID)
+transfer-host-failed = Failed to transfer host.
+transfer-host-invalid-id = Invalid player ID (see #ID in player list).
 
 leave-room = Leave Room
 leave-room-failed = Failed to leave room.
@@ -27,6 +45,9 @@ request-start-no-chart = Select an online chart first.
 request-start-failed = Failed to start.
 
 user-list = Users
+preview = Preview Chart
+preview-failed = Failed to preview.
+preview-unavailable = No chart available to preview.
 
 lock-room = { $current ->
   [true] Unlock Room
@@ -76,6 +97,8 @@ msg-played = `{ $user }` finished playing: { $score } ({ $accuracy }){ $full-com
 }
 msg-game-end = Game ended.
 msg-abort = `{ $user }` aborted the game.
+msg-kicked-me = You have been removed from the room by the host.
+msg-kicked = `{ $user }` has been removed from the room by the host.
 msg-room-lock = { $lock ->
   [true] Room locked.
   *[other] Room unlocked.

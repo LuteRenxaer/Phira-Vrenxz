@@ -4,8 +4,8 @@ use crate::{
 };
 use anyhow::{anyhow, bail, Result};
 use phira_mp_common::{
-    ClientCommand, HEARTBEAT_DISCONNECT_TIMEOUT, JoinRoomResponse, Message, ServerCommand, Stream,
-    UserInfo,
+    ClientCommand, HEARTBEAT_DISCONNECT_TIMEOUT, JoinRoomResponse, Message, RoomId, ServerCommand,
+    Stream, UserInfo,
 };
 use serde::Deserialize;
 use std::{
@@ -49,14 +49,11 @@ impl User {
             id,
             name,
             lang,
-
             server,
             session: RwLock::default(),
             room: RwLock::default(),
-
             monitor: AtomicBool::default(),
             game_time: AtomicU32::default(),
-
             dangle_mark: Mutex::default(),
         }
     }
@@ -143,10 +140,17 @@ impl Session {
         let this = Arc::new(OnceCell::<Arc<Session>>::new());
         let this_inited = Arc::new(Notify::new());
         let (tx, rx) = oneshot::channel::<Arc<User>>();
-        let last_recv: Arc<Mutex<Instant>> = Arc::new(Mutex::new(Instant::now()));
+        let last_recv: Arc<std::sync::Mutex<Instant>> = Arc::new(std::sync::Mutex::new(Instant::now()));
+        // 大帧（如本地谱面包上传）接收期间也要持续刷新心跳时间戳，
+        // 否则一次较慢的大帧传输会触发心跳超时，被误判为掉线并销毁房间。
+        let activity_last_recv = Arc::clone(&last_recv);
+        let activity: Option<Arc<dyn Fn() + Send + Sync>> = Some(Arc::new(move || {
+            *activity_last_recv.lock().unwrap() = Instant::now();
+        }));
         let stream = Stream::<ServerCommand, ClientCommand>::new(
             None,
             stream,
+            activity,
             Box::new({
                 let this = Arc::clone(&this);
                 let this_inited = Arc::clone(&this_inited);
@@ -172,7 +176,7 @@ impl Session {
                     let is_blacklisted_clone = ip_is_blacklisted;
                     
                     async move {
-                        *last_recv.lock().await = Instant::now();
+                        *last_recv.lock().unwrap() = Instant::now();
                         if panicked.load(Ordering::SeqCst) {
                             return;
                         }
@@ -406,10 +410,10 @@ impl Session {
             let last_recv = Arc::clone(&last_recv);
             async move {
                 loop {
-                    let recv = *last_recv.lock().await;
+                    let recv = *last_recv.lock().unwrap();
                     time::sleep_until((recv + HEARTBEAT_DISCONNECT_TIMEOUT).into()).await;
 
-                    if *last_recv.lock().await + HEARTBEAT_DISCONNECT_TIMEOUT > Instant::now() {
+                    if *last_recv.lock().unwrap() + HEARTBEAT_DISCONNECT_TIMEOUT > Instant::now() {
                         continue;
                     }
 
@@ -454,6 +458,198 @@ impl Drop for Session {
     fn drop(&mut self) {
         self.monitor_task_handle.abort();
     }
+}
+
+async fn handle_played_score(
+    user: Arc<User>,
+    id: i32,
+    score: u32,
+    accuracy: f32,
+    full_combo: bool,
+    max_combo: u32,
+    perfect: u32,
+    good: u32,
+    bad: u32,
+    miss: u32,
+) -> Result<()> {
+    let room = user
+        .room
+        .read()
+        .await
+        .as_ref()
+        .map(Arc::clone)
+        .ok_or_else(|| anyhow!("芙宁娜的房间已经关了"))?;
+    let record = Record {
+        id,
+        player: user.id,
+        score: score as i32,
+        perfect: perfect as i32,
+        good: good as i32,
+        bad: bad as i32,
+        miss: miss as i32,
+        max_combo: max_combo as i32,
+        accuracy,
+        full_combo,
+        std: 0.,
+        std_score: 0.,
+    };
+    debug!(room = room.id.to_string(), user = user.id, "user played: {record:?}");
+    room.update_final_stats(user.id, user.name.clone(), &record).await;
+    room.send(Message::Played {
+        user: user.id,
+        score: record.score,
+        accuracy: record.accuracy,
+        full_combo: record.full_combo,
+    })
+    .await;
+
+    let mut guard = room.state.write().await;
+    if let InternalRoomState::Playing { results, aborted } = guard.deref_mut() {
+        if aborted.contains(&user.id) {
+            bail!("aborted");
+        }
+        if results.insert(user.id, record).is_some() {
+            bail!("already uploaded");
+        }
+        let users = room.users().await;
+        let all_finished = users
+            .iter()
+            .all(|it| results.contains_key(&it.id) || aborted.contains(&it.id));
+        info!(
+            room_id = %room.id.to_string(),
+            user_count = users.len(),
+            results_count = results.len(),
+            aborted_count = aborted.len(),
+            all_finished = all_finished,
+            "Checking if all players finished"
+        );
+        drop(guard);
+        room.check_all_ready().await;
+
+        if all_finished {
+            info!(room_id = %room.id.to_string(), "All players finished, will save and upload replays");
+            let room_id = room.id.to_string();
+            let server = Arc::clone(&user.server);
+            let upload_config = server.config.upload.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                let mut replay_manager = server.replay_manager.write().await;
+                if upload_config.enabled && !upload_config.api_token.is_empty() {
+                    match replay_manager.save_and_upload_replays(&room_id, &upload_config.api_url, &upload_config.api_token).await {
+                        Ok(results) => {
+                            let saved_count = results.len();
+                            let uploaded_count = results.iter().filter(|(_, r)| r.is_some()).count();
+                            let success_count = results.iter().filter(|(_, r)| r.as_ref().map(|r| r.success).unwrap_or(false)).count();
+                            info!(room_id = %room_id, saved = saved_count, uploaded = uploaded_count, success = success_count, "Saved and uploaded replay recordings");
+                        }
+                        Err(e) => error!(room_id = %room_id, error = %e, "Failed to save and upload replay recordings"),
+                    }
+                } else {
+                    match replay_manager.save_replays(&room_id).await {
+                        Ok(paths) => info!(room_id = %room_id, file_count = paths.len(), "Saved replay recordings (upload disabled)"),
+                        Err(e) => error!(room_id = %room_id, error = %e, "Failed to save replay recordings"),
+                    }
+                }
+                replay_manager.remove_room_manager(&room_id);
+            });
+        }
+    }
+    Ok(())
+}
+
+/// 加入房间（可带密码）。password 传 None 表示未尝试密码；房间有密码时若未提供则报"需要密码"。
+async fn join_room_impl(
+    user: &Arc<User>,
+    id: RoomId,
+    monitor: bool,
+    password: Option<&str>,
+) -> Result<JoinRoomResponse> {
+    let mut room_guard = user.room.write().await;
+    if room_guard.is_some() {
+        bail!("already in room");
+    }
+    let room = user.server.rooms.read().await.get(&id).map(Arc::clone);
+    let Some(room) = room else { bail!("芙宁娜都还没开房间呢，这么着急干啥？") };
+    if room.has_password().await {
+        match password {
+            Some(p) if room.check_password(p).await => {}
+            Some(_) => bail!(tl!("join-room-wrong-password")),
+            None => bail!(tl!("join-room-need-password")),
+        }
+    }
+    if room.locked.load(Ordering::SeqCst) {
+        bail!(tl!("join-room-locked"));
+    }
+    if !matches!(*room.state.read().await, InternalRoomState::SelectChart) {
+        bail!(tl!("join-game-ongoing"));
+    }
+    if monitor && !user.can_monitor() {
+        bail!(tl!("join-cant-monitor"));
+    }
+    if !room.add_user(Arc::downgrade(user), monitor).await {
+        bail!(tl!("join-room-full"));
+    }
+    info!(
+        user = user.id,
+        room = id.to_string(),
+        monitor,
+        "user join room"
+    );
+    user.monitor.store(monitor, Ordering::SeqCst);
+    if monitor && !room.live.fetch_or(true, Ordering::SeqCst) {
+        info!(room = id.to_string(), "room goes live");
+    }
+    room.broadcast(ServerCommand::OnJoinRoom(user.to_info()))
+        .await;
+    // 发送欢迎消息
+    let web_url = if let Some(_web_port) = user.server.config.web_port {
+        format!("你可以使用【云崽】芙卡洛斯的 #phira 指令来查看该服务器的房间列表。")
+    } else {
+        "".to_string()
+    };
+    room.broadcast(ServerCommand::Message(Message::Chat {
+        user: 0, // 使用0表示系统消息
+        content: format!("欢迎 {} 加入房间！{}", user.name, web_url),
+    }))
+    .await;
+    room.send(Message::JoinRoom {
+        user: user.id,
+        name: user.name.clone(),
+    })
+    .await;
+    *room_guard = Some(Arc::clone(&room));
+
+    // 初始化新加入玩家的回放缓存
+    if !monitor {
+        let room_id = id.to_string();
+        let user_id = user.id;
+        let user_name = user.name.clone();
+        let server = Arc::clone(&user.server);
+        tokio::spawn(async move {
+            let mut replay_manager = server.replay_manager.write().await;
+            replay_manager.init_player(&room_id, user_id, user_name);
+            info!(room_id = %room_id, user_id = user_id, "Initialized replay cache for joined player");
+        });
+    }
+
+    // 广播房间和会话更新
+    let state_clone = Arc::clone(&user.server);
+    tokio::spawn(async move {
+        crate::server::broadcast_rooms_update(&state_clone).await;
+        crate::server::broadcast_sessions_update(&state_clone).await;
+    });
+
+    Ok(JoinRoomResponse {
+        state: room.client_room_state().await,
+        users: room
+            .users()
+            .await
+            .into_iter()
+            .chain(room.monitors().await.into_iter())
+            .map(|it| it.to_info())
+            .collect(),
+        live: room.is_live(),
+    })
 }
 
 async fn process(user: Arc<User>, cmd: ClientCommand) -> Option<ServerCommand> {
@@ -743,89 +939,12 @@ async fn process(user: Arc<User>, cmd: ClientCommand) -> Option<ServerCommand> {
             Some(ServerCommand::CreateRoom(err_to_str(res)))
         }
         ClientCommand::JoinRoom { id, monitor } => {
-            let res: Result<JoinRoomResponse> = async move {
-                let mut room_guard = user.room.write().await;
-                if room_guard.is_some() {
-                    bail!("already in room");
-                }
-                let room = user.server.rooms.read().await.get(&id).map(Arc::clone);
-                let Some(room) = room else { bail!("芙宁娜都还没开房间呢，这么着急干啥？") };
-                if room.locked.load(Ordering::SeqCst) {
-                    bail!(tl!("join-room-locked"));
-                }
-                if !matches!(*room.state.read().await, InternalRoomState::SelectChart) {
-                    bail!(tl!("join-game-ongoing"));
-                }
-                if monitor && !user.can_monitor() {
-                    bail!(tl!("join-cant-monitor"));
-                }
-                if !room.add_user(Arc::downgrade(&user), monitor).await {
-                    bail!(tl!("join-room-full"));
-                }
-                info!(
-                    user = user.id,
-                    room = id.to_string(),
-                    monitor,
-                    "user join room"
-                );
-                user.monitor.store(monitor, Ordering::SeqCst);
-                if monitor && !room.live.fetch_or(true, Ordering::SeqCst) {
-                    info!(room = id.to_string(), "room goes live");
-                }
-                room.broadcast(ServerCommand::OnJoinRoom(user.to_info()))
-                    .await;
-                // 发送欢迎消息
-                let web_url = if let Some(_web_port) = user.server.config.web_port {
-                    format!("你可以使用【云崽】芙卡洛斯的 #phira 指令来查看该服务器的房间列表。")
-                } else {
-                    "".to_string()
-                };
-                room.broadcast(ServerCommand::Message(Message::Chat {
-                    user: 0, // 使用0表示系统消息
-                    content: format!("欢迎 {} 加入房间！{}", user.name, web_url),
-                }))
-                .await;
-                room.send(Message::JoinRoom {
-                    user: user.id,
-                    name: user.name.clone(),
-                })
-                .await;
-                *room_guard = Some(Arc::clone(&room));
-                
-                // 初始化新加入玩家的回放缓存
-                if !monitor {
-                    let room_id = id.to_string();
-                    let user_id = user.id;
-                    let user_name = user.name.clone();
-                    let server = Arc::clone(&user.server);
-                    tokio::spawn(async move {
-                        let mut replay_manager = server.replay_manager.write().await;
-                        replay_manager.init_player(&room_id, user_id, user_name);
-                        info!(room_id = %room_id, user_id = user_id, "Initialized replay cache for joined player");
-                    });
-                }
-                
-                // 广播房间和会话更新
-                let state_clone = Arc::clone(&user.server);
-                tokio::spawn(async move {
-                    crate::server::broadcast_rooms_update(&state_clone).await;
-                    crate::server::broadcast_sessions_update(&state_clone).await;
-                });
-                
-                Ok(JoinRoomResponse {
-                    state: room.client_room_state().await,
-                    users: room
-                        .users()
-                        .await
-                        .into_iter()
-                        .chain(room.monitors().await.into_iter())
-                        .map(|it| it.to_info())
-                        .collect(),
-                    live: room.is_live(),
-                })
-            }
-            .await;
+            let res = join_room_impl(&user, id, monitor, None).await;
             Some(ServerCommand::JoinRoom(err_to_str(res)))
+        }
+        ClientCommand::JoinRoomWithPassword { id, monitor, password } => {
+            let res = join_room_impl(&user, id, monitor, Some(&password.into_inner())).await;
+            Some(ServerCommand::JoinRoomWithPassword(err_to_str(res)))
         }
         ClientCommand::LeaveRoom => {
             let res: Result<()> = async move {
@@ -1302,102 +1421,60 @@ async fn process(user: Arc<User>, cmd: ClientCommand) -> Option<ServerCommand> {
             Some(ServerCommand::CancelReady(err_to_str(res)))
         }
         ClientCommand::Played { id } => {
-            let res: Result<()> = async move {
-                get_room!(room);
-                let res: Record = reqwest::get(format!("{HOST}/record/{id}"))
-                    .await?
-                    .error_for_status()?
-                    .json()
-                    .await?;
-                if res.player != user.id {
-                    bail!("invalid record");
-                }
-                debug!(
-                    room = room.id.to_string(),
-                    user = user.id,
-                    "user played: {res:?}"
-                );
-                room.send(Message::Played {
-                    user: user.id,
-                    score: res.score,
-                    accuracy: res.accuracy,
-                    full_combo: res.full_combo,
-                })
-                .await;
-                let mut guard = room.state.write().await;
-                if let InternalRoomState::Playing { results, aborted } = guard.deref_mut() {
-                    if aborted.contains(&user.id) {
-                        bail!("aborted");
-                    }
-                    if results.insert(user.id, res).is_some() {
-                        bail!("already uploaded");
-                    }
-                    
-                    // 检查是否所有玩家都完成了
-                    let users = room.users().await;
-                    let all_finished = users
-                        .iter()
-                        .all(|it| results.contains_key(&it.id) || aborted.contains(&it.id));
-                    
-                    info!(
-                        room_id = %room.id.to_string(),
-                        user_count = users.len(),
-                        results_count = results.len(),
-                        aborted_count = aborted.len(),
-                        all_finished = all_finished,
-                        "Checking if all players finished"
-                    );
-                    
-                    drop(guard);
-                    room.check_all_ready().await;
-                    
-                    // 如果游戏结束，保存并上传回放
-                    if all_finished {
-                        info!(room_id = %room.id.to_string(), "All players finished, will save and upload replays");
-                        let room_id = room.id.to_string();
-                        let server = Arc::clone(&user.server);
-                        let upload_config = server.config.upload.clone();
-                        tokio::spawn(async move {
-                            tokio::time::sleep(Duration::from_millis(500)).await;
-                            let mut replay_manager = server.replay_manager.write().await;
-                            
-                            // 如果启用了自动上传，使用上传方法
-                            if upload_config.enabled && !upload_config.api_token.is_empty() {
-                                match replay_manager.save_and_upload_replays(&room_id, &upload_config.api_url, &upload_config.api_token).await {
-                                    Ok(results) => {
-                                        let saved_count = results.len();
-                                        let uploaded_count = results.iter().filter(|(_, r)| r.is_some()).count();
-                                        let success_count = results.iter().filter(|(_, r)| r.as_ref().map(|r| r.success).unwrap_or(false)).count();
-                                        info!(
-                                            room_id = %room_id,
-                                            saved = saved_count,
-                                            uploaded = uploaded_count,
-                                            success = success_count,
-                                            "Saved and uploaded replay recordings"
-                                        );
-                                    }
-                                    Err(e) => {
-                                        error!(room_id = %room_id, error = %e, "Failed to save and upload replay recordings");
-                                    }
-                                }
-                            } else {
-                                // 未启用上传，仅保存本地
-                                match replay_manager.save_replays(&room_id).await {
-                                    Ok(paths) => {
-                                        info!(room_id = %room_id, file_count = paths.len(), "Saved replay recordings (upload disabled)");
-                                    }
-                                    Err(e) => {
-                                        error!(room_id = %room_id, error = %e, "Failed to save replay recordings");
-                                    }
-                                }
-                            }
-                            // 清理房间回放管理器
-                            replay_manager.remove_room_manager(&room_id);
-                        });
-                    }
-                }
-                Ok(())
+            let user_id = user.id;
+            // 无官方 record id（-1）时没有可回源的成绩，直接返回成功，不请求 /record/-1。
+            if id == -1 {
+                return Some(ServerCommand::Played(Ok(())));
             }
+            tokio::spawn(async move {
+                let fetched: Result<Record> = async {
+                    let res: Record = reqwest::get(format!("{HOST}/record/{id}"))
+                        .await?
+                        .error_for_status()?
+                        .json()
+                        .await?;
+                    if res.player != user_id {
+                        bail!("invalid record");
+                    }
+                    Ok(res)
+                }
+                .await;
+                match fetched {
+                    Ok(record) => {
+                        let _ = handle_played_score(
+                            user,
+                            record.id,
+                            record.score.max(0) as u32,
+                            record.accuracy,
+                            record.full_combo,
+                            record.max_combo.max(0) as u32,
+                            record.perfect.max(0) as u32,
+                            record.good.max(0) as u32,
+                            record.bad.max(0) as u32,
+                            record.miss.max(0) as u32,
+                        )
+                        .await;
+                    }
+                    Err(err) => {
+                        warn!(user = user_id, record = id, "failed to fetch official record: {err:?}");
+                    }
+                }
+            });
+            Some(ServerCommand::Played(Ok(())))
+        }
+        ClientCommand::PlayedWithScore { id, score, accuracy, full_combo, max_combo, perfect, good, bad, miss } => {
+            let res = handle_played_score(
+                user,
+                id,
+                score,
+                accuracy,
+                full_combo,
+                max_combo,
+                perfect,
+                good,
+                bad,
+                miss,
+            )
             .await;
             Some(ServerCommand::Played(err_to_str(res)))
         }
@@ -1420,6 +1497,66 @@ async fn process(user: Arc<User>, cmd: ClientCommand) -> Option<ServerCommand> {
             }
             .await;
             Some(ServerCommand::Abort(err_to_str(res)))
+        }
+        ClientCommand::SetRoomPassword { password } => {
+            let res: Result<()> = async move {
+                get_room!(room);
+                room.check_host(&user).await?;
+                let p = password.into_inner();
+                info!(user = user.id, room = %room.id, has = !p.is_empty(), "set room password");
+                room.set_password(Some(p)).await;
+                Ok(())
+            }
+            .await;
+            Some(ServerCommand::SetRoomPassword(err_to_str(res)))
+        }
+        ClientCommand::KickUser { user: target_id } => {
+            let res: Result<()> = async move {
+                get_room!(room);
+                room.check_host(&user).await?;
+                if target_id == user.id {
+                    bail!(tl!("kick-cant-kick-host-self"));
+                }
+                // 查找目标玩家（不含 monitor 观察者）
+                let target = room
+                    .users()
+                    .await
+                    .into_iter()
+                    .find(|it| it.id == target_id)
+                    .ok_or_else(|| anyhow!(tl!("kick-user-not-found")))?;
+                info!(user = user.id, room = %room.id, target = target_id, "host kicks user");
+                if room.kick_user(&target).await {
+                    user.server.rooms.write().await.remove(&room.id);
+                }
+                let state_clone = Arc::clone(&user.server);
+                tokio::spawn(async move {
+                    crate::server::broadcast_rooms_update(&state_clone).await;
+                    crate::server::broadcast_sessions_update(&state_clone).await;
+                });
+                Ok(())
+            }
+            .await;
+            Some(ServerCommand::KickUser(err_to_str(res)))
+        }
+        ClientCommand::TransferHost { user: target_id } => {
+            let res: Result<()> = async move {
+                get_room!(room);
+                room.check_host(&user).await?;
+                if target_id == user.id {
+                    bail!(tl!("transfer-same-host"));
+                }
+                let target = room
+                    .users()
+                    .await
+                    .into_iter()
+                    .find(|it| it.id == target_id)
+                    .ok_or_else(|| anyhow!(tl!("transfer-user-not-found")))?;
+                info!(user = user.id, room = %room.id, target = target_id, "host transfer");
+                room.transfer_host(&target).await;
+                Ok(())
+            }
+            .await;
+            Some(ServerCommand::TransferHost(err_to_str(res)))
         }
     }
 }
