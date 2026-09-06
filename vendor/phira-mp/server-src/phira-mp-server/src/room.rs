@@ -1,6 +1,9 @@
 use crate::{Chart, Record, User};
 use anyhow::{bail, Result};
-use phira_mp_common::{ClientRoomState, JudgeEvent, Judgement, Message, RoomId, RoomState, ServerCommand};
+use phira_mp_common::{
+    ClientRoomState, JudgeEvent, Judgement, Message, RoomId, RoomResultEntry, RoomState,
+    ServerCommand,
+};
 use rand::{seq::SliceRandom, thread_rng};
 use std::{
     collections::{HashMap, HashSet},
@@ -250,6 +253,9 @@ impl Room {
             }
             Kicked { user, name } => {
                 format!("被房主移出房间：{} ({})", name, user)
+            }
+            RoomResults { results } => {
+                format!("对局结算：{} 位玩家完赛", results.len())
             }
         }
     }
@@ -586,6 +592,7 @@ impl Room {
         self.send(Message::NewHost { user: new_host.id }).await;
     }
 
+    /// 广播对局结算排名（所有已完成玩家按分数降序；abort 的玩家标出但排在最后）
     pub async fn check_all_ready(&self) {
         let guard = self.state.read().await;
         match guard.deref() {
@@ -666,10 +673,51 @@ impl Room {
                     .into_iter()
                     .all(|it| results.contains_key(&it.id) || aborted.contains(&it.id))
                 {
+                    // 构建结算排名（值拷贝，随后可安全 drop 锁）
+                    let users = self.users().await;
+                    let name_of = |id: i32| {
+                        users
+                            .iter()
+                            .find(|u| u.id == id)
+                            .map(|u| u.name.clone())
+                            .unwrap_or_else(|| format!("玩家#{id}"))
+                    };
+                    let mut entries: Vec<RoomResultEntry> = results
+                        .iter()
+                        .map(|(uid, r)| RoomResultEntry {
+                            user_id: *uid,
+                            user_name: name_of(*uid),
+                            score: r.score.max(0) as u32,
+                            accuracy: r.accuracy,
+                            full_combo: r.full_combo,
+                            max_combo: r.max_combo.max(0) as u32,
+                            perfect: r.perfect.max(0) as u32,
+                            good: r.good.max(0) as u32,
+                            bad: r.bad.max(0) as u32,
+                            miss: r.miss.max(0) as u32,
+                            aborted: false,
+                        })
+                        .collect();
+                    entries.sort_by(|a, b| b.score.cmp(&a.score));
+                    for uid in aborted.iter() {
+                        entries.push(RoomResultEntry {
+                            user_id: *uid,
+                            user_name: name_of(*uid),
+                            score: 0,
+                            accuracy: 0.,
+                            full_combo: false,
+                            max_combo: 0,
+                            perfect: 0,
+                            good: 0,
+                            bad: 0,
+                            miss: 0,
+                            aborted: true,
+                        });
+                    }
                     drop(guard);
-                    // TODO print results
+                    self.broadcast(ServerCommand::Message(Message::RoomResults { results: entries }))
+                        .await;
                     self.send(Message::GameEnd).await;
-                    // dbg!(2);
                     *self.state.write().await = InternalRoomState::SelectChart;
                     // dbg!(3);
                     if self.is_cycle() {

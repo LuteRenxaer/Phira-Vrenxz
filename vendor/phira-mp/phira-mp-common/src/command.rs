@@ -302,6 +302,27 @@ pub enum Message {
         user: i32,
         name: String,
     },
+    // 对局结束：服务端把全员最终成绩排行广播给房间内所有人（追加在末尾，兼容旧版）
+    RoomResults {
+        results: Vec<RoomResultEntry>,
+    },
+}
+
+/// 房间对局结算排名条目
+#[derive(Debug, Clone, BinaryData)]
+pub struct RoomResultEntry {
+    pub user_id: i32,
+    pub user_name: String,
+    pub score: u32,
+    pub accuracy: f32,
+    pub full_combo: bool,
+    pub max_combo: u32,
+    pub perfect: u32,
+    pub good: u32,
+    pub bad: u32,
+    pub miss: u32,
+    /// 是否中途放弃（abort，不计名次只列出）
+    pub aborted: bool,
 }
 
 #[derive(Debug, BinaryData, Clone, Copy)]

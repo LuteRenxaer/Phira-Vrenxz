@@ -112,6 +112,8 @@ struct State {
 
     live_players: DashMap<i32, Arc<LivePlayer>>,
     messages: Mutex<Vec<Message>>,
+    // 对局结算排名（一次性消费）
+    room_results: Mutex<VecDeque<Vec<phira_mp_common::RoomResultEntry>>>,
 }
 
 impl State {
@@ -178,6 +180,7 @@ impl Client {
 
             live_players: DashMap::new(),
             messages: Mutex::default(),
+            room_results: Mutex::default(),
         });
         let stream = Arc::new(
             Stream::new(
@@ -255,6 +258,11 @@ impl Client {
 
     pub fn blocking_take_messages(&self) -> Vec<Message> {
         self.state.messages.blocking_lock().drain(..).collect()
+    }
+
+    /// 取走所有对局结算排名（一次性消费）
+    pub fn blocking_take_room_results(&self) -> Vec<Vec<phira_mp_common::RoomResultEntry>> {
+        self.state.room_results.blocking_lock().drain(..).collect()
     }
 
     pub fn blocking_state(&self) -> Option<ClientRoomState> {
@@ -723,6 +731,12 @@ async fn process(state: Arc<State>, cmd: ServerCommand) {
                             .unwrap()
                             .users
                             .remove(&user);
+                    }
+                }
+                // 对局结算排名：独立队列（供结构化展示），并保留消息流
+                Message::RoomResults { .. } => {
+                    if let Message::RoomResults { results } = &msg {
+                        state.room_results.lock().await.push_back(results.clone());
                     }
                 }
                 _ => {}

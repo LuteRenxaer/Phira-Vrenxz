@@ -99,6 +99,9 @@ msg-game-end = 游戏结束
 msg-abort = `{ $user }` 放弃了游戏
 msg-kicked-me = 你已被房主移出房间
 msg-kicked = `{ $user }` 已被房主移出房间
+msg-room-results = 本局结算：{ $n } 位玩家完成，点击查看排名
+results-title = 对局结算
+results-aborted = 中途放弃
 msg-room-lock = { $lock ->
   [true] 房间已锁定
   *[other] 房间已解锁
