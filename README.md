@@ -1,18 +1,9 @@
 <<<<<<< HEAD
-##phirLie
+##Phira-Vrenxz
 
-**phirLie** is a community-driven rhythm game, forked from Phira and inspired by Phigros.
+**Phira-Vrenxz** is a community-driven rhythm game, forked from Phira and inspired by Phigros.
 
-Built with Rust, it inherits Phira's core while adding new features:
-
-- **Full Screen Judge** – toggle judgment across the entire screen
-- **Custom Combo Text** – personalize the combo display
-- **Chinese Numerals** – display scores in Chinese characters
-- **Custom Autoplay Label** – change the autoplay mode text
-- **Custom Watermark** – add your own text overlay
-- **Redesigned UI** – modern card-style visual improvements
-
-phirLie is a fork of Phira, inspired by Phigros (Pigeon Games). Special thanks to both projects.
+Phira-Vrenxz is a fork of Phira, inspired by Phigros (Pigeon Games). Special thanks to both projects.
 
 ---
 
@@ -31,7 +22,7 @@ phirLie is a fork of Phira, inspired by Phigros (Pigeon Games). Special thanks t
 ### Build Commands
 ```bash
 # Desktop (Windows/Linux)
-cargo run -p PhirLie-main
+cargo run -p Phira-Vrenxz-main
 
 # Android APK
-cargo apk build -p PhirLie
+cargo apk build -p Phira-Vrenxz
