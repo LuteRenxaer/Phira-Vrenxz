@@ -152,6 +152,12 @@ pub struct MPPanel {
     room_list_scroll: Scroll,
     room_list: Option<Vec<PublicRoom>>,
     room_list_task: Option<Task<Result<Vec<PublicRoom>>>>,
+
+    // 对局结算排名弹层
+    results: Option<Vec<phira_mp_common::RoomResultEntry>>,
+    results_p: Smooth<f32>,
+    results_scroll: Scroll,
+    results_btn: DRectButton,
 }
 
 impl MPPanel {
@@ -232,6 +238,11 @@ impl MPPanel {
             room_list_scroll: Scroll::new(),
             room_list: None,
             room_list_task: None,
+
+            results: None,
+            results_p: Smooth::default(),
+            results_scroll: Scroll::new(),
+            results_btn: DRectButton::new(),
         }
     }
 
@@ -739,6 +750,18 @@ impl MPPanel {
             }
             return true;
         }
+        if self.results_p.transiting(t) {
+            return true;
+        }
+        if *self.results_p.to() > 0.5 {
+            if self.results_scroll.touch(touch, t) {
+                return true;
+            }
+            if matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled) {
+                self.results_p.goto(0., t, USER_LIST_TRANSIT);
+            }
+            return true;
+        }
         if !(self.side_enter_time > 0. && tm.real_time() as f32 > self.side_enter_time + ENTER_TRANSIT) {
             return true;
         }
@@ -939,6 +962,16 @@ impl MPPanel {
         if self.room_list_p.now(t) > 1e-4 {
             self.room_list_scroll.update(t);
         }
+        if self.results_p.now(t) > 1e-4 {
+            self.results_scroll.update(t);
+        }
+        if let Some(client) = &self.client {
+            for res in client.blocking_take_room_results() {
+                // 收到结算后自动弹出排名
+                self.results = Some(res);
+                self.results_p.goto(1., t, USER_LIST_TRANSIT);
+            }
+        }
         if let Some(client) = &self.client {
             self.msgs.extend(client.blocking_take_messages().into_iter().map(|msg| {
                 use phira_mp_common::Message as M;
@@ -1002,6 +1035,10 @@ impl MPPanel {
                                 } else {
                                     mtl!("msg-kicked", "user" => name.as_str())
                                 }
+                            }
+                            // 结算排名经 room_results 队列单独展示，不会出现在消息流
+                            M::RoomResults { results } => {
+                                mtl!("msg-room-results", "n" => results.len() as u64)
                             }
                         };
                         Message {
@@ -1190,7 +1227,6 @@ impl MPPanel {
                                 "join_room_pwd",
                                 InputBox::new().title(mtl!("join-room-password-title")),
                             );
-                            self.task = None;
                         } else {
                             self.join_pwd_pending = None;
                             show_error(err.context(mtl!("join-room-failed")));
@@ -1204,7 +1240,7 @@ impl MPPanel {
                         };
                     }
                 }
-                self.task = None;
+                self.join_room_task = None;
             }
         }
         if let Some((id, text)) = take_input() {
@@ -1680,6 +1716,56 @@ impl MPPanel {
                             .color(semi_white(0.5))
                             .draw();
                     }
+                });
+            });
+        }
+
+        // 对局结算排名弹层
+        let p = self.results_p.now(t);
+        if p > 1e-4 {
+            let results = self.results.clone().unwrap_or_default();
+            ui.abs_scope(|ui| {
+                ui.alpha(p, |ui| {
+                    ui.fill_rect(ui.screen_rect(), semi_black(p * 0.55));
+                    let panel_w = 0.94;
+                    let row_h = 0.135;
+                    let n = results.len();
+                    let panel_h = (0.28 + n as f32 * (row_h + 0.012)).min(ui.top * 2. - 0.1);
+                    let panel_r = Rect::new(-panel_w / 2., -panel_h / 2., panel_w, panel_h);
+                    ui.fill_path(&panel_r.rounded(0.015), semi_black(0.35));
+                    let cx = panel_r.x + 0.03;
+                    let mut y = panel_r.y + 0.03;
+                    ui.text(mtl!("results-title"))
+                        .pos(cx, y)
+                        .size(0.55)
+                        .color(WHITE)
+                        .draw_using(&prpr::core::BOLD_FONT);
+                    y += 0.1;
+                    // 行内可滚动（排名多时）
+                    let viewport_h = panel_h - 0.13;
+                    ui.dx(cx);
+                    ui.dy(y);
+                    self.results_scroll.size((panel_w - 0.06, viewport_h));
+                    self.results_scroll.render(ui, |ui| {
+                        for (i, r) in results.iter().enumerate() {
+                            let rr = Rect::new(0., i as f32 * (row_h + 0.012), panel_w - 0.06, row_h);
+                            ui.fill_path(&rr.rounded(0.008), semi_black(0.2));
+                            let medal = if r.aborted { "✕" } else if i == 0 { "🥇" } else if i == 1 { "🥈" } else if i == 2 { "🥉" } else { "" };
+                            let line = if r.aborted {
+                                format!("{medal}  {}  —  {}", r.user_name, mtl!("results-aborted"))
+                            } else {
+                                format!("{medal}  {}  ·  {:07}  ·  {:.2}%  {} {}", r.user_name, r.score, r.accuracy * 100., if r.full_combo { "FC" } else { "" }, if r.max_combo > 0 { format!(" · {}combo", r.max_combo) } else { String::new() })
+                            };
+                            ui.text(line)
+                                .pos(rr.x + 0.03, rr.center().y)
+                                .anchor(0., 0.5)
+                                .max_width(rr.w - 0.06)
+                                .size(0.42)
+                                .color(if r.aborted { semi_white(0.5) } else { WHITE })
+                                .draw();
+                        }
+                        (panel_w - 0.06, n as f32 * (row_h + 0.012))
+                    });
                 });
             });
         }

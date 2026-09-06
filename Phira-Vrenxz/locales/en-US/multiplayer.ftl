@@ -99,6 +99,9 @@ msg-game-end = Game ended.
 msg-abort = `{ $user }` aborted the game.
 msg-kicked-me = You have been removed from the room by the host.
 msg-kicked = `{ $user }` has been removed from the room by the host.
+msg-room-results = Round finished: { $n } players. Tap to view ranking.
+results-title = Round Results
+results-aborted = Aborted
 msg-room-lock = { $lock ->
   [true] Room locked.
   *[other] Room unlocked.
