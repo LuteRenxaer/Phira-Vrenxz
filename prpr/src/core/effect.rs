@@ -21,6 +21,39 @@ static SHADERS: phf::Map<&'static str, &'static str> = phf_map! {
     "vignette" => include_str!("shaders/vignette.glsl"),
 };
 
+static RPE_SHADERS: phf::Map<&'static str, &'static str> = phf_map! {
+    "bokeh_pr" => include_str!("shaders/rpe/bokeh_pr.glsl"),
+    "burn_pr" => include_str!("shaders/rpe/burn_pr.glsl"),
+    "camera_pr" => include_str!("shaders/rpe/camera_pr.glsl"),
+    "color_shift_pr" => include_str!("shaders/rpe/color_shift_pr.glsl"),
+    "distortion_pr" => include_str!("shaders/rpe/distortion_pr.glsl"),
+    "emboss_pr" => include_str!("shaders/rpe/emboss_pr.glsl"),
+    "flare_pr" => include_str!("shaders/rpe/flare_pr.glsl"),
+    "flip_pr" => include_str!("shaders/rpe/flip_pr.glsl"),
+    "flowing_pr" => include_str!("shaders/rpe/flowing_pr.glsl"),
+    "fog_pr" => include_str!("shaders/rpe/fog_pr.glsl"),
+    "glow_effect_pr" => include_str!("shaders/rpe/glow_effect_pr.glsl"),
+    "heat_distortion_pr" => include_str!("shaders/rpe/heat_distortion_pr.glsl"),
+    "hologram_pr" => include_str!("shaders/rpe/hologram_pr.glsl"),
+    "image_noise_pr" => include_str!("shaders/rpe/image_noise_pr.glsl"),
+    "kaleidoscope_pr" => include_str!("shaders/rpe/kaleidoscope_pr.glsl"),
+    "lightning_pr" => include_str!("shaders/rpe/lightning_pr.glsl"),
+    "liquid_pr" => include_str!("shaders/rpe/liquid_pr.glsl"),
+    "neon_pr" => include_str!("shaders/rpe/neon_pr.glsl"),
+    "night_vision_pr" => include_str!("shaders/rpe/night_vision_pr.glsl"),
+    "oil_painting_pr" => include_str!("shaders/rpe/oil_painting_pr.glsl"),
+    "old_tv_pr" => include_str!("shaders/rpe/old_tv_pr.glsl"),
+    "rain_pr" => include_str!("shaders/rpe/rain_pr.glsl"),
+    "rainbow_pr" => include_str!("shaders/rpe/rainbow_pr.glsl"),
+    "rays_pr" => include_str!("shaders/rpe/rays_pr.glsl"),
+    "scanline_pr" => include_str!("shaders/rpe/scanline_pr.glsl"),
+    "snow_pr" => include_str!("shaders/rpe/snow_pr.glsl"),
+    "sobel_pr" => include_str!("shaders/rpe/sobel_pr.glsl"),
+    "two_tone_pr" => include_str!("shaders/rpe/two_tone_pr.glsl"),
+    "underwater_pr" => include_str!("shaders/rpe/underwater_pr.glsl"),
+    "wave_pr" => include_str!("shaders/rpe/wave_pr.glsl"),
+};
+
 pub trait UniformValue: Clone + Default {
     const UNIFORM_TYPE: UniformType;
 }
@@ -81,6 +114,10 @@ pub struct Effect {
 impl Effect {
     pub fn get_preset(name: &str) -> Option<&'static str> {
         SHADERS.get(name).copied()
+    }
+
+    pub fn get_rpe_preset(name: &str) -> Option<&'static str> {
+        RPE_SHADERS.get(name).copied()
     }
 
     pub fn new(time_range: Range<f64>, shader: &str, uniforms: Vec<Box<dyn Uniform>>, global: bool) -> Result<Self> {

@@ -1,0 +1,10 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- 基础应用主题：无标题栏、无操作栏、无状态栏沉浸，兼容普通 Activity。
+         minSdk=23，故可直接使用 API 21+ 的 Material 主题。 -->
+    <style name="Theme.PhiraVrenxz" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@color/black</item>
+        <item name="android:statusBarColor">@color/black</item>
+        <item name="android:navigationBarColor">@color/black</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
+</resources>

@@ -725,6 +725,11 @@ impl Emitter {
         }
     }
 
+    /// 当前是否没有任何存活粒子（可用于跳过整帧的粒子渲染管线，节省大量开销）
+    pub fn is_empty(&self) -> bool {
+        self.gpu_particles.is_empty()
+    }
+
     fn perform_render_pass(&mut self, quad_gl: &QuadGl, ctx: &mut Context) {
         ctx.apply_bindings(&self.bindings);
         ctx.apply_uniforms(&shader::Uniforms {

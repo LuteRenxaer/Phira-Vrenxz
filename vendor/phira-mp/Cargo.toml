@@ -1,0 +1,34 @@
+[workspace.package]
+license-file = "LICENSE"
+edition = "2024"
+
+[workspace]
+members = [
+    "phira-mp-common",
+    "phira-mp-client",
+    "phira-mp-macros",
+    "phira-mp-server",
+]
+resolver = "2"
+
+[workspace.dependencies]
+anyhow = { version = "1.0", features = ["backtrace"] }
+chrono = "0.4.43"
+tokio = { version = "1.49.0", features = [
+    "macros",
+    "rt-multi-thread",
+    "rt",
+    "net",
+    "io-util",
+    "time",
+    "sync",
+] }
+tracing = "0.1.44"
+uuid = "1.21.0"
+
+[profile.release]
+opt-level = 2
+debug = 1
+
+[profile.dev.package."*"]
+opt-level = 2

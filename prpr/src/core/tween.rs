@@ -1,6 +1,6 @@
 use macroquad::prelude::{vec2, Color, Rect, Vec2};
 use once_cell::sync::Lazy;
-use std::{any::Any, ops::Range, rc::Rc};
+use std::{any::Any, ops::Range, sync::Arc};
 
 pub type TweenId = u8;
 
@@ -113,9 +113,9 @@ pub static TWEEN_FUNCTIONS: [fn(f32) -> f32; 33] = [
 ];
 
 thread_local! {
-    static TWEEN_FUNCTION_RCS: Lazy<Vec<Rc<dyn TweenFunction>>> = Lazy::new(|| {
+    static TWEEN_FUNCTION_RCS: Lazy<Vec<Arc<dyn TweenFunction>>> = Lazy::new(|| {
         (0..33)
-            .map(|it| -> Rc<dyn TweenFunction> { Rc::new(StaticTween(it)) })
+            .map(|it| -> Arc<dyn TweenFunction> { Arc::new(StaticTween(it)) })
             .collect()
     });
 }
@@ -267,14 +267,14 @@ pub static INT_TWEEN_FUNCTIONS:[fn(f32) -> f32; 33] =[
 ];
 
 thread_local! {
-    static INT_TWEEN_FUNCTION_RCS: Lazy<Vec<Rc<dyn TweenFunction>>> = Lazy::new(|| {
+    static INT_TWEEN_FUNCTION_RCS: Lazy<Vec<Arc<dyn TweenFunction>>> = Lazy::new(|| {
         (0..33)
-            .map(|it| -> Rc<dyn TweenFunction> { Rc::new(IntStaticTween(it)) })
+            .map(|it| -> Arc<dyn TweenFunction> { Arc::new(IntStaticTween(it)) })
             .collect()
     });
 }
 
-pub trait TweenFunction {
+pub trait TweenFunction: Send + Sync {
     fn y(&self, x: f32) -> f32;
     fn as_any(&self) -> &dyn Any;
 
@@ -301,8 +301,8 @@ impl TweenFunction for StaticTween {
 }
 
 impl StaticTween {
-    pub fn get_rc(tween: TweenId) -> Rc<dyn TweenFunction> {
-        TWEEN_FUNCTION_RCS.with(|rcs| Rc::clone(&rcs[tween as usize]))
+    pub fn get_rc(tween: TweenId) -> Arc<dyn TweenFunction> {
+        TWEEN_FUNCTION_RCS.with(|rcs| Arc::clone(&rcs[tween as usize]))
     }
 }
 
@@ -318,8 +318,8 @@ impl TweenFunction for IntStaticTween {
 }
 
 impl IntStaticTween {
-    pub fn get_rc(tween: TweenId) -> Rc<dyn TweenFunction> {
-        INT_TWEEN_FUNCTION_RCS.with(|rcs| Rc::clone(&rcs[tween as usize]))
+    pub fn get_rc(tween: TweenId) -> Arc<dyn TweenFunction> {
+        INT_TWEEN_FUNCTION_RCS.with(|rcs| Arc::clone(&rcs[tween as usize]))
     }
 }
 
@@ -380,10 +380,10 @@ impl ClampedTween {
     }
 }
 
-pub struct GeneralIntTween(Rc<dyn TweenFunction>);
+pub struct GeneralIntTween(Arc<dyn TweenFunction>);
 
 impl GeneralIntTween {
-    pub fn new(tween: Rc<dyn TweenFunction>) -> Self {
+    pub fn new(tween: Arc<dyn TweenFunction>) -> Self {
         Self(tween)
     }
 }
@@ -579,17 +579,16 @@ impl Tweenable for Color {
 impl Tweenable for String {
     fn tween(x: &Self, y: &Self, t: f32) -> Self {
         if x.contains("%P%") && y.contains("%P%") {
-            let x = x.replace("%P%", "");
-            let y = y.replace("%P%", "");
-            if t >= 1. {
-                y
-            } else if t <= 0. {
-                x
+            let x_str = x.replace("%P%", "");
+            let y_str = y.replace("%P%", "");
+            if t <= 0. {
+                x_str
             } else {
-                let x: f32 = x.parse().unwrap_or(0.0);
-                let y: f32 = y.parse().unwrap_or(0.0);
-                let value = x + t * (y - x);
-                if x.fract() == 0.0 && y.fract() == 0.0 {
+                let x_val: f32 = x_str.parse().unwrap_or(0.0);
+                let y_val: f32 = y_str.parse().unwrap_or(0.0);
+                // 允许 t > 1 产生过冲效果（如 OutElastic / 自定义贝塞尔）
+                let value = x_val + t * (y_val - x_val);
+                if x_val.fract() == 0.0 && y_val.fract() == 0.0 {
                     format!("{:.0}", value)
                 } else {
                     format!("{:.3}", value)

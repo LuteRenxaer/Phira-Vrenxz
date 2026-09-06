@@ -1,15 +1,21 @@
-<<<<<<< HEAD
-##Phira-Vrenxz
+# Phira-Vrenxz
 
-**Phira-Vrenxz** is a community-driven rhythm game, forked from Phira and inspired by Phigros.
+**Phira-Vrenxz** is a community-driven rhythm game, forked from [Phira](https://github.com/teamflos/phira) and inspired by Phigros (Pigeon Games).
 
-Phira-Vrenxz is a fork of Phira, inspired by Phigros (Pigeon Games). Special thanks to both projects.
+Built with Rust, it inherits Phira's core while adding new features:
+
+- **Full Screen Judge** – toggle judgment across the entire screen
+- **Custom Combo Text** – personalize the combo display
+- **Chinese Numerals** – display scores in Chinese characters
+- **Custom Autoplay Label** – change the autoplay mode text
+- **Custom Watermark** – add your own text overlay
+- **Redesigned UI** – modern card-style visual improvements
 
 ---
 
 ## Download
 
-> Coming soon. Pre-built binaries will be available in [Releases](https://github.com/LuteRenxaer/phirLie/releases).
+> Pre-built Android APKs are provided in this project's releases and dev builds.
 
 ---
 
@@ -25,4 +31,6 @@ Phira-Vrenxz is a fork of Phira, inspired by Phigros (Pigeon Games). Special tha
 cargo run -p Phira-Vrenxz-main
 
 # Android APK
-cargo apk build -p Phira-Vrenxz
+cargo ndk -t arm64-v8a -o Android/app/src/main/jniLibs build --release -p Phira-Vrenxz
+cd Android && ./gradlew :app:assembleDebug
+```

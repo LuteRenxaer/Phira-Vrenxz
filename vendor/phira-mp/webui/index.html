@@ -1,0 +1,2532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>服务器管理界面</title>
+    
+    <!-- PWA相关标签 -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#007bff">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Phira管理">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192'%3E%3Crect width='192' height='192' fill='%23007bff'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='48' fill='white'%3EP%3C/text%3E%3C/svg%3E">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .form-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], select, input[type="number"], textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button.disconnect {
+            background-color: #dc3545;
+        }
+        button.disconnect:hover {
+            background-color: #c82333;
+        }
+        button.ban {
+            background-color: #ffc107;
+            color: #212529;
+        }
+        button.ban:hover {
+            background-color: #e0a800;
+        }
+        button.unban {
+            background-color: #28a745;
+        }
+        button.unban:hover {
+            background-color: #218838;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .status-connected {
+            color: green;
+        }
+        .status-disconnected {
+            color: red;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            background-color: #e9ecef;
+            cursor: pointer;
+            border: 1px solid #ddd;
+            border-bottom: none;
+        }
+        .tab.active {
+            background-color: white;
+            border-bottom: 1px solid white;
+            margin-bottom: -1px;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .ban-form {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+        .ban-form h3 {
+            margin-top: 0;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        
+        .modal.show {
+            display: block;
+        }
+        .modal-content {
+            background-color: white;
+            margin: 10% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 50%;
+            border-radius: 8px;
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover {
+            color: black;
+        }
+        .time-inputs {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .time-inputs input {
+            width: 80px;
+        }
+        .time-inputs label {
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- 登录界面 -->
+    <div id="loginModal" class="modal" style="display: block; z-index: 9999;">
+        <div class="modal-content" style="width: 400px; margin: 10% auto;">
+            <h2 style="text-align: center; margin-bottom: 20px;">管理员登录</h2>
+            <div class="form-group">
+                <label for="loginUsername">用户名:</label>
+                <input type="text" id="loginUsername" placeholder="请输入用户名">
+            </div>
+            <div class="form-group">
+                <label for="loginPassword">密码:</label>
+                <input type="password" id="loginPassword" placeholder="请输入密码">
+            </div>
+            <div class="form-group" style="text-align: center; margin-top: 20px;">
+                <button onclick="login()">登录</button>
+            </div>
+            <div id="loginError" style="color: red; text-align: center; margin-top: 10px; display: none;"></div>
+        </div>
+    </div>
+
+    <!-- 主界面 -->
+    <div class="container" id="mainContent" style="display: none;">
+        <h1>服务器管理界面</h1>
+        
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('connections')">连接管理</div>
+            <div class="tab" onclick="switchTab('bans')">封禁管理</div>
+            <div class="tab" onclick="switchTab('rooms')">房间列表</div>
+        </div>
+        
+        <div id="connectionsTab" class="tab-content active">
+            <!-- 维护模式控制 -->
+            <div class="form-group" style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h3 style="margin-top: 0;">维护模式</h3>
+                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="maintenanceToggle" onchange="toggleMaintenanceMode()" style="margin-right: 8px; transform: scale(1.2);">
+                        <span style="font-weight: bold; font-size: 16px;">开启维护模式</span>
+                    </label>
+                    <span id="maintenanceStatus" style="color: #666;">当前状态：关闭</span>
+                </div>
+                <div style="margin-top: 10px;">
+                    <label for="maintenanceWhitelist" style="display: block; margin-bottom: 5px; font-weight: bold;">白名单ID（允许在维护模式下进入的玩家，用逗号分隔）：</label>
+                    <textarea id="maintenanceWhitelist" rows="2" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; resize: vertical;" placeholder="例如：12345, 67890, 11111"></textarea>
+                    <button onclick="updateMaintenanceWhitelist()" style="margin-top: 8px; background: #2196F3;">更新白名单</button>
+                </div>
+                <small style="display: block; margin-top: 10px; color: #666;">
+                    开启维护模式后，只有白名单中的玩家可以连接服务器，其他玩家会收到维护提示并被拒绝连接。
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <label for="sessionId">选择要操作的玩家:</label>
+                <select id="sessionSelect">
+                    <option value="">-- 请选择玩家 --</option>
+                </select>
+                <button class="disconnect" onclick="disconnectSession()">断开连接</button>
+                <button class="ban" onclick="showBanModal()">封禁用户</button>
+                <small style="display: block; margin-top: 5px; color: #666;">提示：请先从下拉菜单选择玩家，或使用下方表格中的封禁按钮</small>
+            </div>
+            
+            <h2>当前连接的玩家列表</h2>
+            <table id="sessionsTable">
+                <thead>
+                    <tr>
+                        <th>会话ID</th>
+                        <th>玩家ID</th>
+                        <th>玩家名称</th>
+                        <th>IP地址</th>
+                        <th>连接时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                </tbody>
+            </table>
+        </div>
+        
+        <div id="bansTab" class="tab-content">
+            <h2>封禁管理</h2>
+            <div class="form-group">
+                <label for="manualUserId">手动输入用户ID:</label>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="manualUserId" placeholder="输入用户ID">
+                    <button onclick="showBanModalWithManualId()">封禁此用户</button>
+                </div>
+            </div>
+            <h2>封禁列表</h2>
+            <table id="bansTable">
+                <thead>
+                    <tr>
+                        <th>玩家ID</th>
+                        <th>玩家名称</th>
+                        <th>封禁理由</th>
+                        <th>封禁时间</th>
+                        <th>封禁时长</th>
+                        <th>操作者</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                </tbody>
+            </table>
+        </div>
+        
+        <div id="roomsTab" class="tab-content">
+            <h2>服务器房间列表</h2>
+            <div class="form-group">
+                <button onclick="refreshRooms()">刷新房间列表</button>
+                <button class="ban" onclick="sendBroadcastInspection()">发送巡查广播</button>
+                <button class="ban" onclick="showNotificationModal()">发送通知</button>
+            </div>
+            
+            <h3>创建新房间</h3>
+            <div class="form-group">
+                <label for="newRoomId">房间ID:</label>
+                <input type="text" id="newRoomId" placeholder="输入房间ID（留空则自动生成）">
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="isCompetitionRoom"> 创建为比赛房间
+                </label>
+            </div>
+            <div class="form-group">
+                <button onclick="createRoom()">创建房间</button>
+                <button onclick="createCompetitionRoom()">创建比赛房间</button>
+            </div>
+            
+            <table id="roomsTable">
+                <thead>
+                    <tr>
+                        <th>房间ID</th>
+                        <th>玩家数量</th>
+                        <th>状态</th>
+                        <th>模式</th>
+                        <th>锁定</th>
+                        <th>当前谱面</th>
+                        <th>玩家列表</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- 封禁模态框 -->
+    <div id="banModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeBanModal()">&times;</span>
+            <h3>封禁用户</h3>
+                    <div class="ban-form">
+                        <div class="form-group">
+                            <label for="banUserId">玩家ID:</label>
+                            <input type="text" id="banUserId" readonly />
+                        </div>
+                        <div class="form-group">
+                            <label for="banUserName">玩家名称:</label>
+                            <input type="text" id="banUserName" readonly />
+                        </div>
+                        <div class="form-group">
+                            <label for="banType">封禁类型:</label>
+                            <select id="banType">
+                                <option value="user">仅封禁用户ID</option>
+                                <option value="ip">仅封禁IP地址</option>
+                                <option value="user_and_ip">封禁用户ID和IP地址</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="banReasonPreset">选择预设理由:</label>
+                            <select id="banReasonPreset" onchange="fillBanReason()">
+                                <option value="">-- 选择预设理由 --</option>
+                                <option value="使用外挂或第三方软件">使用外挂或第三方软件</option>
+                                <option value="涉嫌发布违规言论">涉嫌发布违规言论</option>
+                                <option value="数据异常">数据异常</option>
+                                <option value="账号交易">账号交易</option>
+                                <option value="数据迁移">数据迁移</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="banReason">自定义或编辑理由:</label>
+                            <textarea id="banReason" placeholder="请输入或编辑封禁理由"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>封禁时长:</label>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <div class="time-inputs">
+                                    <label>天<input type="number" id="banDays" min="0" value="0">天</label>
+                                    <label>小时<input type="number" id="banHours" min="0" max="23" value="0">小时</label>
+                                    <label>分钟<input type="number" id="banMinutes" min="0" max="59" value="0">分钟</label>
+                                    <label>秒<input type="number" id="banSeconds" min="0" max="59" value="0">秒</label>
+                                </div>
+                                <div>
+                                    <label style="display: block; margin-bottom: 5px;">&nbsp;</label>
+                                    <input type="checkbox" id="permanentBan" onchange="togglePermanentBan()"> 永久封禁
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>封禁结束时间:</label>
+                            <div id="banEndTime" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px; background-color: #f8f9fa;">
+                                立即生效
+                            </div>
+                        </div>
+                        <div class="form-group" style="text-align: right; margin-top: 20px;">
+                            <button type="button" class="ban" onclick="confirmBan()">确认封禁</button>
+                            <button type="button" onclick="closeBanModal()">取消</button>
+                        </div>
+                    </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 通知模态框 -->
+                        <div id="notificationModal" class="modal">
+                            <div class="modal-content">
+                                <span class="close" onclick="closeNotificationModal()">&times;</span>
+                                <h3>发送通知</h3>
+                                <div class="ban-form">
+                                    <div class="form-group">
+                                        <label for="notificationMessage">通知内容:</label>
+                                        <textarea id="notificationMessage" rows="4" placeholder="请输入通知内容"></textarea>
+                                    </div>
+                                    <div class="form-group">
+                                        <p style="color: #666; font-size: 14px; margin: 10px 0;">
+                                            <strong>注意：</strong>此操作将向所有房间同时发送通知消息。
+                                        </p>
+                                    </div>
+                                    <div class="form-group" style="text-align: right; margin-top: 20px;">
+                                        <button type="button" class="ban" onclick="sendNotification()">发送</button>
+                                        <button type="button" onclick="closeNotificationModal()">取消</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    
+                        <script>
+        let sessions = {};
+        let bans = {};
+        let rooms = {};
+        let ws = null;
+        
+        // 页面加载完成后直接开始获取数据
+        document.addEventListener('DOMContentLoaded', function() {
+            // 检查是否有保存的token
+            const savedToken = localStorage.getItem('authToken');
+            if (savedToken) {
+                // 如果有保存的token，尝试使用它获取数据
+                // 如果成功则显示主界面，否则显示登录界面
+                testAuth(savedToken).then(isValid => {
+                    if (isValid) {
+                        authToken = savedToken;
+                        document.getElementById('loginModal').style.display = 'none';
+                        document.getElementById('mainContent').style.display = 'block';
+                        
+                        // 开始刷新数据
+                        refreshSessions();
+                        refreshBans();
+                        refreshRooms();
+                        loadMaintenanceStatus(); // 加载维护模式状态
+                        
+                        // 连接WebSocket
+                        connectWebSocket();
+                    } else {
+                        // Token无效，清除并显示登录界面
+                        localStorage.removeItem('authToken');
+                        document.getElementById('loginModal').style.display = 'block';
+                        document.getElementById('mainContent').style.display = 'none';
+                    }
+                });
+            } else {
+                // 没有保存的token，显示登录界面
+                document.getElementById('loginModal').style.display = 'block';
+                document.getElementById('mainContent').style.display = 'none';
+            }
+        });
+        
+        // WebSocket连接函数
+        function connectWebSocket() {
+            // 确定WebSocket的URL
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                console.log('WebSocket连接已建立');
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                } catch (e) {
+                    console.error('解析WebSocket消息失败:', e);
+                }
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket错误:', error);
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket连接已关闭，3秒后尝试重新连接');
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+        
+        // 处理WebSocket消息
+        function handleWebSocketMessage(message) {
+            if (message.type === 'RoomsUpdate') {
+                rooms = message.data;
+                updateRoomsTable();
+                // 如果房间控制界面正在显示，同步更新谱面信息
+                const currentRoomId = window.currentRoomId;
+                if (currentRoomId) {
+                    const roomData = Array.isArray(rooms) ? rooms.find(r => r.id === currentRoomId) : null;
+                    const chartNameEl = document.getElementById('currentChartName');
+                    if (chartNameEl && roomData) {
+                        if (roomData.current_chart) {
+                            chartNameEl.textContent = `${roomData.current_chart.name} (ID: ${roomData.current_chart.id})`;
+                        } else {
+                            chartNameEl.textContent = '未选择谱面';
+                        }
+                    }
+                }
+            } else if (message.type === 'SessionsUpdate') {
+                sessions = message.data;
+                updateSessionsTable();
+            } else if (message.type === 'BansUpdate') {
+                bans = message.data;
+                updateBansTable();
+            } else if (message.type === 'MaintenanceUpdate') {
+                // 更新维护模式状态
+                const maintenanceToggle = document.getElementById('maintenanceToggle');
+                const maintenanceStatus = document.getElementById('maintenanceStatus');
+                if (maintenanceToggle && maintenanceStatus) {
+                    maintenanceToggle.checked = message.data;
+                    maintenanceStatus.textContent = `当前状态：${message.data ? '开启' : '关闭'}`;
+                }
+            }
+        }
+        
+        // 测试认证是否有效
+        async function testAuth(token) {
+            try {
+                const response = await fetch('/api/sessions', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                return response.status !== 401;
+            } catch (error) {
+                console.error('认证测试失败:', error);
+                return false;
+            }
+        }
+        
+        // 切换标签页
+        function switchTab(tabName) {
+            // 隐藏所有标签内容
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            // 移除所有标签的激活状态
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // 显示选中的标签内容
+            document.getElementById(tabName + 'Tab').classList.add('active');
+            event.target.classList.add('active');
+            
+            // 如果切换到封禁管理页面，刷新封禁列表
+            if (tabName === 'bans') {
+                refreshBans();
+            }
+            // 如果切换到房间列表页面，刷新房间列表
+            if (tabName === 'rooms') {
+                refreshRooms();
+            }
+        }
+        
+        // 定时刷新房间列表
+        function refreshRooms() {
+            fetch('/api/rooms')
+                .then(response => response.json())
+                .then(data => {
+                    rooms = data;
+                    updateRoomsTable();
+                    // 如果房间控制界面正在显示，同步更新谱面信息
+                    const currentRoomId = window.currentRoomId;
+                    if (currentRoomId) {
+                        const roomData = Array.isArray(rooms) ? rooms.find(r => r.id === currentRoomId) : null;
+                        const chartNameEl = document.getElementById('currentChartName');
+                        if (chartNameEl && roomData) {
+                            if (roomData.current_chart) {
+                                chartNameEl.textContent = `${roomData.current_chart.name} (ID: ${roomData.current_chart.id})`;
+                            } else {
+                                chartNameEl.textContent = '未选择谱面';
+                            }
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('获取房间列表失败:', error);
+                });
+        }
+        
+        // 更新玩家列表表格
+        function updateSessionsTable() {
+            const tbody = document.querySelector('#sessionsTable tbody');
+            tbody.innerHTML = '';
+            
+            const sessionSelect = document.getElementById('sessionSelect');
+            sessionSelect.innerHTML = '<option value="">-- 请选择玩家 --</option>';
+            
+            for (const [id, session] of Object.entries(sessions)) {
+                const row = document.createElement('tr');
+                
+                row.innerHTML = `
+                    <td>${id.substring(0, 8)}...</td>
+                    <td>${session.user_id}</td>
+                    <td>${session.user_name}</td>
+                    <td>${session.ip_address}</td>
+                    <td>${new Date(session.connect_time * 1000).toLocaleString()}</td>
+                    <td>
+                        <button class="disconnect" onclick="disconnectSession('${id}')">断开连接</button>
+                        <button class="ban" onclick="showBanModalForSession('${id}')">封禁</button>
+                    </td>
+                `;
+                
+                tbody.appendChild(row);
+                
+                // 添加到下拉选择框
+                const option = document.createElement('option');
+                option.value = id;
+                option.textContent = `${session.user_name} (${session.user_id}) - ${session.ip_address}`;
+                sessionSelect.appendChild(option);
+            }
+        }
+        
+        // 更新房间列表表格
+        function updateRoomsTable() {
+            const tbody = document.querySelector('#roomsTable tbody');
+            tbody.innerHTML = '';
+            
+            for (const room of rooms) {
+                const row = document.createElement('tr');
+                
+                // 格式化当前谱面信息
+                let currentChart = '无';
+                if (room.current_chart) {
+                    currentChart = `ID: ${room.current_chart.id} - ${room.current_chart.name}`;
+                }
+                
+                // 格式化玩家列表
+                let playerList = '无玩家';
+                if (room.players && room.players.length > 0) {
+                    playerList = room.players.join(', ');
+                }
+                
+                row.innerHTML = `
+                    <td>${room.id}</td>
+                    <td>${room.player_count}</td>
+                    <td>${room.state}</td>
+                    <td>${room.mode}</td>
+                    <td>${room.locked ? '是' : '否'}</td>
+                    <td>${currentChart}</td>
+                    <td title="${playerList}">${playerList.length > 20 ? playerList.substring(0, 20) + '...' : playerList}</td>
+                    <td>
+                        ${room.is_competition ? `<button onclick="showRoomControl('${room.id}', true)">比赛控制</button><button onclick="deleteRoom('${room.id}')" style="background: #f44336; margin-left: 5px;">删除房间</button>` : `<button onclick="showRoomControl('${room.id}', false)">房间管理</button>`}
+                    </td>
+                `;
+                
+                tbody.appendChild(row);
+            }
+        }
+        
+        // 更新封禁列表表格
+        function updateBansTable() {
+            const tbody = document.querySelector('#bansTable tbody');
+            tbody.innerHTML = '';
+            
+            for (const ban of bans) {
+                const banStartTime = new Date(ban.ban_start * 1000);
+                
+                // 格式化日期为 YYYY-MM-DD HH:MM:SS
+                const formatDateTime = (date) => {
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+                    const hours = String(date.getHours()).padStart(2, '0');
+                    const minutes = String(date.getMinutes()).padStart(2, '0');
+                    const seconds = String(date.getSeconds()).padStart(2, '0');
+                    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+                };
+                
+                // 格式化持续时间为天、小时、分钟、秒
+                const formatDuration = (seconds) => {
+                    if (seconds == -1) return '永久';
+                    
+                    if (seconds <= 0) {
+                        // 如果是0或其他负值（除了-1），也返回0秒
+                        return seconds === 0 ? '0秒' : '0秒';
+                    }
+                    
+                    const days = Math.floor(seconds / 86400);
+                    const hours = Math.floor((seconds % 86400) / 3600);
+                    const minutes = Math.floor((seconds % 3600) / 60);
+                    const secs = seconds % 60;
+                    
+                    let result = '';
+                    if (days > 0) result += `${days}天`;
+                    if (hours > 0) result += `${hours}小时`;
+                    if (minutes > 0) result += `${minutes}分钟`;
+                    if (secs > 0) result += `${secs}秒`;
+                    
+                    return result || '0秒';
+                };
+                
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${ban.user_id}</td>
+                    <td>${ban.user_name}</td>
+                    <td>${ban.ban_reason}</td>
+                    <td>${formatDateTime(banStartTime)}</td>
+                    <td>${formatDuration(ban.ban_duration)}</td>
+                    <td>${ban.banned_by}</td>
+                    <td>
+                        <button class="unban" onclick="unbanUser(${ban.user_id})">解封</button>
+                    </td>
+                `;
+                
+                tbody.appendChild(row);
+            }
+        }
+        
+        // 格式化持续时间
+        function formatDuration(seconds) {
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = seconds % 60;
+            
+            let result = '';
+            if (days > 0) result += `${days}天`;
+            if (hours > 0) result += `${hours}小时`;
+            if (minutes > 0) result += `${minutes}分钟`;
+            if (secs > 0 || result === '') result += `${secs}秒`;
+            
+            return result;
+        }
+        
+
+        
+        // 为特定会话显示封禁模态框
+        function showBanModalForSession(sessionId) {
+            const session = sessions[sessionId];
+            if (!session) {
+                alert('未找到选择的玩家');
+                return;
+            }
+            
+            const banUserIdElement = document.getElementById('banUserId');
+            const banUserNameElement = document.getElementById('banUserName');
+            const banReasonElement = document.getElementById('banReason');
+            const banDaysElement = document.getElementById('banDays');
+            const banHoursElement = document.getElementById('banHours');
+            const banMinutesElement = document.getElementById('banMinutes');
+            const banSecondsElement = document.getElementById('banSeconds');
+            const bannedByElement = document.getElementById('bannedBy');
+            
+            if (banUserIdElement) banUserIdElement.value = session.user_id;
+            if (banUserNameElement) banUserNameElement.value = session.user_name;
+            if (banReasonElement) banReasonElement.value = '';
+            if (banDaysElement) banDaysElement.value = '0';
+            if (banHoursElement) banHoursElement.value = '0';
+            if (banMinutesElement) banMinutesElement.value = '0';
+            if (banSecondsElement) banSecondsElement.value = '0';
+            if (bannedByElement) bannedByElement.value = '管理员';
+            
+            document.getElementById('banModal').style.display = 'block';
+        }
+        
+        // 显示封禁模态框（从下拉框选择）
+        function showBanModal() {
+            const sessionId = document.getElementById('sessionSelect').value;
+            if (!sessionId) {
+                alert('请选择要封禁的玩家');
+                return;
+            }
+            
+            showBanModalForSession(sessionId);
+        }
+        
+        // 关闭封禁模态框
+        function closeBanModal() {
+            document.getElementById('banModal').style.display = 'none';
+            // 重置下拉框为默认状态
+            const banReasonPreset = document.getElementById('banReasonPreset');
+            if (banReasonPreset) {
+                banReasonPreset.value = '';
+            }
+        }
+        
+        // 确认封禁
+        async function confirmBan() {
+            // 调用banUser函数执行封禁操作
+            await banUser();
+        }
+        
+        // 封禁用户
+        async function banUser() {
+            const banUserIdElement = document.getElementById('banUserId');
+            const banUserNameElement = document.getElementById('banUserName');
+            const banReasonElement = document.getElementById('banReason');
+            const bannedByElement = document.getElementById('bannedBy');
+            const permanentBanElement = document.getElementById('permanentBan');
+            const banTypeElement = document.getElementById('banType');
+            
+            const userId = banUserIdElement ? parseInt(banUserIdElement.value) || null : null;
+            const userName = banUserNameElement ? banUserNameElement.value || null : null;
+            let banReason = banReasonElement ? banReasonElement.value : '';
+            const bannedBy = bannedByElement ? bannedByElement.value : '';
+            const isPermanent = permanentBanElement ? permanentBanElement.checked : false;
+            
+            // 获取封禁类型
+            const banType = banTypeElement ? banTypeElement.value : 'user';
+            
+            // 如果未填写理由，使用默认原因
+            if (!banReason.trim()) {
+                banReason = '账号封禁（默认原因）';
+            }
+            
+            // 如果没有提供操作者，默认设置为"管理员"
+            const finalBannedBy = bannedBy.trim() || '管理员';
+            
+            // 计算封禁时长
+            let totalSeconds;
+            if (isPermanent) {
+                totalSeconds = -1; // 永久封禁
+            } else {
+                const banDaysElement = document.getElementById('banDays');
+                const banHoursElement = document.getElementById('banHours');
+                const banMinutesElement = document.getElementById('banMinutes');
+                const banSecondsElement = document.getElementById('banSeconds');
+                
+                const days = banDaysElement ? parseInt(banDaysElement.value) || 0 : 0;
+                const hours = banHoursElement ? parseInt(banHoursElement.value) || 0 : 0;
+                const minutes = banMinutesElement ? parseInt(banMinutesElement.value) || 0 : 0;
+                const seconds = banSecondsElement ? parseInt(banSecondsElement.value) || 0 : 0;
+                
+                totalSeconds = days * 86400 + hours * 3600 + minutes * 60 + seconds;
+                
+                if (totalSeconds < -1 || (totalSeconds == 0 && !isPermanent)) {
+                    alert('封禁时长必须大于0或选择永久封禁');
+                    return;
+                }
+            }
+            
+            // 构建请求数据
+            let requestData = {
+                user_id: null,
+                user_name: null,
+                ip_address: null,
+                ban_reason: banReason,
+                ban_duration: totalSeconds,
+                banned_by: finalBannedBy,
+                ban_type: banType
+            };
+            
+            // 根据封禁类型设置相应字段
+            if (banType === 'user' || banType === 'user_and_ip') {
+                if (userId) {
+                    requestData.user_id = userId;
+                    requestData.user_name = userName;
+                }
+            }
+            if (banType === 'ip' || banType === 'user_and_ip') {
+                if (userId) {
+                    // 从当前会话中获取IP地址
+                    const sessionId = document.getElementById('banUserId').value;
+                    const session = sessions[sessionId];
+                    if (session) {
+                        requestData.ip_address = session.ip_address;
+                    }
+                }
+            }
+            
+            try {
+                const response = await fetch('/api/ban', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                
+                if (response.ok) {
+                    alert('封禁成功');
+                    closeBanModal();
+                    refreshSessions(); // 刷新连接列表
+                    if (document.getElementById('bansTab').classList.contains('active')) {
+                        refreshBans(); // 如果在封禁页面也刷新
+                    }
+                } else {
+                    alert('封禁失败');
+                }
+            } catch (error) {
+                console.error('封禁请求失败:', error);
+                alert('封禁失败');
+            }
+        }
+        
+        // 从预设理由下拉框填充到文本框
+        function fillBanReason() {
+            const preset = document.getElementById('banReasonPreset');
+            const textarea = document.getElementById('banReason');
+            if (preset && preset.value) {
+                textarea.value = preset.value;
+            }
+        }
+        
+        // 切换永久封禁选项
+        function togglePermanentBan() {
+            const isChecked = document.getElementById('permanentBan').checked;
+            const timeInputs = document.querySelectorAll('#banDays, #banHours, #banMinutes, #banSeconds');
+            
+            if (isChecked) {
+                timeInputs.forEach(input => {
+                    input.disabled = true;
+                });
+                document.getElementById('banEndTime').textContent = '永久封禁';
+            } else {
+                timeInputs.forEach(input => {
+                    input.disabled = false;
+                });
+                updateBanEndTimeDisplay(); // 更新结束时间显示
+            }
+        }
+        
+        // 实时更新封禁结束时间显示
+        function updateBanEndTimeDisplay() {
+            // 检查永久封禁是否被选中
+            const isPermanent = document.getElementById('permanentBan').checked;
+            if (isPermanent) {
+                document.getElementById('banEndTime').textContent = '永久封禁';
+                return;
+            }
+            
+            const days = parseInt(document.getElementById('banDays').value) || 0;
+            const hours = parseInt(document.getElementById('banHours').value) || 0;
+            const minutes = parseInt(document.getElementById('banMinutes').value) || 0;
+            const seconds = parseInt(document.getElementById('banSeconds').value) || 0;
+            
+            const totalSeconds = days * 86400 + hours * 3600 + minutes * 60 + seconds;
+            
+            if (totalSeconds <= 0) {
+                document.getElementById('banEndTime').textContent = '永久封禁';
+                return;
+            }
+            
+            // 基于当前时间计算封禁结束时间
+            const endTime = new Date(Date.now() + totalSeconds * 1000);
+            
+            // 格式化日期为 YYYY-MM-DD HH:MM:SS
+            const year = endTime.getFullYear();
+            const month = String(endTime.getMonth() + 1).padStart(2, '0');
+            const day = String(endTime.getDate()).padStart(2, '0');
+            const hoursFormatted = String(endTime.getHours()).padStart(2, '0');
+            const minutesFormatted = String(endTime.getMinutes()).padStart(2, '0');
+            const secondsFormatted = String(endTime.getSeconds()).padStart(2, '0');
+            
+            document.getElementById('banEndTime').textContent = `${year}-${month}-${day} ${hoursFormatted}:${minutesFormatted}:${secondsFormatted}`;
+        }
+        
+        // 为封禁时长输入框添加事件监听器
+        document.getElementById('banDays').addEventListener('input', updateBanEndTimeDisplay);
+        document.getElementById('banHours').addEventListener('input', updateBanEndTimeDisplay);
+        document.getElementById('banMinutes').addEventListener('input', updateBanEndTimeDisplay);
+        document.getElementById('banSeconds').addEventListener('input', updateBanEndTimeDisplay);
+        document.getElementById('permanentBan').addEventListener('change', togglePermanentBan);
+        
+        // 解封用户
+        async function unbanUser(userId) {
+            // 由于现在解封API使用的是ID字符串，我们需要构造正确的键
+            // 在实际应用中，可能需要显示完整的键供用户选择
+            if (!confirm(`确定要解封用户ID ${userId} 吗？`)) {
+                return;
+            }
+            
+            // 由于当前实现使用组合键，我们需要找到正确的键格式
+            // 这里暂时使用user_前缀，更完整的实现需要在前端显示完整的键
+            const key = `user_${userId}`;
+            
+            try {
+                const response = await fetch(`/api/unban/${encodeURIComponent(key)}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                if (response.ok) {
+                    alert('用户已解封');
+                    refreshBans(); // 刷新封禁列表
+                } else {
+                    // 如果失败，尝试直接用userId
+                    const response2 = await fetch(`/api/unban/${userId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+                    
+                    if (response2.ok) {
+                        alert('用户已解封');
+                        refreshBans(); // 刷新封禁列表
+                    } else {
+                        alert('解封失败');
+                    }
+                }
+            } catch (error) {
+                console.error('解封请求失败:', error);
+                alert('解封失败');
+            }
+        }
+        
+        // 创建房间
+        async function createRoom() {
+            const roomIdInput = document.getElementById('newRoomId').value.trim();
+            
+            // 生成UUID作为房间ID（如果用户未提供）
+            let roomId = roomIdInput;
+            if (!roomId) {
+                // 生成一个简单的UUID（模拟）
+                roomId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                    const r = Math.random() * 16 | 0;
+                    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                    return v.toString(16);
+                });
+            }
+            
+            if (!roomId) {
+                alert('请输入房间ID或留空以自动生成');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/create-room', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        room_id: roomId 
+                    })
+                });
+                
+                if (response.ok) {
+                    alert(`房间创建成功，房间ID: ${roomId}`);
+                    document.getElementById('newRoomId').value = '';
+                    refreshRooms(); // 刷新房间列表
+                } else {
+                    const errorData = await response.json();
+                    alert(`创建房间失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('创建房间请求失败:', error);
+                alert('创建房间失败: ' + error.message);
+            }
+        }
+        
+        // 创建比赛房间
+        async function createCompetitionRoom() {
+            const roomIdInput = document.getElementById('newRoomId').value.trim();
+            
+            // 生成UUID作为房间ID（如果用户未提供）
+            let roomId = roomIdInput;
+            if (!roomId) {
+                // 生成一个简单的UUID（模拟）
+                roomId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                    const r = Math.random() * 16 | 0;
+                    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                    return v.toString(16);
+                });
+            }
+            
+            if (!roomId) {
+                alert('请输入房间ID或留空以自动生成');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/create-competition-room', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        room_id: roomId 
+                    })
+                });
+                
+                if (response.ok) {
+                    alert(`比赛房间创建成功，房间ID: ${roomId}`);
+                    document.getElementById('newRoomId').value = '';
+                    refreshRooms(); // 刷新房间列表
+                } else {
+                    const errorData = await response.json();
+                    alert(`创建比赛房间失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('创建比赛房间请求失败:', error);
+                alert('创建比赛房间失败: ' + error.message);
+            }
+        }
+        
+        // 删除房间
+        async function deleteRoom(roomId) {
+            if (!confirm(`确定要删除房间 ${roomId} 吗？此操作不可逆！`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/delete-room', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        room_id: roomId 
+                    })
+                });
+                
+                if (response.ok) {
+                    alert(`房间 ${roomId} 删除成功`);
+                    refreshRooms(); // 刷新房间列表
+                } else {
+                    const errorData = await response.json();
+                    alert(`删除房间失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('删除房间请求失败:', error);
+                alert('删除房间失败: ' + error.message);
+            }
+        }
+        
+        // 显示手动输入ID的封禁模态框
+        async function showBanModalWithManualId() {
+            const userId = document.getElementById('manualUserId').value.trim();
+            if (!userId) {
+                alert('请输入用户ID');
+                return;
+            }
+            
+            // 检查输入的是否为数字
+            if (isNaN(userId)) {
+                alert('请输入有效的用户ID（数字）');
+                return;
+            }
+            
+            // 检查输入的是否为数字
+            if (isNaN(userId)) {
+                alert('请输入有效的用户ID（数字）');
+                return;
+            }
+            
+            // 检查当前在线会话中是否存在该用户
+            let targetSession = null;
+            for (const [id, session] of Object.entries(sessions)) {
+                if (session.user_id == userId) {
+                    targetSession = session;
+                    break;
+                }
+            }
+            
+            // 如果在当前会话中找到了该用户
+            if (targetSession) {
+                document.getElementById('banUserId').value = targetSession.user_id;
+                document.getElementById('banUserName').value = targetSession.user_name;
+            } else {
+                // 如果找不到，通过API获取用户信息
+                try {
+                    const response = await fetch(`https://phira.5wyxi.com/user/${userId}`);
+                    if (response.ok) {
+                        const userData = await response.json();
+                        document.getElementById('banUserId').value = userId;
+                        document.getElementById('banUserName').value = userData.name || `未知用户 (ID: ${userId})`;
+                    } else {
+                        // 如果API请求失败，仍然允许封禁
+                        document.getElementById('banUserId').value = userId;
+                        document.getElementById('banUserName').value = `未知用户 (ID: ${userId})`;
+                        console.warn(`无法获取用户ID ${userId} 的信息`);
+                    }
+                } catch (error) {
+                    console.error('获取用户信息失败:', error);
+                    // 如果API请求失败，仍然允许封禁
+                    document.getElementById('banUserId').value = userId;
+                    document.getElementById('banUserName').value = `未知用户 (ID: ${userId})`;
+                }
+            }
+            
+            document.getElementById('banReason').value = '';
+            document.getElementById('banDays').value = '0';
+            document.getElementById('banHours').value = '0';
+            document.getElementById('banMinutes').value = '0';
+            document.getElementById('banSeconds').value = '0';
+            document.getElementById('bannedBy').value = '管理员';
+            
+            document.getElementById('banModal').style.display = 'block';
+        }
+        
+        // 断开指定会话
+        async function disconnectSession(sessionId = null) {
+            if (!sessionId) {
+                sessionId = document.getElementById('sessionSelect').value;
+            }
+            
+            if (!sessionId) {
+                alert('请选择要断开连接的玩家');
+                return;
+            }
+            
+            const user_id = sessions[sessionId]?.user_id;
+            if (!user_id) {
+                alert('无法获取用户ID');
+                return;
+            }
+            
+            if (!confirm(`确定要断开用户ID ${user_id} 的连接吗？`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/disconnect', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ user_id: user_id })
+                });
+                
+                if (response.ok) {
+                    alert('连接已断开');
+                    refreshSessions(); // 刷新列表
+                } else {
+                    alert('断开连接失败');
+                }
+            } catch (error) {
+                console.error('断开连接请求失败:', error);
+                alert('断开连接失败');
+            }
+        }
+        
+        // 显示房间控制界面
+        function showRoomControl(roomId, isCompetition = false) {
+            // 创建一个全屏覆盖的容器
+            let controlModal = document.getElementById('roomControlModal');
+            if (!controlModal) {
+                controlModal = document.createElement('div');
+                controlModal.id = 'roomControlModal';
+            }
+            // 直接覆盖整个网页，不使用背景遮罩
+            controlModal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; background: white;';
+            
+            // 根据房间类型设置标题和控制按钮
+            const title = isCompetition ? '比赛控制' : '房间管理';
+            const competitionControls = isCompetition ? `
+                <div id="competitionControls">
+                    <div class="form-group">
+                        <button onclick="selectChart()">选择谱面</button>
+                    </div>
+                    <div class="form-group">
+                        <button onclick="startGameCountdown()">开始</button>
+                    </div>
+                </div>
+            ` : `
+                <div id="roomManageControls" style="margin-top: 20px; padding: 15px; background: #fff3e0; border-radius: 8px;">
+                    <h4>房间管理</h4>
+                    <div class="form-group">
+                        <button onclick="deleteCurrentRoom()" style="background: #f44336;">删除房间</button>
+                    </div>
+                </div>
+            `;
+            
+            controlModal.innerHTML = `
+                <div style="width: 100%; height: 100vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; background: white;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: #f5f5f5; border-bottom: 1px solid #ddd;">
+                        <h3 style="margin: 0;">${title} - <span id="controlRoomId"></span></h3>
+                        <span class="close" onclick="closeRoomControlModal()" style="font-size: 28px; cursor: pointer;">&times;</span>
+                    </div>
+                    <div style="display: flex; flex: 1; overflow: hidden;">
+                        <!-- 左半边：操作按钮和日志 -->
+                        <div style="flex: 1; display: flex; flex-direction: column; padding: 20px; border-right: 1px solid #ddd; overflow-y: auto;">
+                            ${competitionControls}
+                            <div id="roomMessageContainer" style="margin-top: 20px; padding: 15px; background: #f9f9f9; border-radius: 8px;">
+                                <h4>发送房间消息</h4>
+                                <div style="display: flex; gap: 10px; align-items: flex-start;">
+                                    <textarea id="roomMessageInput" rows="2" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; resize: vertical;" placeholder="输入要发送给该房间的消息..."></textarea>
+                                    <button onclick="sendRoomMessage()" style="background: #4CAF50; white-space: nowrap;">发送消息</button>
+                                </div>
+                            </div>
+                            <div id="logContainer" style="margin-top: 20px; border: 1px solid #ddd; padding: 10px; flex: 1; display: flex; flex-direction: column; min-height: 200px; overflow: hidden;">
+                                <h4 style="margin-top: 0; margin-bottom: 10px; flex-shrink: 0;">日志</h4>
+                                <div id="logWindow" style="flex: 1; overflow-y: auto; overflow-x: hidden; word-wrap: break-word; word-break: break-all;"></div>
+                            </div>
+                        </div>
+                        <!-- 右半边：玩家判定统计 -->
+                        <div style="flex: 1; padding: 20px; overflow-y: auto;">
+                            <div id="judgementContainer">
+                                <h4>玩家判定统计</h4>
+                                <div id="currentChartInfo" style="margin-bottom: 15px; padding: 10px; background: #e3f2fd; border-radius: 8px; border-left: 4px solid #2196F3;">
+                                    <div style="font-weight: bold; color: #1976D2;">当前谱面</div>
+                                    <div id="currentChartName" style="color: #555; margin-top: 4px;">未选择谱面</div>
+                                </div>
+                                <div id="judgementCards" style="display: flex; flex-wrap: wrap; gap: 10px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(controlModal);
+            
+            // 显示房间ID
+            document.getElementById('controlRoomId').textContent = roomId;
+            // 重置日志窗口
+            document.getElementById('logWindow').innerHTML = '';
+            
+            // 查找并显示当前房间的谱面信息
+            const roomData = Array.isArray(rooms) ? rooms.find(r => r.id === roomId) : null;
+            const chartNameEl = document.getElementById('currentChartName');
+            if (chartNameEl) {
+                if (roomData && roomData.current_chart) {
+                    chartNameEl.textContent = `${roomData.current_chart.name} (ID: ${roomData.current_chart.id})`;
+                } else {
+                    chartNameEl.textContent = '未选择谱面';
+                }
+            }
+            
+            // 显示模态框
+            controlModal.style.display = 'block';
+            
+            // 存储当前房间ID
+            window.currentRoomId = roomId;
+            
+            // 启动SSE日志流监听
+            startRoomLogStream(roomId);
+        }
+        
+        // 关闭房间控制模态框
+        function closeRoomControlModal() {
+            const controlModal = document.getElementById('roomControlModal');
+            if (controlModal) {
+                controlModal.style.display = 'none';
+            }
+            // 关闭SSE连接
+            stopRoomLogStream();
+            stopJudgementStream();
+        }
+        
+        // SSE事件源
+        let roomLogEventSource = null;
+        let judgementEventSource = null;
+        let judgementWebSocket = null;
+        
+        // 启动房间日志SSE流
+        function startRoomLogStream(roomId) {
+            // 先关闭之前的连接
+            stopRoomLogStream();
+            stopJudgementStream();
+            
+            const token = getAuthToken();
+            
+            // 创建日志SSE连接
+            roomLogEventSource = new EventSource(`/api/rooms/${encodeURIComponent(roomId)}/logs/stream?token=${token}`);
+            
+            roomLogEventSource.onmessage = function(event) {
+                const logMessage = event.data;
+                addLogMessage(logMessage);
+            };
+            
+            roomLogEventSource.onerror = function(error) {
+                console.error('日志SSE连接错误:', error);
+                addLogMessage('[系统] 日志连接已断开');
+            };
+            
+            roomLogEventSource.onopen = function() {
+                addLogMessage('[系统] 已连接到房间日志流');
+            };
+            
+            // 创建判定统计WebSocket连接（替代SSE）
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsHost = window.location.host;
+            const wsUrl = `${wsProtocol}//${wsHost}/api/rooms/${encodeURIComponent(roomId)}/judgements/ws?token=${token}`;
+            
+            judgementWebSocket = new WebSocket(wsUrl);
+            
+            judgementWebSocket.onopen = function() {
+                console.log('判定统计WebSocket已连接');
+            };
+            
+            judgementWebSocket.onmessage = function(event) {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === 'JudgementUpdate' && msg.data) {
+                        updateJudgementCards(msg.data);
+                    }
+                } catch (e) {
+                    console.error('解析判定WebSocket数据失败:', e);
+                }
+            };
+            
+            judgementWebSocket.onerror = function(error) {
+                console.error('判定WebSocket连接错误:', error);
+            };
+            
+            judgementWebSocket.onclose = function() {
+                console.log('判定WebSocket已关闭');
+            };
+        }
+        
+        // 停止房间日志SSE流
+        function stopRoomLogStream() {
+            if (roomLogEventSource) {
+                roomLogEventSource.close();
+                roomLogEventSource = null;
+            }
+        }
+        
+        // 停止判定统计SSE流
+        function stopJudgementStream() {
+            if (judgementEventSource) {
+                judgementEventSource.close();
+                judgementEventSource = null;
+            }
+            if (judgementWebSocket) {
+                judgementWebSocket.close();
+                judgementWebSocket = null;
+            }
+        }
+        
+        // 更新判定卡片显示
+        function updateJudgementCards(stats) {
+            const container = document.getElementById('judgementCards');
+            if (!container) return;
+            
+            // 清空现有卡片
+            container.innerHTML = '';
+            
+            // 确保stats是数组
+            const statsArray = Array.isArray(stats) ? stats : [];
+            
+            // 为每个玩家创建卡片
+            for (const playerStats of statsArray) {
+                const card = document.createElement('div');
+                card.style.cssText = `
+                    border: 1px solid #ddd;
+                    border-radius: 8px;
+                    padding: 15px;
+                    min-width: 200px;
+                    background: white;
+                    color: #333;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                `;
+                
+                const accuracy = playerStats.accuracy ? playerStats.accuracy.toFixed(2) : '0.00';
+                const score = playerStats.score || 0;
+                const maxCombo = playerStats.max_combo || 0;
+                const currentCombo = playerStats.current_combo || 0;
+                
+                card.innerHTML = `
+                    <div style="font-weight: bold; font-size: 16px; margin-bottom: 10px; text-align: center; color: #333;">
+                        ${playerStats.user_name}
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px;">
+                        <div style="text-align: center; background: #f5f5f5; padding: 5px; border-radius: 4px;">
+                            <div style="color: #4CAF50; font-weight: bold;">Perfect</div>
+                            <div style="color: #333;">${playerStats.perfect || 0}</div>
+                        </div>
+                        <div style="text-align: center; background: #f5f5f5; padding: 5px; border-radius: 4px;">
+                            <div style="color: #8BC34A; font-weight: bold;">Good</div>
+                            <div style="color: #333;">${playerStats.good || 0}</div>
+                        </div>
+                        <div style="text-align: center; background: #f5f5f5; padding: 5px; border-radius: 4px;">
+                            <div style="color: #FF9800; font-weight: bold;">Bad</div>
+                            <div style="color: #333;">${playerStats.bad || 0}</div>
+                        </div>
+                        <div style="text-align: center; background: #f5f5f5; padding: 5px; border-radius: 4px;">
+                            <div style="color: #f44336; font-weight: bold;">Miss</div>
+                            <div style="color: #333;">${playerStats.miss || 0}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
+                        <div style="text-align: center; background: #f5f5f5; padding: 4px; border-radius: 4px;">
+                            <div style="color: #666;">Hold P/G</div>
+                            <div style="color: #333;">${playerStats.hold_perfect || 0} / ${playerStats.hold_good || 0}</div>
+                        </div>
+                        <div style="text-align: center; background: #f5f5f5; padding: 4px; border-radius: 4px;">
+                            <div style="color: #666;">Max Combo</div>
+                            <div style="color: #4CAF50; font-weight: bold;">${maxCombo}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px; text-align: center; background: #f5f5f5; padding: 8px; border-radius: 4px;">
+                        <div style="font-size: 18px; font-weight: bold; color: #4CAF50;">${accuracy}%</div>
+                        <div style="font-size: 11px; color: #666;">准确率</div>
+                    </div>
+                    <div style="margin-top: 8px; text-align: center; font-size: 14px; font-weight: bold; color: #333;">
+                        分数: ${score}
+                    </div>
+                    ${currentCombo > 10 ? `<div style="margin-top: 5px; text-align: center; color: #FF9800; font-weight: bold;">🔥 ${currentCombo} Combo!</div>` : ''}
+                `;
+                
+                container.appendChild(card);
+            }
+        }
+        
+        // 切换到比赛模式
+        async function switchToCompetitionMode() {
+            const roomId = window.currentRoomId;
+            if (!roomId) {
+                alert('未选择房间');
+                return;
+            }
+            
+            if (confirm('切换到比赛模式后将撤销房主权限，由控制台控制游戏状态，且无需玩家准备，确定要继续吗？')) {
+                try {
+                    const response = await fetch('/api/switch-competition-mode', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ 
+                            room_id: roomId 
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        alert('房间已切换到比赛模式');
+                        // 显示比赛模式下的控制按钮
+                        document.getElementById('competitionControls').style.display = 'block';
+                        addLogMessage('房间已切换到比赛模式');
+                    } else {
+                        const errorData = await response.json();
+                        alert(`切换失败: ${errorData.message || '未知错误'}`);
+                    }
+                } catch (error) {
+                    console.error('切换比赛模式请求失败:', error);
+                    alert('切换失败: ' + error.message);
+                }
+            }
+        }
+        
+        // 选择谱面
+        async function selectChart() {
+            const roomId = window.currentRoomId;
+            if (!roomId) {
+                alert('未选择房间');
+                return;
+            }
+            
+            const chartId = prompt('请输入谱面ID:');
+            if (!chartId) {
+                return;
+            }
+            
+            if (!confirm(`确定要将谱面设置为ID: ${chartId} 吗？`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/select-chart', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        room_id: roomId,
+                        chart_id: parseInt(chartId)
+                    })
+                });
+                
+                if (response.ok) {
+                    alert('谱面选择成功');
+                    addLogMessage(`谱面已设置为ID: ${chartId}`);
+                } else {
+                    const errorData = await response.json();
+                    alert(`选择谱面失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('选择谱面请求失败:', error);
+                alert('选择谱面失败: ' + error.message);
+            }
+        }
+        
+        // 开始游戏（模拟真实客户端行为）
+        async function startGameCountdown() {
+            const roomId = window.currentRoomId;
+            if (!roomId) {
+                alert('未选择房间');
+                return;
+            }
+            
+            try {
+                // 发送开始游戏请求，服务器会发送GameStart消息给所有客户端，让它们进入准备状态
+                const response = await fetch('/api/start-game', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        room_id: roomId 
+                    })
+                });
+                
+                if (response.ok) {
+                    addLogMessage('房主已发起开始游戏请求，服务器将自动准备所有玩家...');
+                } else {
+                    const errorData = await response.json();
+                    alert(`开始游戏失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('开始游戏请求失败:', error);
+                alert('开始游戏失败: ' + error.message);
+            }
+        }
+        
+        // 添加日志消息
+        function addLogMessage(message) {
+            const logWindow = document.getElementById('logWindow');
+            if (!logWindow) return;
+            
+            const now = new Date();
+            const timeString = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+            
+            const logEntry = document.createElement('div');
+            logEntry.style.cssText = 'padding: 2px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; line-height: 1.4;';
+            logEntry.textContent = `[${timeString}] ${message}`;
+            logWindow.appendChild(logEntry);
+            
+            // 自动滚动到底部
+            requestAnimationFrame(() => {
+                logWindow.scrollTop = logWindow.scrollHeight;
+            });
+            
+            // 显示日志容器
+            const logContainer = document.getElementById('logContainer');
+            if (logContainer) {
+                logContainer.style.display = 'flex';
+            }
+        }
+        
+        // 发送巡查广播（直接使用alert确认）
+        async function sendBroadcastInspection() {
+            if (!confirm('确定要发送巡查广播吗？')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/broadcast-inspection', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: null // 使用服务器默认消息
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    alert(`巡查广播发送成功！\n\n已广播到 ${data.rooms} 个房间，${data.users} 个用户`);
+                } else {
+                    const errorData = await response.json();
+                    alert(`发送巡查广播失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('发送巡查广播请求失败:', error);
+                alert('发送巡查广播失败: ' + error.message);
+            }
+        }
+        
+        // 显示通知模态框
+        function showNotificationModal() {
+            document.getElementById('notificationMessage').value = '';
+            document.getElementById('notificationModal').style.display = 'block';
+        }
+        
+        // 关闭通知模态框
+        function closeNotificationModal() {
+            document.getElementById('notificationModal').style.display = 'none';
+        }
+        
+        // 发送通知
+        async function sendNotification() {
+            const messageInput = document.getElementById('notificationMessage');
+            const message = messageInput.value.trim();
+            
+            if (!message) {
+                alert('请输入通知内容');
+                return;
+            }
+            
+            if (!confirm(`确定要发送全服通知吗？\n\n通知内容：\n${message}`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/broadcast-inspection', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: message
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    alert(`通知发送成功！\n\n已广播到 ${data.rooms} 个房间，${data.users} 个用户`);
+                    closeNotificationModal();
+                } else {
+                    const errorData = await response.json();
+                    alert(`发送通知失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('发送通知请求失败:', error);
+                alert('发送通知失败: ' + error.message);
+            }
+        }
+        
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const banModal = document.getElementById('banModal');
+            if (event.target === banModal) {
+                banModal.style.display = 'none';
+            }
+            
+            const notificationModal = document.getElementById('notificationModal');
+            if (event.target === notificationModal) {
+                notificationModal.style.display = 'none';
+            }
+        }
+        
+        // 登录相关功能
+        let authToken = null;
+        
+        // 登录函数
+        async function login() {
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            if (!username || !password) {
+                showLoginError('请输入用户名和密码');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        password: password
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    authToken = data.token;
+                    
+                    // 保存token到localStorage（可选）
+                    localStorage.setItem('authToken', authToken);
+                    
+                    // 隐藏登录界面，显示主界面
+                    document.getElementById('loginModal').style.display = 'none';
+                    document.getElementById('mainContent').style.display = 'block';
+                    
+                    // 清除错误信息
+                    document.getElementById('loginError').style.display = 'none';
+                } else {
+                    showLoginError('用户名或密码错误');
+                }
+            } catch (error) {
+                console.error('登录请求失败:', error);
+                showLoginError('登录请求失败: ' + error.message);
+            }
+        }
+        
+        // 显示登录错误信息
+        function showLoginError(message) {
+            const errorDiv = document.getElementById('loginError');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+        
+        // 从localStorage获取保存的token
+        function getAuthToken() {
+            if (authToken) {
+                return authToken;
+            }
+            return localStorage.getItem('authToken');
+        }
+        
+        // 发送带认证的请求
+        async function fetchWithAuth(url, options = {}) {
+            const token = getAuthToken();
+            if (!token) {
+                alert('请先登录');
+                window.location.reload(); // 重定向到登录页面
+                return;
+            }
+            
+            // 设置认证头
+            if (!options.headers) {
+                options.headers = {};
+            }
+            options.headers['Authorization'] = `Bearer ${token}`;
+            options.headers['Content-Type'] = 'application/json';
+            
+            try {
+                const response = await fetch(url, options);
+                
+                if (response.status === 401) {
+                    alert('认证失败，请重新登录');
+                    // 显示登录界面
+                    document.getElementById('loginModal').style.display = 'block';
+                    document.getElementById('mainContent').style.display = 'none';
+                    document.getElementById('loginUsername').value = '';
+                    document.getElementById('loginPassword').value = '';
+                    return null;
+                }
+                
+                return response;
+            } catch (error) {
+                console.error('请求失败:', error);
+                throw error;
+            }
+        }
+        
+        // 更新所有API调用以使用认证
+        async function refreshSessions() {
+            try {
+                const response = await fetchWithAuth('/api/sessions');
+                if (!response) return; // 如果认证失败，直接返回
+                
+                const data = await response.json();
+                sessions = data;
+                updateSessionsTable();
+            } catch (error) {
+                console.error('获取会话列表失败:', error);
+            }
+        }
+        
+        async function refreshBans() {
+            try {
+                const response = await fetchWithAuth('/api/bans');
+                if (!response) return; // 如果认证失败，直接返回
+                
+                const data = await response.json();
+                bans = data;
+                updateBansTable();
+            } catch (error) {
+                console.error('获取封禁列表失败:', error);
+            }
+        }
+        
+        // 更新断开连接函数以使用认证
+        async function disconnectSession(sessionId = null) {
+            if (!sessionId) {
+                sessionId = document.getElementById('sessionSelect').value;
+            }
+            
+            if (!sessionId) {
+                alert('请选择要断开连接的玩家');
+                return;
+            }
+            
+            const user_id = sessions[sessionId]?.user_id;
+            if (!user_id) {
+                alert('无法获取用户ID');
+                return;
+            }
+            
+            if (!confirm(`确定要断开用户ID ${user_id} 的连接吗？`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetchWithAuth('/api/disconnect', {
+                    method: 'POST',
+                    body: JSON.stringify({ user_id: user_id })
+                });
+                
+                if (response && response.ok) {
+                    alert('连接已断开');
+                    refreshSessions(); // 刷新列表
+                } else if (response) {
+                    alert('断开连接失败');
+                }
+            } catch (error) {
+                console.error('断开连接请求失败:', error);
+                alert('断开连接失败');
+            }
+        }
+        
+        // 更新封禁用户函数以使用认证
+        async function banUser() {
+            const banUserIdElement = document.getElementById('banUserId');
+            const banUserNameElement = document.getElementById('banUserName');
+            const banReasonElement = document.getElementById('banReason');
+            const bannedByElement = document.getElementById('bannedBy');
+            const permanentBanElement = document.getElementById('permanentBan');
+            const banTypeElement = document.getElementById('banType');
+            
+            const userId = banUserIdElement ? parseInt(banUserIdElement.value) || null : null;
+            const userName = banUserNameElement ? banUserNameElement.value || null : null;
+            let banReason = banReasonElement ? banReasonElement.value : '';
+            const bannedBy = bannedByElement ? bannedByElement.value : '';
+            const isPermanent = permanentBanElement ? permanentBanElement.checked : false;
+            
+            // 获取封禁类型
+            const banType = banTypeElement ? banTypeElement.value : 'user';
+            
+            // 如果未填写理由，使用默认原因
+            if (!banReason.trim()) {
+                banReason = '账号封禁（默认原因）';
+            }
+            
+            // 如果没有提供操作者，默认设置为"管理员"
+            const finalBannedBy = bannedBy.trim() || '管理员';
+            
+            // 计算封禁时长
+            let totalSeconds;
+            if (isPermanent) {
+                totalSeconds = -1; // 永久封禁
+            } else {
+                const banDaysElement = document.getElementById('banDays');
+                const banHoursElement = document.getElementById('banHours');
+                const banMinutesElement = document.getElementById('banMinutes');
+                const banSecondsElement = document.getElementById('banSeconds');
+                
+                const days = banDaysElement ? parseInt(banDaysElement.value) || 0 : 0;
+                const hours = banHoursElement ? parseInt(banHoursElement.value) || 0 : 0;
+                const minutes = banMinutesElement ? parseInt(banMinutesElement.value) || 0 : 0;
+                const seconds = banSecondsElement ? parseInt(banSecondsElement.value) || 0 : 0;
+                
+                totalSeconds = days * 86400 + hours * 3600 + minutes * 60 + seconds;
+                
+                if (totalSeconds < -1 || (totalSeconds == 0 && !isPermanent)) {
+                    alert('封禁时长必须大于0或选择永久封禁');
+                    return;
+                }
+            }
+            
+            // 构建请求数据
+            let requestData = {
+                user_id: null,
+                user_name: null,
+                ip_address: null,
+                ban_reason: banReason,
+                ban_duration: totalSeconds,
+                banned_by: finalBannedBy,
+                ban_type: banType
+            };
+            
+            // 根据封禁类型设置相应字段
+            if (banType === 'user' || banType === 'user_and_ip') {
+                if (userId) {
+                    requestData.user_id = userId;
+                    requestData.user_name = userName;
+                }
+            }
+            if (banType === 'ip' || banType === 'user_and_ip') {
+                if (userId) {
+                    // 从当前会话中获取IP地址
+                    const sessionId = document.getElementById('banUserId').value;
+                    const session = sessions[sessionId];
+                    if (session) {
+                        requestData.ip_address = session.ip_address;
+                    }
+                }
+            }
+            
+            try {
+                const response = await fetchWithAuth('/api/ban', {
+                    method: 'POST',
+                    body: JSON.stringify(requestData)
+                });
+                
+                if (response && response.ok) {
+                    alert('封禁成功');
+                    closeBanModal();
+                    refreshSessions(); // 刷新连接列表
+                    if (document.getElementById('bansTab').classList.contains('active')) {
+                        refreshBans(); // 如果在封禁页面也刷新
+                    }
+                } else if (response) {
+                    alert('封禁失败');
+                }
+            } catch (error) {
+                console.error('封禁请求失败:', error);
+                alert('封禁失败');
+            }
+        }
+        
+        // 更新解封用户函数以使用认证
+        async function unbanUser(userId) {
+            // 由于现在解封API使用的是ID字符串，我们需要构造正确的键
+            // 在实际应用中，可能需要显示完整的键供用户选择
+            if (!confirm(`确定要解封用户ID ${userId} 吗？`)) {
+                return;
+            }
+            
+            // 由于当前实现使用组合键，我们需要找到正确的键格式
+            // 这里暂时使用user_前缀，更完整的实现需要在前端显示完整的键
+            const key = `user_${userId}`;
+            
+            try {
+                let response = await fetchWithAuth(`/api/unban/${encodeURIComponent(key)}`, {
+                    method: 'POST'
+                });
+                
+                if (response && response.ok) {
+                    alert('用户已解封');
+                    refreshBans(); // 刷新封禁列表
+                } else if (response){
+                    // 如果失败，尝试直接用userId
+                    const response2 = await fetchWithAuth(`/api/unban/${userId}`, {
+                        method: 'POST'
+                    });
+                    
+                    if (response2 && response2.ok) {
+                        alert('用户已解封');
+                        refreshBans(); // 刷新封禁列表
+                    } else {
+                        alert('解封失败');
+                    }
+                }
+            } catch (error) {
+                console.error('解封请求失败:', error);
+                alert('解封失败');
+            }
+        }
+        
+        // 更新创建房间函数以使用认证
+        async function createRoom() {
+            const roomIdInput = document.getElementById('newRoomId').value.trim();
+            
+            // 生成UUID作为房间ID（如果用户未提供）
+            let roomId = roomIdInput;
+            if (!roomId) {
+                // 生成一个简单的UUID（模拟）
+                roomId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                    const r = Math.random() * 16 | 0;
+                    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                    return v.toString(16);
+                });
+            }
+            
+            if (!roomId) {
+                alert('请输入房间ID或留空以自动生成');
+                return;
+            }
+            
+            try {
+                const response = await fetchWithAuth('/api/create-room', {
+                    method: 'POST',
+                    body: JSON.stringify({ 
+                        room_id: roomId 
+                    })
+                });
+                
+                if (response && response.ok) {
+                    alert(`房间创建成功，房间ID: ${roomId}`);
+                    document.getElementById('newRoomId').value = '';
+                    refreshRooms(); // 刷新房间列表
+                } else if (response) {
+                    const errorData = await response.json();
+                    alert(`创建房间失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('创建房间请求失败:', error);
+                alert('创建房间失败: ' + error.message);
+            }
+        }
+        
+        // 更新创建比赛房间函数以使用认证
+        async function createCompetitionRoom() {
+            const roomIdInput = document.getElementById('newRoomId').value.trim();
+            
+            // 生成UUID作为房间ID（如果用户未提供）
+            let roomId = roomIdInput;
+            if (!roomId) {
+                // 生成一个简单的UUID（模拟）
+                roomId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                    const r = Math.random() * 16 | 0;
+                    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                    return v.toString(16);
+                });
+            }
+            
+            if (!roomId) {
+                alert('请输入房间ID或留空以自动生成');
+                return;
+            }
+            
+            try {
+                const response = await fetchWithAuth('/api/create-competition-room', {
+                    method: 'POST',
+                    body: JSON.stringify({ 
+                        room_id: roomId 
+                    })
+                });
+                
+                if (response && response.ok) {
+                    alert(`比赛房间创建成功，房间ID: ${roomId}`);
+                    document.getElementById('newRoomId').value = '';
+                    refreshRooms(); // 刷新房间列表
+                } else if (response) {
+                    const errorData = await response.json();
+                    alert(`创建比赛房间失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('创建比赛房间请求失败:', error);
+                alert('创建比赛房间失败: ' + error.message);
+            }
+        }
+        
+        // 更新删除房间函数以使用认证
+        async function deleteRoom(roomId) {
+            if (!confirm(`确定要删除房间 ${roomId} 吗？此操作不可逆！`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetchWithAuth('/api/delete-room', {
+                    method: 'POST',
+                    body: JSON.stringify({ 
+                        room_id: roomId 
+                    })
+                });
+                
+                if (response && response.ok) {
+                    alert(`房间 ${roomId} 删除成功`);
+                    refreshRooms(); // 刷新房间列表
+                } else if (response) {
+                    const errorData = await response.json();
+                    alert(`删除房间失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('删除房间请求失败:', error);
+                alert('删除房间失败: ' + error.message);
+            }
+        }
+        
+        // 更新切换比赛模式函数以使用认证
+        async function switchToCompetitionMode() {
+            const roomId = window.currentRoomId;
+            if (!roomId) {
+                alert('未选择房间');
+                return;
+            }
+            
+            if (confirm('切换到比赛模式后将撤销房主权限，由控制台控制游戏状态，且无需玩家准备，确定要继续吗？')) {
+                try {
+                    const response = await fetchWithAuth('/api/switch-competition-mode', {
+                        method: 'POST',
+                        body: JSON.stringify({ 
+                            room_id: roomId 
+                        })
+                    });
+                    
+                    if (response && response.ok) {
+                        alert('房间已切换到比赛模式');
+                        // 显示比赛模式下的控制按钮
+                        document.getElementById('competitionControls').style.display = 'block';
+                        addLogMessage('房间已切换到比赛模式');
+                    } else if (response) {
+                        const errorData = await response.json();
+                        alert(`切换失败: ${errorData.message || '未知错误'}`);
+                    }
+                } catch (error) {
+                    console.error('切换比赛模式请求失败:', error);
+                    alert('切换失败: ' + error.message);
+                }
+            }
+        }
+        
+        // 更新选择谱面函数以使用认证
+        async function selectChart() {
+            const roomId = window.currentRoomId;
+            if (!roomId) {
+                alert('未选择房间');
+                return;
+            }
+            
+            const chartId = prompt('请输入谱面ID:');
+            if (!chartId) {
+                return;
+            }
+            
+            if (!confirm(`确定要将谱面设置为ID: ${chartId} 吗？`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetchWithAuth('/api/select-chart', {
+                    method: 'POST',
+                    body: JSON.stringify({ 
+                        room_id: roomId,
+                        chart_id: parseInt(chartId)
+                    })
+                });
+                
+                if (response && response.ok) {
+                    alert('谱面选择成功');
+                    addLogMessage(`谱面已设置为ID: ${chartId}`);
+                } else if (response) {
+                    const errorData = await response.json();
+                    alert(`选择谱面失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('选择谱面请求失败:', error);
+                alert('选择谱面失败: ' + error.message);
+            }
+        }
+        
+        // 更新开始游戏函数以使用认证
+        async function startGameCountdown() {
+            const roomId = window.currentRoomId;
+            if (!roomId) {
+                alert('未选择房间');
+                return;
+            }
+            
+            try {
+                // 发送开始游戏请求，服务器会发送GameStart消息给所有客户端，让它们进入准备状态
+                const response = await fetchWithAuth('/api/start-game', {
+                    method: 'POST',
+                    body: JSON.stringify({ 
+                        room_id: roomId 
+                    })
+                });
+                
+                if (response && response.ok) {
+                    addLogMessage('房主已发起开始游戏请求，服务器将自动准备所有玩家...');
+                } else if (response) {
+                    const errorData = await response.json();
+                    alert(`开始游戏失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('开始游戏请求失败:', error);
+                alert('开始游戏失败: ' + error.message);
+            }
+        }
+        
+        // 更新发送巡查广播函数以使用认证
+        async function sendBroadcastInspection() {
+            if (!confirm('确定要发送巡查广播吗？')) {
+                return;
+            }
+            
+            try {
+                const response = await fetchWithAuth('/api/broadcast-inspection', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        message: null // 使用服务器默认消息
+                    })
+                });
+                
+                if (response && response.ok) {
+                    const data = await response.json();
+                    alert(`巡查广播发送成功！\n\n已广播到 ${data.rooms} 个房间，${data.users} 个用户`);
+                } else if (response) {
+                    const errorData = await response.json();
+                    alert(`发送巡查广播失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('发送巡查广播请求失败:', error);
+                alert('发送巡查广播失败: ' + error.message);
+            }
+        }
+        
+        // 更新发送通知函数以使用认证
+        async function sendNotification() {
+            const messageInput = document.getElementById('notificationMessage');
+            const message = messageInput.value.trim();
+            
+            if (!message) {
+                alert('请输入通知内容');
+                return;
+            }
+            
+            if (!confirm(`确定要发送全服通知吗？\n\n通知内容：\n${message}`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetchWithAuth('/api/broadcast-inspection', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        message: message
+                    })
+                });
+                
+                if (response && response.ok) {
+                    const data = await response.json();
+                    alert(`通知发送成功！\n\n已广播到 ${data.rooms} 个房间，${data.users} 个用户`);
+                    closeNotificationModal();
+                } else if (response) {
+                    const errorData = await response.json();
+                    alert(`发送通知失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('发送通知请求失败:', error);
+                alert('发送通知失败: ' + error.message);
+            }
+        }
+        
+        // 切换维护模式
+        async function toggleMaintenanceMode() {
+            const toggle = document.getElementById('maintenanceToggle');
+            const status = document.getElementById('maintenanceStatus');
+            const enabled = toggle.checked;
+            
+            try {
+                const response = await fetchWithAuth('/api/maintenance', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ enabled: enabled })
+                });
+                
+                if (response && response.ok) {
+                    const data = await response.json();
+                    status.textContent = enabled ? '当前状态：开启' : '当前状态：关闭';
+                    status.style.color = enabled ? '#f44336' : '#666';
+                    
+                    // 显示断开连接的信息
+                    let message = data.message;
+                    if (enabled && data.disconnected > 0) {
+                        message += `\n\n已断开 ${data.disconnected} 个非白名单用户的连接。`;
+                    }
+                    alert(message);
+                    
+                    // 刷新连接列表以显示更新后的状态
+                    refreshSessions();
+                } else {
+                    toggle.checked = !enabled; // 恢复原状态
+                    alert('切换维护模式失败');
+                }
+            } catch (error) {
+                console.error('切换维护模式失败:', error);
+                toggle.checked = !enabled; // 恢复原状态
+                alert('切换维护模式失败: ' + error.message);
+            }
+        }
+        
+        // 更新维护模式白名单
+        async function updateMaintenanceWhitelist() {
+            const whitelistInput = document.getElementById('maintenanceWhitelist');
+            const ids = whitelistInput.value.trim();
+            
+            try {
+                const response = await fetchWithAuth('/api/maintenance/whitelist', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ ids: ids })
+                });
+                
+                if (response && response.ok) {
+                    const data = await response.json();
+                    alert(`白名单已更新，共 ${data.whitelist.length} 个用户`);
+                } else {
+                    alert('更新白名单失败');
+                }
+            } catch (error) {
+                console.error('更新白名单失败:', error);
+                alert('更新白名单失败: ' + error.message);
+            }
+        }
+        
+        // 发送房间消息
+        async function sendRoomMessage() {
+            const messageInput = document.getElementById('roomMessageInput');
+            const message = messageInput.value.trim();
+            const roomId = window.currentRoomId;
+            
+            if (!message) {
+                alert('请输入消息内容');
+                return;
+            }
+            
+            if (!roomId) {
+                alert('未选择房间');
+                return;
+            }
+            
+            if (!confirm(`确定要发送以下消息到房间 ${roomId} 吗？\n\n${message}`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetchWithAuth('/api/room/message', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        room_id: roomId,
+                        message: message
+                    })
+                });
+                
+                if (response && response.ok) {
+                    const data = await response.json();
+                    alert(`消息发送成功！\n已发送给 ${data.users} 个用户`);
+                    messageInput.value = ''; // 清空输入框
+                    
+                    // 在日志窗口显示发送的消息
+                    addLogMessage(`[系统广播] ${message}`);
+                } else if (response) {
+                    const errorData = await response.json();
+                    alert(`发送失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('发送房间消息失败:', error);
+                alert('发送房间消息失败: ' + error.message);
+            }
+        }
+        
+        // 设置房间为live状态（启用判定统计）
+        async function setRoomLive() {
+            const roomId = window.currentRoomId;
+            if (!roomId) {
+                alert('未选择房间');
+                return;
+            }
+            
+            try {
+                const response = await fetchWithAuth('/api/room/set-live', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        room_id: roomId 
+                    })
+                });
+                
+                if (response && response.ok) {
+                    const data = await response.json();
+                    alert(data.message);
+                } else if (response) {
+                    const errorData = await response.json();
+                    alert(`设置失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('设置房间live状态失败:', error);
+                alert('设置房间live状态失败: ' + error.message);
+            }
+        }
+        
+        // 删除当前房间（从房间管理界面调用）
+        async function deleteCurrentRoom() {
+            const roomId = window.currentRoomId;
+            if (!roomId) {
+                alert('未选择房间');
+                return;
+            }
+            
+            if (!confirm(`确定要删除房间 ${roomId} 吗？此操作不可逆！`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetchWithAuth('/api/delete-room', {
+                    method: 'POST',
+                    body: JSON.stringify({ 
+                        room_id: roomId 
+                    })
+                });
+                
+                if (response && response.ok) {
+                    alert(`房间 ${roomId} 删除成功`);
+                    closeRoomControlModal(); // 关闭模态框
+                    refreshRooms(); // 刷新房间列表
+                } else if (response) {
+                    const errorData = await response.json();
+                    alert(`删除房间失败: ${errorData.message || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('删除房间请求失败:', error);
+                alert('删除房间失败: ' + error.message);
+            }
+        }
+        
+        // 加载维护模式状态
+        async function loadMaintenanceStatus() {
+            try {
+                const response = await fetchWithAuth('/api/maintenance/status');
+                if (!response) return;
+                
+                const data = await response.json();
+                
+                // 更新开关状态
+                const toggle = document.getElementById('maintenanceToggle');
+                const status = document.getElementById('maintenanceStatus');
+                const whitelistInput = document.getElementById('maintenanceWhitelist');
+                
+                if (toggle) {
+                    toggle.checked = data.enabled;
+                }
+                
+                if (status) {
+                    status.textContent = data.enabled ? '当前状态：开启' : '当前状态：关闭';
+                    status.style.color = data.enabled ? '#f44336' : '#666';
+                }
+                
+                if (whitelistInput && data.whitelist) {
+                    whitelistInput.value = data.whitelist.join(', ');
+                }
+                
+                console.log('维护模式状态已加载:', data);
+            } catch (error) {
+                console.error('加载维护模式状态失败:', error);
+            }
+        }
+    </script>
+    
+    <!-- PWA Service Worker注册 -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(function(registration) {
+                        console.log('ServiceWorker 注册成功，范围为: ' + registration.scope);
+                    })
+                    .catch(function(error) {
+                        console.log('ServiceWorker 注册失败: ' + error);
+                    });
+            });
+        }
+    </script>
+</body>
+</html>

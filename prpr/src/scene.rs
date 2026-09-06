@@ -18,8 +18,8 @@ pub use loading::{BasicPlayer, LoadingScene, SaveFn, UpdateFn, UploadFn};
 use crate::{
     core::BOLD_FONT,
     ext::{
-        draw_image, screen_aspect, semi_black, semi_white, RectExt, LocalTask,
-        SafeTexture, ScaleType,
+        draw_image, draw_parallelogram, draw_parallelogram_ex, screen_aspect, semi_black,
+        semi_white, RectExt, LocalTask, SafeTexture, ScaleType, PARALLELOGRAM_SLOPE,
     },
     judge::Judge,
     time::TimeManager,
@@ -57,6 +57,92 @@ thread_local! {
     pub static DIALOG: RefCell<Option<Dialog>> = const { RefCell::new(None) };
     pub static FULL_LOADING: RefCell<Option<FullLoadingView>> = const { RefCell::new(None) };
     pub static INPUT_DIALOG: RefCell<Option<InputDialog>> = const { RefCell::new(None) };
+    /// 成就解锁横幅（独立于 BillBoard 消息：带图标与主题色的横幅，几秒后淡出）
+    pub static ACH_BANNERS: RefCell<Vec<AchievementBanner>> = const { RefCell::new(Vec::new()) };
+}
+
+/// 一条成就解锁横幅
+pub struct AchievementBanner {
+    emoji: String,
+    icon: Option<SafeTexture>,
+    title: String,
+    desc: String,
+    color: Color,
+    born: std::time::Instant,
+}
+
+/// 弹出成就解锁横幅（图标可选，未加载图标时显示 emoji 占位；颜色为 RGB 元组）
+pub fn show_achievement_popup(emoji: &str, icon: Option<SafeTexture>, title: String, desc: String, color: (f32, f32, f32)) {
+    let color = Color::new(color.0, color.1, color.2, 1.);
+    ACH_BANNERS.with(|it| {
+        let mut guard = it.borrow_mut();
+        guard.push(AchievementBanner {
+            emoji: emoji.to_string(),
+            icon,
+            title,
+            desc,
+            color,
+            born: std::time::Instant::now(),
+        });
+        if guard.len() > 3 {
+            guard.remove(0);
+        }
+    });
+}
+
+/// 每帧绘制成就横幅（淡入 → 停留 → 淡出），由顶层渲染器调用
+pub fn render_achievement_banners(ui: &mut Ui) {
+    const LIFETIME: f32 = 3.4;
+    const OUT: f32 = 0.4;
+    let now = std::time::Instant::now();
+    ACH_BANNERS.with(|it| {
+        let mut guard = it.borrow_mut();
+        guard.retain(|b| now.duration_since(b.born).as_secs_f32() < LIFETIME);
+        let n = guard.len() as f32;
+        let top = ui.top.max(0.05);
+        for (k, b) in guard.iter().enumerate() {
+            let age = now.duration_since(b.born).as_secs_f32();
+            // alpha：0.25s 淡入，末尾 0.4s 淡出
+            let alpha = ((age / 0.25).min(1.) * ((LIFETIME - age) / OUT).clamp(0., 1.)).max(0.);
+            if alpha <= 0. {
+                continue;
+            }
+            let w = 0.72f32;
+            let h = 0.15f32;
+            let y_center = -top + 0.2 + 0.17 * (n - 1. - k as f32);
+            let r = Rect::new(-w / 2., y_center - h / 2., w, h);
+            // 卡片底色 + 主题色描边（半透明）
+            let a = alpha;
+            draw_rectangle(r.x, r.y, r.w, r.h, Color::new(0.03, 0.04, 0.09, 0.88 * a));
+            let border = b.color;
+            draw_rectangle_lines(r.x, r.y, r.w, r.h, 0.006, Color::new(border.r, border.g, border.b, 0.9 * a));
+            // 图标 / emoji 占位
+            let icon_size = h - 0.06;
+            if let Some(tex) = &b.icon {
+                draw_image(**tex, Rect::new(r.x + 0.03, r.y + (h - icon_size) / 2., icon_size, icon_size), ScaleType::Fit);
+            } else {
+                ui.text(&b.emoji)
+                    .pos(r.x + 0.03 + icon_size / 2., r.y + h / 2.)
+                    .anchor(0.5, 0.5)
+                    .size(0.5)
+                    .color(Color::new(1., 1., 1., a))
+                    .draw();
+            }
+            let tx = r.x + 0.03 + icon_size + 0.03;
+            ui.text(&b.title)
+                .pos(tx, r.y + 0.04)
+                .anchor(0., 0.5)
+                .size(0.4)
+                .color(Color::new(1., 1., 1., a))
+                .draw();
+            ui.text(&b.desc)
+                .pos(tx, r.y + h - 0.045)
+                .anchor(0., 0.5)
+                .size(0.22)
+                .color(Color::new(0.72, 0.75, 0.82, a))
+                .draw();
+        }
+    });
 }
 
 pub struct FullLoadingView {
@@ -209,11 +295,13 @@ impl InputDialog {
     fn confirm(&self) {
         INPUT_TEXT.lock().unwrap().1 = Some(self.text.clone());
         set_ime_enabled(false);
+        android_show_keyboard(false);
     }
 
     fn cancel(&self) {
         *INPUT_CANCELLED.lock().unwrap() = Some(self.id.clone());
         set_ime_enabled(false);
+        android_show_keyboard(false);
     }
 
     fn update_keyboard(&mut self) -> bool {
@@ -306,29 +394,67 @@ impl InputDialog {
                 self.text.replace_range(self.cursor..idx, "");
             }
         }
-        if is_key_pressed(KeyCode::Left) && self.cursor > 0 {
-            self.selection = None;
-            let mut idx = self.cursor - 1;
+        if is_key_pressed(KeyCode::Left) {
+            let shift = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+            let anchor = self.cursor;
+            let mut idx = if self.cursor > 0 { self.cursor - 1 } else { 0 };
             while idx > 0 && !self.text.is_char_boundary(idx) {
                 idx -= 1;
             }
-            self.cursor = idx;
+            if shift {
+                // Shift+← 扩展选区：选中从选区另一端起的高亮
+                let end = self.selection.and_then(|(s, _)| if s == self.cursor { None } else { Some(self.cursor) }).unwrap_or(anchor);
+                self.cursor = idx;
+                let (s, e) = (end.min(self.cursor), end.max(self.cursor));
+                if s != e {
+                    self.selection = Some((s, e));
+                } else {
+                    self.selection = None;
+                }
+            } else {
+                self.selection = None;
+                self.cursor = idx;
+            }
         }
-        if is_key_pressed(KeyCode::Right) && self.cursor < self.text.len() {
-            self.selection = None;
+        if is_key_pressed(KeyCode::Right) {
+            let shift = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+            let anchor = self.cursor;
             let mut idx = self.cursor + 1;
             while idx < self.text.len() && !self.text.is_char_boundary(idx) {
                 idx += 1;
             }
-            self.cursor = idx;
+            if shift {
+                let end = self.selection.and_then(|(_, e)| if e == self.cursor { None } else { Some(self.cursor) }).unwrap_or(anchor);
+                self.cursor = idx.min(self.text.len());
+                let (s, e) = (end.min(self.cursor), end.max(self.cursor));
+                if s != e {
+                    self.selection = Some((s, e));
+                } else {
+                    self.selection = None;
+                }
+            } else {
+                self.selection = None;
+                self.cursor = idx.min(self.text.len());
+            }
         }
+        let shift_down = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
         if is_key_pressed(KeyCode::Home) {
-            self.selection = None;
+            let end = if shift_down { self.cursor } else { 0 };
             self.cursor = 0;
+            if shift_down && end != 0 {
+                self.selection = Some((0, end));
+            } else if !shift_down {
+                self.selection = None;
+            }
         }
         if is_key_pressed(KeyCode::End) {
-            self.selection = None;
+            let end = if shift_down { self.cursor } else { self.text.len() };
             self.cursor = self.text.len();
+            if shift_down && end != self.text.len() {
+                self.selection = Some((end, self.text.len()));
+            } else if !shift_down {
+                self.selection = None;
+            }
         }
         if is_key_pressed(KeyCode::Enter) && !self.multiline {
             self.confirm();
@@ -363,122 +489,175 @@ impl InputDialog {
         let ease = 1. - (1. - p).powi(3);
         ui.fill_rect(ui.screen_rect(), semi_black(0.55 * ease));
 
-        let w = 0.62;
+        let w = 0.9;
         let h = if self.multiline { 0.58 } else { 0.42 };
         let scale = 0.92 + 0.08 * ease;
         let wr = Rect::new(-w * scale / 2., -h * scale / 2., w * scale, h * scale);
-        let radius = 0.018;
+        let l = wr.h * PARALLELOGRAM_SLOPE;
 
-        ui.alpha(ease, |ui| {
-            ui.fill_path(&wr.rounded(radius), Color::new(0.14, 0.15, 0.2, 0.98));
-            ui.stroke_path(&wr.rounded(radius), 0.002, Color::new(1., 1., 1., 0.1));
+        // 平行四边形底板（与“提示弹窗”一致的样式）
+        draw_parallelogram_ex(
+            wr,
+            None,
+            Color::new(0.20, 0.23, 0.29, 0.97 * ease),
+            Color::new(0.09, 0.11, 0.15, 0.97 * ease),
+            true,
+        );
+        draw_parallelogram(wr, None, Color::new(1., 1., 1., 0.09 * ease), false);
 
-            let pad = 0.05;
-            let cx = wr.x + pad;
-            let cw = wr.w - pad * 2.;
+        let pad = 0.05;
+        let cx = wr.x + l + pad;
+        let cw = wr.w - l - pad * 2.;
 
-            ui.text(&self.title)
-                .pos(cx, wr.y + pad)
-                .size(0.48)
-                .color(WHITE)
-                .draw_using(&BOLD_FONT);
+        // 顶边高光（平行四边形上边缘）
+        ui.fill_rect(Rect::new(wr.x + l, wr.y, wr.w - l, 0.004), Color::new(1., 1., 1., 0.12 * ease));
 
-            let mut y = wr.y + pad + 0.075;
-            if !self.prompt.is_empty() {
-                let r = ui
-                    .text(&self.prompt)
-                    .pos(cx, y)
-                    .size(0.32)
-                    .color(semi_white(0.65))
-                    .max_width(cw)
-                    .multiline()
-                    .draw();
-                y = r.bottom() + 0.03;
+        ui.text(&self.title)
+            .pos(cx, wr.y + pad)
+            .size(0.48)
+            .color(Color::new(1., 1., 1., ease))
+            .draw_using(&BOLD_FONT);
+
+        let mut y = wr.y + pad + 0.075;
+        if !self.prompt.is_empty() {
+            let r = ui
+                .text(&self.prompt)
+                .pos(cx, y)
+                .size(0.32)
+                .color(semi_white(0.65 * ease))
+                .max_width(cw)
+                .multiline()
+                .draw();
+            y = r.bottom() + 0.03;
+        }
+
+        let input_h = if self.multiline { 0.2 } else { 0.075 };
+        let input_r = Rect::new(cx, y, cw, input_h);
+        let il = input_r.h * PARALLELOGRAM_SLOPE;
+        // 输入框：平行四边形暗底 + 蓝色细描边
+        draw_parallelogram(
+            input_r.feather(0.0025),
+            None,
+            Color::new(0.4, 0.6, 1., 0.35 * ease),
+            false,
+        );
+        draw_parallelogram(input_r, None, Color::new(0.08, 0.09, 0.13, 0.98 * ease), false);
+
+        let display: String = if self.password {
+            self.text.chars().map(|_| '*').collect()
+        } else {
+            self.text.clone()
+        };
+        let before_cursor: String = if self.password {
+            self.text[..self.cursor].chars().map(|_| '*').collect()
+        } else {
+            self.text[..self.cursor].to_string()
+        };
+
+        let text_size = 0.38;
+        let text_x = input_r.x + il + 0.015;
+        let text_y = input_r.center().y;
+        let text_max_w = input_r.w - il - 0.06;
+
+        if let Some((s, e)) = self.selection {
+            if s < e {
+                let before_sel: String = if self.password {
+                    self.text[..s].chars().map(|_| '*').collect()
+                } else {
+                    self.text[..s].to_string()
+                };
+                let sel_text: String = if self.password {
+                    self.text[s..e].chars().map(|_| '*').collect()
+                } else {
+                    self.text[s..e].to_string()
+                };
+                let off_x = ui.text(&before_sel).size(text_size).measure().w;
+                let sel_w = ui.text(&sel_text).size(text_size).measure().w;
+                ui.fill_rect(
+                    Rect::new(text_x + off_x, input_r.y + 0.01, sel_w, input_r.h - 0.02),
+                    Color::new(0.2, 0.4, 0.8, 0.5 * ease),
+                );
             }
+        }
 
-            let input_h = if self.multiline { 0.2 } else { 0.075 };
-            let input_r = Rect::new(cx, y, cw, input_h);
-            ui.fill_path(&input_r.rounded(0.01), Color::new(0.08, 0.09, 0.13, 1.));
-            ui.stroke_path(&input_r.rounded(0.01), 0.002, Color::new(1., 1., 1., 0.12));
-
-            let display: String = if self.password {
-                self.text.chars().map(|_| '*').collect()
-            } else {
-                self.text.clone()
-            };
-            let before_cursor: String = if self.password {
-                self.text[..self.cursor].chars().map(|_| '*').collect()
-            } else {
-                self.text[..self.cursor].to_string()
-            };
-
-            let text_size = 0.38;
-            let text_x = input_r.x + 0.025;
-            let text_y = input_r.center().y;
-
-            if let Some((s, e)) = self.selection {
-                if s < e {
-                    let before_sel: String = if self.password {
-                        self.text[..s].chars().map(|_| '*').collect()
-                    } else {
-                        self.text[..s].to_string()
-                    };
-                    let sel_text: String = if self.password {
-                        self.text[s..e].chars().map(|_| '*').collect()
-                    } else {
-                        self.text[s..e].to_string()
-                    };
-                    let off_x = ui.text(&before_sel).size(text_size).measure().w;
-                    let sel_w = ui.text(&sel_text).size(text_size).measure().w;
-                    ui.fill_rect(
-                        Rect::new(text_x + off_x, input_r.y + 0.01, sel_w, input_r.h - 0.02),
-                        Color::new(0.2, 0.4, 0.8, 0.5),
-                    );
-                }
-            }
-
+        let placeholder = !self.prompt.is_empty() && self.text.is_empty();
+        if placeholder {
+            ui.text(&self.prompt)
+                .pos(text_x, text_y)
+                .anchor(0., 0.5)
+                .max_width(text_max_w)
+                .size(text_size)
+                .color(semi_white(0.35 * ease))
+                .draw();
+        } else {
             ui.text(&display)
                 .pos(text_x, text_y)
                 .anchor(0., 0.5)
-                .max_width(input_r.w - 0.05)
+                .max_width(text_max_w)
                 .size(text_size)
-                .color(WHITE)
+                .color(Color::new(1., 1., 1., ease))
                 .draw();
+        }
 
-            if (self.cursor_timer % 1.0) < 0.5 {
-                let cw0 = ui.text(&before_cursor).size(text_size).measure().w;
-                let cursor_x = text_x + cw0;
-                ui.fill_rect(
-                    Rect::new(cursor_x, input_r.y + 0.012, 0.0025, input_r.h - 0.024),
-                    Color::new(0.4, 0.6, 1., 1.),
-                );
-            }
+        if !placeholder && (self.cursor_timer % 1.0) < 0.5 {
+            let cw0 = ui.text(&before_cursor).size(text_size).measure().w;
+            let cursor_x = text_x + cw0;
+            ui.fill_rect(
+                Rect::new(cursor_x, input_r.y + 0.012, 0.0025, input_r.h - 0.024),
+                Color::new(0.4, 0.6, 1., ease),
+            );
+        }
 
-            let bh = 0.065;
-            let bw = 0.16;
-            let gap = 0.025;
-            let by = wr.bottom() - bh - pad;
-            let ok_r = Rect::new(cx + cw - bw, by, bw, bh);
-            let cancel_r = Rect::new(cx + cw - bw * 2. - gap, by, bw, bh);
+        let bh = 0.065;
+        let bw = 0.16;
+        let gap = 0.025;
+        let by = wr.bottom() - bh - pad;
+        let right_edge = wr.right() - l - pad;
+        let ok_r = Rect::new(right_edge - bw, by, bw, bh);
+        let cancel_r = Rect::new(ok_r.x - gap - bw, by, bw, bh);
 
-            self.cancel_btn.inner.set(ui, cancel_r);
-            ui.fill_path(&cancel_r.rounded(0.008), Color::new(0.2, 0.21, 0.27, 1.));
-            ui.text(&self.cancel_label)
-                .pos(cancel_r.center().x, cancel_r.center().y)
-                .anchor(0.5, 0.5)
-                .size(0.34)
-                .color(semi_white(0.85))
-                .draw();
+        self.cancel_btn.inner.set(ui, cancel_r);
+        let cv = if self.cancel_btn.inner.touching() { 0.3 } else { 0.16 };
+        draw_parallelogram(cancel_r, None, Color::new(cv, cv, cv + 0.05, 0.92 * ease), true);
+        let ss = 0.05;
+        draw_parallelogram(
+            Rect::new(cancel_r.x + cancel_r.w * (1. - ss), cancel_r.y, cancel_r.w * ss, cancel_r.h),
+            None,
+            Color::new(1., 1., 1., 0.9 * ease),
+            false,
+        );
+        let ct = cancel_r.center();
+        ui.text(&self.cancel_label)
+            .pos(ct.x, ct.y)
+            .anchor(0.5, 0.5)
+            .no_baseline()
+            .size(0.34)
+            .color(semi_white(0.85 * ease))
+            .max_width(cancel_r.w)
+            .draw();
 
-            self.ok_btn.inner.set(ui, ok_r);
-            ui.fill_path(&ok_r.rounded(0.008), Color::new(0.3, 0.5, 0.95, 1.));
-            ui.text(&self.ok_label)
-                .pos(ok_r.center().x, ok_r.center().y)
-                .anchor(0.5, 0.5)
-                .size(0.34)
-                .color(WHITE)
-                .draw_using(&BOLD_FONT);
-        });
+        self.ok_btn.inner.set(ui, ok_r);
+        let ob = if self.ok_btn.inner.touching() {
+            Color::new(0.45, 0.65, 1., 0.95 * ease)
+        } else {
+            Color::new(0.3, 0.5, 0.95, 0.95 * ease)
+        };
+        draw_parallelogram(ok_r, None, ob, true);
+        draw_parallelogram(
+            Rect::new(ok_r.x + ok_r.w * (1. - ss), ok_r.y, ok_r.w * ss, ok_r.h),
+            None,
+            Color::new(1., 1., 1., 0.9 * ease),
+            false,
+        );
+        let ct = ok_r.center();
+        ui.text(&self.ok_label)
+            .pos(ct.x, ct.y)
+            .anchor(0.5, 0.5)
+            .no_baseline()
+            .size(0.34)
+            .color(Color::new(1., 1., 1., ease))
+            .max_width(ok_r.w)
+            .draw_using(&BOLD_FONT);
     }
 }
 
@@ -507,8 +686,19 @@ fn set_ime_enabled(enabled: bool) {
     }
 }
 
+// 注意：set_ime_enabled 只在 Windows 上操作系统 IME 状态；
+// Android 的软键盘只能在“确实打开/关闭输入框”时弹出/收起，
+// 不能在这里统一挂钩（否则退出谱面等恢复 IME 的调用也会误弹键盘）。
 #[cfg(not(windows))]
 fn set_ime_enabled(_enabled: bool) {}
+
+/// Android：打开/关闭软键盘（真正弹输入框时才调用）。
+#[cfg(target_os = "android")]
+pub fn android_show_keyboard(show: bool) {
+    unsafe { get_internal_gl() }.quad_context.show_keyboard(show);
+}
+#[cfg(not(target_os = "android"))]
+pub fn android_show_keyboard(_show: bool) {}
 
 #[inline]
 pub fn request_input(id: impl Into<String>, mut config: InputBox) {
@@ -529,6 +719,7 @@ pub fn request_input(id: impl Into<String>, mut config: InputBox) {
     }
     INPUT_DIALOG.with(|it| *it.borrow_mut() = Some(InputDialog::new(id, config)));
     set_ime_enabled(true);
+    android_show_keyboard(true);
 }
 
 pub fn take_input() -> Option<(String, String)> {
@@ -726,12 +917,21 @@ impl Main {
         simulate_mouse_with_touch(false);
         scene.enter(&mut tm, target_chooser.choose())?;
         let last_update_time = tm.now();
-        macro_rules! load_tex {
-            ($path:literal) => {
-                SafeTexture::from(Texture2D::from_image(&load_image($path).await?))
+        macro_rules! load_tex_or_fallback {
+            ($flat:literal, $org:literal) => {
+                match load_image($org).await {
+                    Ok(img) => SafeTexture::from(Texture2D::from_image(&img)),
+                    Err(_) => SafeTexture::from(Texture2D::from_image(&load_image($flat).await?)),
+                }
             };
         }
-        let icons = [load_tex!("info.png"), load_tex!("warn.png"), load_tex!("ok.png"), load_tex!("error.png")];
+        // 整理后的布局把图标放在 assets/icons/ 下（兼容旧的 assets/ 平铺）
+        let icons = [
+            load_tex_or_fallback!("info.png", "icons/info.png"),
+            load_tex_or_fallback!("warn.png", "icons/warn.png"),
+            load_tex_or_fallback!("ok.png", "icons/ok.png"),
+            load_tex_or_fallback!("error.png", "icons/error.png"),
+        ];
         BILLBOARD.with(|it| it.borrow_mut().0.set_icons(icons));
         Ok(Self {
             scenes: vec![scene],
@@ -882,6 +1082,7 @@ impl Main {
                 let t = guard.1.now() as f32;
                 guard.0.render(&mut ui, t);
             });
+            render_achievement_banners(&mut ui);
             DIALOG.with(|it| {
                 if let Some(dialog) = it.borrow_mut().as_mut() {
                     dialog.render(&mut ui, self.tm.now() as _);

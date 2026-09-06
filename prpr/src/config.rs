@@ -12,6 +12,9 @@ pub static TIPS: Lazy<Vec<String>> = Lazy::new(|| {
         .collect()
 });
 
+/// 负载统计并行所需的最小“活跃 Note”数（与引擎默认一致）
+const DEFAULT_METRICS_PARALLEL_MIN: usize = 4096;
+
 bitflags! {
     #[derive(Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq, Debug)]
     #[serde(transparent)]
@@ -25,6 +28,18 @@ bitflags! {
         const NO_SHADER = 0x0040;
         const INSTANT_DEATH_AP = 0x0080;
         const INSTANT_DEATH_FC = 0x0100;
+
+        // ==== 花样 mod ====
+        /// 幽灵：Note（含 Hold）半透明
+        const GHOST = 0x0200;
+        /// 垂直反转：谱面沿 Y 轴（上下）镜像显示与判定
+        const FLIP_Y = 0x0400;
+        /// 横摆：每个 Note 在横向上按确定性的伪随机位置散开（仅视觉）
+        const RANDOM_X = 0x1000;
+        /// 屏幕特效：老电视 / 扫描线 / 故障（互斥，见 [`Mods::conflicts`]）
+        const FX_TV = 0x2000;
+        const FX_SCANLINE = 0x4000;
+        const FX_GLITCH = 0x8000;
 
         const UNRATED = Self::AUTOPLAY.bits() | Self::NO_SHADER.bits();
     }
@@ -47,6 +62,9 @@ impl Mods {
             Mods::FADE_OUT => &[Mods::FADE_IN],
             Mods::INSTANT_DEATH_AP => &[Mods::INSTANT_DEATH_FC],
             Mods::INSTANT_DEATH_FC => &[Mods::INSTANT_DEATH_AP],
+            Mods::FX_TV => &[Mods::FX_SCANLINE, Mods::FX_GLITCH],
+            Mods::FX_SCANLINE => &[Mods::FX_TV, Mods::FX_GLITCH],
+            Mods::FX_GLITCH => &[Mods::FX_TV, Mods::FX_SCANLINE],
             _ => &[],
         }
     }
@@ -62,6 +80,23 @@ fn default_custom_crash_reason() -> String {
 
 fn default_custom_crash_title() -> String {
     String::new()
+}
+
+/// 性能档位默认值：完全优化（与引擎现状一致）
+fn default_performance() -> u8 {
+    Config::PERF_FULL
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_perf_lowres() -> u32 {
+    100
+}
+
+fn default_perf_fx_density() -> u32 {
+    20
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -84,21 +119,14 @@ pub struct Config {
     pub show_score_initialized: bool,
     pub show_combo: bool,
     pub custom_accent: String,
-    pub character_name: String,
-    pub character_model_path: Option<String>,
-    pub character_default_expr: u32,
-    pub character_pet_expr: u32,
-    pub character_voice_dir: Option<String>,
-    pub character_model_offset_x: f32,
-    pub character_model_offset_y: f32,
-    pub character_model_scale: f32,
-    pub character_pet_offset_x: f32,
-    pub character_pet_offset_y: f32,
-    pub character_pet_width: f32,
-    pub character_pet_height: f32,
-    pub show_character: bool,
     pub score_offset_x: f32,
     pub score_offset_y: f32,
+    /// 游玩界面实时准确率偏移（相对分数下方默认位）
+    pub play_acc_offset_x: f32,
+    pub play_acc_offset_y: f32,
+    /// 结算统计面板（两格统计卡）整体偏移
+    pub result_offset_x: f32,
+    pub result_offset_y: f32,
     pub combo_offset_x: f32,
     pub combo_offset_y: f32,
     pub home_play_offset_x: f32,
@@ -132,12 +160,42 @@ pub struct Config {
     pub sample_count: u32,
     pub show_acc: bool,
     pub show_avg_fps: bool,
+    /// 游玩中实时显示 FPS
+    #[serde(default)]
+    pub show_fps: bool,
     pub speed: f32,
     pub touch_debug: bool,
     pub use_keyboard: bool,
     pub volume_bgm: f32,
     pub volume_music: f32,
     pub volume_sfx: f32,
+    /// 控制台开关（Windows 调试控制台，settings 里可切换）
+    pub console_enabled: bool,
+    /// 垂直同步开关（settings 里可切换；关闭后帧率不再被刷新率限制）
+    pub vsync: bool,
+
+    /// 性能优化档位：0=无 1=少量 2=中等 3=完全 4=完全积极 5=自定义
+    #[serde(default = "default_performance")]
+    pub performance: u8,
+    // —— 自定义档（performance == 5 时生效）——
+    /// 负载统计并行
+    #[serde(default = "default_true")]
+    pub perf_custom_metrics: bool,
+    /// 屏幕外剔除
+    #[serde(default = "default_true")]
+    pub perf_custom_cull: bool,
+    /// 粒子削减（保留 hit_fx，连续 note 减半）
+    #[serde(default)]
+    pub perf_custom_particles: bool,
+    /// 强制关闭垂直同步
+    #[serde(default)]
+    pub perf_custom_vsync_off: bool,
+    /// 自定义低清 Note 阈值（可见数）
+    #[serde(default = "default_perf_lowres")]
+    pub perf_custom_lowres: u32,
+    /// 自定义打击特效密度阈值
+    #[serde(default = "default_perf_fx_density")]
+    pub perf_custom_fx_density: u32,
 
 
     #[serde(default = "default_custom_crash_code")]
@@ -162,26 +220,17 @@ impl Default for Config {
             arcaea_judgement: false,
             fnf_judgement: false,
             custom_combo_text: "COMBO".to_string(),
-            custom_watermark: "phirLie".to_string(),
+            custom_watermark: "Phira-Vrenxz".to_string(),
             show_score: true,
             show_score_initialized: false,
             show_combo: true,
             custom_accent: "#4C84FF".to_string(),
-            character_name: "星野(临战)".to_string(),
-            character_model_path: None,
-            character_default_expr: 0,
-            character_pet_expr: 24,
-            character_voice_dir: None,
-            character_model_offset_x: 0.,
-            character_model_offset_y: 0.,
-            character_model_scale: 0.00065,
-            character_pet_offset_x: 0.,
-            character_pet_offset_y: -0.650,
-            character_pet_width: 0.3,
-            character_pet_height: 0.3,
-            show_character: true,
             score_offset_x: 0.0,
             score_offset_y: 0.0,
+            play_acc_offset_x: 0.0,
+            play_acc_offset_y: 0.0,
+            result_offset_x: 0.0,
+            result_offset_y: 0.0,
             combo_offset_x: 0.0,
             combo_offset_y: 0.0,
             home_play_offset_x: 0.0,
@@ -215,6 +264,7 @@ impl Default for Config {
             sample_count: 1,
             show_acc: false,
             show_avg_fps: false,
+            show_fps: false,
             speed: 1.,
             touch_debug: false,
             use_keyboard: false,
@@ -225,6 +275,15 @@ impl Default for Config {
             custom_crash_reason: default_custom_crash_reason(),
             custom_crash_title: default_custom_crash_title(),
             autoplay: None,
+            console_enabled: false,
+            vsync: true,
+            performance: default_performance(),
+            perf_custom_metrics: default_true(),
+            perf_custom_cull: default_true(),
+            perf_custom_particles: false,
+            perf_custom_vsync_off: false,
+            perf_custom_lowres: default_perf_lowres(),
+            perf_custom_fx_density: default_perf_fx_density(),
         }
     }
 }
@@ -254,6 +313,110 @@ impl Config {
     #[inline]
     pub fn flip_x(&self) -> bool {
         self.has_mod(Mods::FLIP_X)
+    }
+
+    #[inline]
+    pub fn flip_y(&self) -> bool {
+        self.has_mod(Mods::FLIP_Y)
+    }
+
+    // ==== 性能优化档位 ====
+    /// 档位：0=无优化，1=少量，2=中等，3=完全，4=完全积极，5=自定义
+    pub const PERF_OFF: u8 = 0;
+    pub const PERF_LIGHT: u8 = 1;
+    pub const PERF_MEDIUM: u8 = 2;
+    pub const PERF_FULL: u8 = 3;
+    pub const PERF_ULTRA: u8 = 4;
+    pub const PERF_CUSTOM: u8 = 5;
+
+    #[inline]
+    pub fn perf_profile(&self) -> u8 {
+        self.performance.min(Self::PERF_CUSTOM)
+    }
+
+    #[inline]
+    pub fn perf_is_custom(&self) -> bool {
+        self.perf_profile() == Self::PERF_CUSTOM
+    }
+
+    /// 负载统计（每帧 Note 统计）是否启用并行
+    pub fn metrics_parallel(&self) -> bool {
+        match self.perf_profile() {
+            Self::PERF_OFF | Self::PERF_LIGHT => false,
+            Self::PERF_MEDIUM | Self::PERF_FULL | Self::PERF_ULTRA => true,
+            _ => self.perf_custom_metrics,
+        }
+    }
+
+    /// 负载统计启用并行所需的最小“活跃 Note”数量（中等 = 现有一半力度，即阈值放大一倍）
+    pub fn metrics_parallel_min(&self) -> usize {
+        match self.perf_profile() {
+            Self::PERF_MEDIUM => 2 * DEFAULT_METRICS_PARALLEL_MIN,
+            Self::PERF_FULL | Self::PERF_ULTRA => DEFAULT_METRICS_PARALLEL_MIN,
+            Self::PERF_CUSTOM if self.perf_custom_metrics => DEFAULT_METRICS_PARALLEL_MIN,
+            _ => usize::MAX,
+        }
+    }
+
+    /// 屏幕外剔除（aggressive）是否生效；非自定义档由档位接管
+    pub fn eff_cull(&self) -> bool {
+        match self.perf_profile() {
+            Self::PERF_OFF => false,
+            Self::PERF_LIGHT..=Self::PERF_ULTRA => true,
+            _ => self.aggressive,
+        }
+    }
+
+    /// 低分辨率 Note 渲染阈值（可见 Note 数 ≥ 该值）；无优化档永不启用
+    pub fn eff_lowres_threshold(&self) -> usize {
+        match self.perf_profile() {
+            Self::PERF_OFF => usize::MAX,
+            Self::PERF_LIGHT..=Self::PERF_FULL => 100,
+            Self::PERF_ULTRA => 60,
+            _ => self.perf_custom_lowres as usize,
+        }
+    }
+
+    /// 打击特效密度阈值（即将击打数 > 该值时关闭打击特效）。
+    ///
+    /// - 完全优化（默认档）：阈值放宽到 500——普通谱粒子特效全开，
+    ///   只有 SkyFire 这类超密压测谱（即将击打 note 常年远超 500）才自动抑制，保住帧率；
+    /// - 无 / 少量 / 中等：保留旧的密度自适应（20）；
+    /// - 完全积极：更早触发（12），并叠加粒子削减；
+    /// - 自定义：使用自定义滑杆值。
+    pub fn eff_fx_density_threshold(&self) -> usize {
+        match self.perf_profile() {
+            Self::PERF_ULTRA => 12,
+            Self::PERF_FULL => 500,
+            Self::PERF_CUSTOM => self.perf_custom_fx_density as usize,
+            _ => 20,
+        }
+    }
+
+    /// 粒子削减：保留 hit_fx 主粒子、连续发射每两次减一次（完全积极 / 自定义）
+    pub fn eff_fx_reduce(&self) -> bool {
+        match self.perf_profile() {
+            Self::PERF_ULTRA => true,
+            _ => self.perf_custom_particles,
+        }
+    }
+
+    /// 是否强制关闭垂直同步
+    pub fn eff_vsync_off(&self) -> bool {
+        match self.perf_profile() {
+            Self::PERF_ULTRA => true,
+            _ => self.perf_custom_vsync_off,
+        }
+    }
+
+    /// 粒子总开关是否生效（档位接管：非自定义档粒子保持开启，削减按档位）；
+    /// 自定义档使用 `particle` 手动开关。
+    pub fn eff_particles(&self) -> bool {
+        if self.perf_is_custom() {
+            self.particle
+        } else {
+            true
+        }
     }
 
     #[inline]

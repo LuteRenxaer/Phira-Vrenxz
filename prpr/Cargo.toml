@@ -121,10 +121,11 @@ walkdir = { workspace = true }
 
 [dev-dependencies]
 walkdir = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [package.metadata.android.signing.release]
 keystore = "../phirLie-release.keystore"
 alias = "phirLie"
 password = "278913"
 
-icon = "../assets/icon.png"   # 或者 "./icon.png" 取决于文件位置
+icon = "../assets/icons/icon.png"   # 或者 "./icon.png" 取决于文件位置

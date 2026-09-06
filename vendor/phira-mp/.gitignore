@@ -1,0 +1,11 @@
+# Rust
+/target
+
+# Log
+/log
+
+# Config
+/server_config.yml
+
+# Misc
+.DS_Store

@@ -24,9 +24,9 @@ on:
         type: boolean
 
 env:
-  APP_NAME: PhirLie
-  BUNDLE_ID: com.teamflos.PhirLie
-  XCODE_PROJECT_DIR: PhirLie/xcode
+  APP_NAME: Phira-Vrenxz
+  BUNDLE_ID: com.teamflos.PhiraVrenxz
+  XCODE_PROJECT_DIR: Phira-Vrenxz/xcode
   CARGO_TERM_COLOR: always
   IPHONEOS_DEPLOYMENT_TARGET: "14.0"
 
@@ -73,15 +73,15 @@ jobs:
           cd "$XCODE_PROJECT_DIR"
           xcodegen generate
           # Force object version to 56 (Xcode 14+) for Xcode 15.4 compatibility
-          sed -i '' 's/objectVersion = [0-9]*;/objectVersion = 56;/' PhirLie.xcodeproj/project.pbxproj
+          sed -i '' 's/objectVersion = [0-9]*;/objectVersion = 56;/' Phira-Vrenxz.xcodeproj/project.pbxproj
           echo "Generated project:"
-          ls -la PhirLie.xcodeproj
-          grep objectVersion PhirLie.xcodeproj/project.pbxproj
+          ls -la Phira-Vrenxz.xcodeproj
+          grep objectVersion Phira-Vrenxz.xcodeproj/project.pbxproj
 
       - name: Build Rust static library (device)
         run: |
           set +e
-          cargo build --release --target aarch64-apple-ios --features video -p PhirLie 2>&1 | tee cargo_build.log
+          cargo build --release --target aarch64-apple-ios --features video -p Phira-Vrenxz 2>&1 | tee cargo_build.log
           BUILD_EXIT=${PIPESTATUS[0]}
           if [ $BUILD_EXIT -ne 0 ]; then
             echo ""
@@ -93,7 +93,7 @@ jobs:
             exit $BUILD_EXIT
           fi
           echo "Device static lib:"
-          ls -lh target/aarch64-apple-ios/release/libPhirLie.a
+          ls -lh target/aarch64-apple-ios/release/libphira_vrenxz.a
 
       - name: Build app (Release)
         id: build
@@ -104,8 +104,8 @@ jobs:
 
           # Build for iOS device (arm64)
           xcodebuild build \
-            -project PhirLie.xcodeproj \
-            -scheme PhirLie \
+            -project Phira-Vrenxz.xcodeproj \
+            -scheme Phira-Vrenxz \
             -configuration "$CONFIG" \
             -sdk iphoneos \
             -derivedDataPath build/DerivedData \
@@ -117,9 +117,9 @@ jobs:
             2>&1 | tee build.log
 
           # Find the .app bundle (use absolute path)
-          APP_PATH=$(find "$PWD/build/DerivedData" -name "PhirLie.app" -type d | head -1)
+          APP_PATH=$(find "$PWD/build/DerivedData" -name "Phira-Vrenxz.app" -type d | head -1)
           if [ -z "$APP_PATH" ]; then
-            echo "ERROR: PhirLie.app not found. DerivedData contents:"
+            echo "ERROR: Phira-Vrenxz.app not found. DerivedData contents:"
             find build/DerivedData -name "*.app" -type d 2>/dev/null || true
             echo "--- Build products dir ---"
             ls -la build/DerivedData/Build/Products/ 2>/dev/null || true
@@ -145,7 +145,7 @@ jobs:
           ls -la "$APP_PATH"
           echo ""
           echo "=== .app executable check ==="
-          APP_BINARY="$APP_PATH/PhirLie"
+          APP_BINARY="$APP_PATH/Phira-Vrenxz"
           if [ -f "$APP_BINARY" ]; then
             ls -lh "$APP_BINARY"
             file "$APP_BINARY"
@@ -168,8 +168,8 @@ jobs:
           cp -R "$APP_PATH" "$PAYLOAD_DIR/"
 
           # Remove code signature if present (unsigned build)
-          if [ -d "$PAYLOAD_DIR/PhirLie.app/_CodeSignature" ]; then
-            rm -rf "$PAYLOAD_DIR/PhirLie.app/_CodeSignature"
+          if [ -d "$PAYLOAD_DIR/Phira-Vrenxz.app/_CodeSignature" ]; then
+            rm -rf "$PAYLOAD_DIR/Phira-Vrenxz.app/_CodeSignature"
           fi
 
           cd ipa
@@ -192,7 +192,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-ios-ipa
-          path: "PhirLie-ios-*.ipa"
+          path: "Phira-Vrenxz-ios-*.ipa"
           retention-days: 30
 
       - name: Upload build log (on failure)

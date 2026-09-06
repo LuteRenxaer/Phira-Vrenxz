@@ -3,7 +3,7 @@ use image::{codecs::gif, AnimationDecoder, DynamicImage, ImageError};
 use macroquad::prelude::{Color, WHITE};
 use sasa::AudioClip;
 use serde::{Deserialize, Deserializer};
-use std::{any::Any, cell::RefCell, collections::HashMap, future::IntoFuture, io::Cursor, rc::Rc, str::FromStr, time::Duration};
+use std::{any::Any, cell::RefCell, collections::HashMap, future::IntoFuture, io::Cursor, str::FromStr, sync::Arc, time::Duration};
 use tracing::debug;
 
 use super::{process_lines, L10N_LOCAL, RPE_TWEEN_MAP};
@@ -85,16 +85,16 @@ impl<T> RPEEvent<T> {
         ((int(p[0]) * 100 + int(p[1])) as u16, int(p[2]), int(p[3]))
     }
 
-    pub fn tween(&self, bezier_map: &BezierMap) -> Rc<dyn TweenFunction> {
+    pub fn tween(&self, bezier_map: &BezierMap) -> Arc<dyn TweenFunction> {
         let tween = RPE_TWEEN_MAP.get(self.easing_type.max(1) as usize).copied().unwrap_or(RPE_TWEEN_MAP[0]);
         let left = self.easing_left.clamp(0., 1.);
         let right = self.easing_right.clamp(0., 1.);
         if self.bezier != 0 {
-            Rc::clone(&bezier_map[&self.bezier_key()])
+            Arc::clone(&bezier_map[&self.bezier_key()])
         } else if tween <= 2 || (left.abs() < EPS as f32 && (right - 1.0).abs() < EPS as f32) || left >= right {
             StaticTween::get_rc(tween)
         } else {
-            Rc::new(ClampedTween::new(tween, left..right))
+            Arc::new(ClampedTween::new(tween, left..right))
         }
     }
 }
@@ -192,6 +192,12 @@ struct RPEJudgeLine {
     alpha_control: Vec<RPECtrlEvent>,
     #[serde(default)]
     y_control: Vec<RPECtrlEvent>,
+    /// BPM 倍率（per-line 滚动速度系数；缺失按 1.0）
+    #[serde(default, rename = "bpmfactor")]
+    bpm_factor: Option<f32>,
+    /// 纹理锚点 [x, y]（判定线纹理对齐点；缺失按居中）
+    #[serde(default, rename = "anchor")]
+    anchor: Option<[f32; 2]>,
 }
 
 #[derive(Deserialize)]
@@ -209,21 +215,21 @@ enum SpeedEasingMode {
 }
 
 struct SpeedIntegralTween {
-    tween: Rc<dyn TweenFunction>,
+    tween: Arc<dyn TweenFunction>,
     k: f32,
     b: f32,
     total: f32,
 }
 
 impl SpeedIntegralTween {
-    fn try_create(tween: Rc<dyn TweenFunction>, k: f32, b: f32) -> Option<(Rc<dyn TweenFunction>, f32)> {
+    fn try_create(tween: Arc<dyn TweenFunction>, k: f32, b: f32) -> Option<(Arc<dyn TweenFunction>, f32)> {
         let mut result = Self { tween, k, b, total: 0. };
         let total = result.partial(1.);
         if !total.is_finite() || total.abs() < EPS as f32 {
             return None;
         }
         result.total = total;
-        Some((Rc::new(result), total))
+        Some((Arc::new(result), total))
     }
 
     fn partial(&self, x: f32) -> f32 {
@@ -252,17 +258,17 @@ impl TweenFunction for SpeedIntegralTween {
     }
 }
 
-fn speed_linear_tween(start_speed: f32, end_speed: f32) -> Rc<dyn TweenFunction> {
+fn speed_linear_tween(start_speed: f32, end_speed: f32) -> Arc<dyn TweenFunction> {
     if (start_speed - end_speed).abs() < EPS as f32 {
         StaticTween::get_rc(2)
     } else if start_speed.abs() > end_speed.abs() {
-        Rc::new(ClampedTween::new(7 , 0.0..(1. - end_speed / start_speed)))
+        Arc::new(ClampedTween::new(7 , 0.0..(1. - end_speed / start_speed)))
     } else {
-        Rc::new(ClampedTween::new(6 , (start_speed / end_speed)..1.))
+        Arc::new(ClampedTween::new(6 , (start_speed / end_speed)..1.))
     }
 }
 
-fn speed_segment_tween(mode: SpeedEasingMode, start_speed: f32, end_speed: f32, tween: Rc<dyn TweenFunction>) -> (Rc<dyn TweenFunction>, f32) {
+fn speed_segment_tween(mode: SpeedEasingMode, start_speed: f32, end_speed: f32, tween: Arc<dyn TweenFunction>) -> (Arc<dyn TweenFunction>, f32) {
     let (tween, total) = match mode {
         SpeedEasingMode::Legacy => {
             let df0 = tween.derivative(0.);
@@ -276,12 +282,12 @@ fn speed_segment_tween(mode: SpeedEasingMode, start_speed: f32, end_speed: f32, 
             SpeedIntegralTween::try_create(tween, k, b)
         }
         SpeedEasingMode::Modern => {
-            let int_tween: Rc<dyn TweenFunction> = if let Some(s) = tween.as_any().downcast_ref::<StaticTween>() {
+            let int_tween: Arc<dyn TweenFunction> = if let Some(s) = tween.as_any().downcast_ref::<StaticTween>() {
                 IntStaticTween::get_rc(s.0)
             } else if let Some(s) = tween.as_any().downcast_ref::<ClampedTween>() {
-                Rc::new(IntClampedTween::new(s.0, s.1.clone()))
+                Arc::new(IntClampedTween::new(s.0, s.1.clone()))
             } else {
-                Rc::new(GeneralIntTween::new(tween))
+                Arc::new(GeneralIntTween::new(tween))
             };
             SpeedIntegralTween::try_create(int_tween, end_speed - start_speed, start_speed)
         }
@@ -300,7 +306,7 @@ struct RPEChart {
     judge_line_list: Vec<RPEJudgeLine>,
 }
 
-type BezierMap = HashMap<(u16, i16, i16), Rc<dyn TweenFunction>>;
+type BezierMap = HashMap<(u16, i16, i16), Arc<dyn TweenFunction>>;
 
 fn parse_events<T: Tweenable, V: Clone + Into<T>>(
     r: &mut BpmList,
@@ -328,7 +334,7 @@ fn parse_events<T: Tweenable, V: Clone + Into<T>>(
     Ok(Anim::new(kfs))
 }
 
-fn parse_speed_events(r: &mut BpmList, rpe: &[RPEEventLayer], bezier_map: &BezierMap, max_time: f64, mode: SpeedEasingMode) -> Result<AnimFloat> {
+fn parse_speed_events(r: &mut BpmList, rpe: &[RPEEventLayer], bezier_map: &BezierMap, max_time: f64, mode: SpeedEasingMode, bpmfactor: f32) -> Result<AnimFloat> {
     let layers: Vec<_> = rpe.iter().filter_map(|it| it.speed_events.as_ref()).collect();
     if layers.is_empty() {
         return Ok(AnimFloat::default());
@@ -343,7 +349,7 @@ fn parse_speed_events(r: &mut BpmList, rpe: &[RPEEventLayer], bezier_map: &Bezie
 
         let mut kfs = vec![Keyframe::new(0.0, 0.0, 2)];
         let mut height = 0f64;
-        let mut push_kf = |start_time: f64, end_time: f64, tween: Rc<dyn TweenFunction>, factor: f32| {
+        let mut push_kf = |start_time: f64, end_time: f64, tween: Arc<dyn TweenFunction>, factor: f32| {
             if end_time - start_time <= EPS {
                 return;
             }
@@ -367,8 +373,8 @@ fn parse_speed_events(r: &mut BpmList, rpe: &[RPEEventLayer], bezier_map: &Bezie
         for event in events {
             let start_time = r.time(&event.start_time).max(cursor);
             let end_time = r.time(&event.end_time).max(start_time);
-            let start_speed = event.start * SPEED_RATIO as f32;
-            let end_speed = event.end * SPEED_RATIO as f32;
+            let start_speed = event.start * SPEED_RATIO as f32 * bpmfactor;
+            let end_speed = event.end * SPEED_RATIO as f32 * bpmfactor;
 
             push_kf(cursor, start_time, StaticTween::get_rc(2), last_speed);
             if end_time > start_time + EPS {
@@ -470,13 +476,13 @@ fn parse_speed_events_legacy(r: &mut BpmList, rpe: &[RPEEventLayer], max_time: f
             Keyframe {
                 time: now_time,
                 value: height as f32,
-                tween: Rc::new(ClampedTween::new(7 , 0.0..(1. - end_speed / speed))),
+                tween: Arc::new(ClampedTween::new(7 , 0.0..(1. - end_speed / speed))),
             }
         } else {
             Keyframe {
                 time: now_time,
                 value: height as f32,
-                tween: Rc::new(ClampedTween::new(6 , (speed / end_speed)..1.)),
+                tween: Arc::new(ClampedTween::new(6 , (speed / end_speed)..1.)),
             }
         });
         height += (speed + end_speed) as f64 * (end_time - now_time) / 2.;
@@ -615,7 +621,7 @@ fn parse_ctrl_events(rpe: &[RPECtrlEvent], key: &str) -> AnimFloat {
 
 
 
-    let tweens: Vec<Rc<dyn TweenFunction>> = rpe
+    let tweens: Vec<Arc<dyn TweenFunction>> = rpe
         .iter()
         .skip(1)
         .map(|it| StaticTween::get_rc(RPE_TWEEN_MAP.get(it.easing.max(1) as usize).copied().unwrap_or(RPE_TWEEN_MAP[0])))
@@ -667,8 +673,11 @@ async fn parse_judge_line(
         res.map_value(|v| v * factor);
         Ok(res)
     }
+    let bpmfactor = rpe.bpm_factor.unwrap_or(1.0);
     let mut height = if use_rpe_170_speed {
-        parse_speed_events(r, &event_layers, bezier_map, max_time, speed_mode)?
+        // BpmFactor：滚动速度按倍率缩放（缺省 1.0；0 视为 1.0）
+        let bpmfactor = if bpmfactor > 0.0 { bpmfactor } else { 1.0 };
+        parse_speed_events(r, &event_layers, bezier_map, max_time, speed_mode, bpmfactor)?
     } else {
         parse_speed_events_legacy(r, &event_layers, max_time)?
     };
@@ -689,37 +698,37 @@ async fn parse_judge_line(
                         .map(|it| parse_events(r, it, None, bezier_map))
                         .transpose()?
                         .unwrap_or_default();
+                    if res.is_default() {
+                        // 没有 scale 事件时，默认 scale 为 1.0（乘以 factor）
+                        return Ok(AnimFloat::fixed(factor));
+                    }
                     res.map_value(|v| v * factor);
                     Ok(res)
                 }
                 let factor = if rpe.texture == "line.png" { 1. } else { 2. / RPE_WIDTH };
+                let scale_x_factor = factor
+                    * if rpe.texture == "line.png"
+                        && rpe
+                            .extended
+                            .as_ref()
+                            .and_then(|it| it.text_events.as_ref())
+                            .is_none_or(|it| it.is_empty())
+                        && rpe.attach_ui.is_none()
+                    {
+                        0.5
+                    } else {
+                        1.
+                    };
                 rpe.extended
                     .as_ref()
                     .map(|e| -> Result<_> {
                         Ok(AnimVector(
-                            parse(
-                                r,
-                                &e.scale_x_events,
-                                factor
-                                    * if rpe.texture == "line.png"
-                                        && rpe
-                                            .extended
-                                            .as_ref()
-                                            .and_then(|it| it.text_events.as_ref())
-                                            .is_none_or(|it| it.is_empty())
-                                        && rpe.attach_ui.is_none()
-                                    {
-                                        0.5
-                                    } else {
-                                        1.
-                                    },
-                                bezier_map,
-                            )?,
+                            parse(r, &e.scale_x_events, scale_x_factor, bezier_map)?,
                             parse(r, &e.scale_y_events, factor, bezier_map)?,
                         ))
                     })
                     .transpose()?
-                    .unwrap_or_default()
+                    .unwrap_or_else(|| AnimVector(AnimFloat::fixed(scale_x_factor), AnimFloat::fixed(factor)))
             },
         },
         ctrl_obj: RefCell::new(CtrlObject {
@@ -735,46 +744,62 @@ async fn parse_judge_line(
             AnimFloat::default()
         },
         notes,
-        kind: if rpe.texture == "line.png" {
-            if let Some(events) = rpe.extended.as_ref().and_then(|e| e.paint_events.as_ref()) {
-                JudgeLineKind::Paint(
-                    parse_events(r, events, Some(-1.), bezier_map).with_context(|| ptl!("paint-events-parse-failed"))?,
-                    RefCell::default(),
-                )
-            } else if let Some(extended) = rpe.extended.as_ref() {
-                if let Some(events) = extended.text_events.as_ref() {
-                    JudgeLineKind::Text(parse_events(r, events, Some(String::new()), bezier_map).with_context(|| ptl!("text-events-parse-failed"))?)
+        kind: {
+            // 文本事件优先：有文本事件的判定线一律按 Text 渲染，隐藏纹理（即使配了贴图）
+            if let Some(events) = rpe
+                .extended
+                .as_ref()
+                .and_then(|e| e.text_events.as_ref())
+                .filter(|it| !it.is_empty())
+            {
+                JudgeLineKind::Text(parse_events(r, events, Some(String::new()), bezier_map).with_context(|| ptl!("text-events-parse-failed"))?)
+            } else if rpe.texture == "line.png" {
+                if let Some(events) = rpe.extended.as_ref().and_then(|e| e.paint_events.as_ref()) {
+                    JudgeLineKind::Paint(
+                        parse_events(r, events, Some(-1.), bezier_map).with_context(|| ptl!("paint-events-parse-failed"))?,
+                        RefCell::default(),
+                    )
                 } else {
                     JudgeLineKind::Normal
                 }
-            } else {
-                JudgeLineKind::Normal
-            }
-        } else if let Some(extended) = rpe.extended.as_ref() {
-            if let Some(events) = extended.gif_events.as_ref() {
-                let data = fs
-                    .load_file(&rpe.texture)
-                    .await
-                    .with_context(|| ptl!("gif-load-failed", "path" => rpe.texture.clone()))?;
-                let frames = GifFrames::new(
-                    tokio::spawn(async move {
-                        let decoder = gif::GifDecoder::new(Cursor::new(data))?;
-                        debug!("decoding gif");
-                        Ok::<std::vec::Vec<_>, ImageError>(decoder.into_frames().collect())
-                    })
-                    .into_future()
-                    .await??
-                    .into_iter()
-                    .map(|frame| -> (u128, SafeTexture) {
-                        let frame = frame.unwrap();
-                        let delay: Duration = frame.delay().into();
-                        (delay.as_millis(), SafeTexture::from(DynamicImage::ImageRgba8(frame.into_buffer())))
-                    })
-                    .collect(),
-                );
-                debug!("gif decoded");
-                let events = parse_gif_events(r, events, bezier_map, &frames).with_context(|| ptl!("gif-events-parse-failed"))?;
-                JudgeLineKind::TextureGif(events, frames, rpe.texture.clone())
+            } else if let Some(extended) = rpe.extended.as_ref() {
+                if let Some(events) = extended.gif_events.as_ref() {
+                    let data = fs
+                        .load_file(&rpe.texture)
+                        .await
+                        .with_context(|| ptl!("gif-load-failed", "path" => rpe.texture.clone()))?;
+                    let frames = GifFrames::new(
+                        tokio::spawn(async move {
+                            let decoder = gif::GifDecoder::new(Cursor::new(data))?;
+                            debug!("decoding gif");
+                            Ok::<std::vec::Vec<_>, ImageError>(decoder.into_frames().collect())
+                        })
+                        .into_future()
+                        .await??
+                        .into_iter()
+                        .map(|frame| -> (u128, SafeTexture) {
+                            let frame = frame.unwrap();
+                            let delay: Duration = frame.delay().into();
+                            (delay.as_millis(), SafeTexture::from(DynamicImage::ImageRgba8(frame.into_buffer())))
+                        })
+                        .collect(),
+                    );
+                    debug!("gif decoded");
+                    let events = parse_gif_events(r, events, bezier_map, &frames).with_context(|| ptl!("gif-events-parse-failed"))?;
+                    JudgeLineKind::TextureGif(events, frames, rpe.texture.clone())
+                } else if let Some(texture) = line_texture_map.get(&rpe.texture) {
+                    debug!("texture {} reused, id: {}", rpe.texture.clone(), texture.clone().into_inner().raw_miniquad_texture_handle().gl_internal_id());
+                    JudgeLineKind::Texture(texture.clone(), rpe.texture.clone())
+                } else {
+                    let texture = SafeTexture::from(image::load_from_memory(
+                        &fs.load_file(&rpe.texture)
+                            .await
+                            .with_context(|| ptl!("illustration-load-failed", "path" => rpe.texture.clone()))?,
+                    )?)
+                    .with_mipmap();
+                    line_texture_map.insert(rpe.texture.clone(), texture.clone());
+                    JudgeLineKind::Texture(texture, rpe.texture.clone())
+                }
             } else if let Some(texture) = line_texture_map.get(&rpe.texture) {
                 debug!("texture {} reused, id: {}", rpe.texture.clone(), texture.clone().into_inner().raw_miniquad_texture_handle().gl_internal_id());
                 JudgeLineKind::Texture(texture.clone(), rpe.texture.clone())
@@ -788,18 +813,6 @@ async fn parse_judge_line(
                 line_texture_map.insert(rpe.texture.clone(), texture.clone());
                 JudgeLineKind::Texture(texture, rpe.texture.clone())
             }
-        } else if let Some(texture) = line_texture_map.get(&rpe.texture) {
-            debug!("texture {} reused, id: {}", rpe.texture.clone(), texture.clone().into_inner().raw_miniquad_texture_handle().gl_internal_id());
-            JudgeLineKind::Texture(texture.clone(), rpe.texture.clone())
-        } else {
-            let texture = SafeTexture::from(image::load_from_memory(
-                &fs.load_file(&rpe.texture)
-                    .await
-                    .with_context(|| ptl!("illustration-load-failed", "path" => rpe.texture.clone()))?,
-            )?)
-            .with_mipmap();
-            line_texture_map.insert(rpe.texture.clone(), texture.clone());
-            JudgeLineKind::Texture(texture, rpe.texture.clone())
         },
         color: if let Some(events) = rpe.extended.as_ref().and_then(|e| e.color_events.as_ref()) {
             parse_events(r, events, Some(WHITE), bezier_map).with_context(|| ptl!("color-events-parse-failed"))?
@@ -818,6 +831,7 @@ async fn parse_judge_line(
         z_index: rpe.z_order,
         show_below: rpe.is_cover != 1,
         attach_ui: rpe.attach_ui,
+        texture_anchor: rpe.anchor.map(|a| (a[0], a[1])).unwrap_or((0.5, 0.5)),
 
         cache,
     })
@@ -828,7 +842,7 @@ fn add_bezier<T>(map: &mut BezierMap, event: &RPEEvent<T>) {
         let p = &event.bezier_points;
         let int = |p: f32| (p * 100.).round() as i16;
         map.entry(((int(p[0]) * 100 + int(p[1])) as u16, int(p[2]), int(p[3])))
-            .or_insert_with(|| Rc::new(BezierTween::new((p[0], p[1]), (p[2], p[3]))));
+            .or_insert_with(|| Arc::new(BezierTween::new((p[0], p[1]), (p[2], p[3]))));
     }
 }
 

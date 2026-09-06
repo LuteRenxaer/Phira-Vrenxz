@@ -26,6 +26,50 @@ pub const MAX_SIZE: usize = 64;
 pub static DPI_VALUE: AtomicU32 = AtomicU32::new(250);
 pub const BUFFER_SIZE: usize = 1024;
 
+/// 低分辨率 Note 贴图的缩放因子（宽高各缩小为 1/factor）
+const NOTE_LOW_RES_FACTOR: u32 = 2;
+
+/// 将贴图按 `factor` 等比例降采样（盒式平均），返回低分辨率版本。
+///
+/// 尺寸不足 factor 的贴图原样返回，避免放大。
+fn downscale_texture(tex: &SafeTexture, factor: u32) -> SafeTexture {
+    let f = factor.max(1) as usize;
+    let (w, h) = (tex.width() as usize, tex.height() as usize);
+    if w <= f || h <= f {
+        return tex.clone();
+    }
+    let img = tex.get_texture_data();
+    let (nw, nh) = (w / f, h / f);
+    let src = &img.bytes;
+    let mut dst = vec![0u8; nw * nh * 4];
+    for y in 0..nh {
+        let y0 = y * f;
+        let y1 = (y0 + f).min(h);
+        for x in 0..nw {
+            let x0 = x * f;
+            let x1 = (x0 + f).min(w);
+            let (mut r, mut g, mut b, mut a, mut n) = (0u32, 0u32, 0u32, 0u32, 0u32);
+            for sy in y0..y1 {
+                let row = sy * w;
+                for sx in x0..x1 {
+                    let i = (row + sx) * 4;
+                    r += src[i] as u32;
+                    g += src[i + 1] as u32;
+                    b += src[i + 2] as u32;
+                    a += src[i + 3] as u32;
+                    n += 1;
+                }
+            }
+            let i = (y * nw + x) * 4;
+            dst[i] = (r / n) as u8;
+            dst[i + 1] = (g / n) as u8;
+            dst[i + 2] = (b / n) as u8;
+            dst[i + 3] = (a / n) as u8;
+        }
+    }
+    SafeTexture::from(Texture2D::from_rgba8(nw as u16, nh as u16, &dst)).with_filter(GL_LINEAR)
+}
+
 #[inline]
 fn default_scale() -> f32 {
     1.
@@ -52,7 +96,7 @@ fn default_tinted() -> bool {
 }
 
 #[allow(dead_code)]
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ResPackInfo {
     pub name: String,
@@ -139,6 +183,7 @@ impl ResPackInfo {
     }
 }
 
+#[derive(Clone)]
 pub struct NoteStyle {
     pub click: SafeTexture,
     pub hold: SafeTexture,
@@ -154,6 +199,41 @@ impl NoteStyle {
             bail!("Invalid atlas");
         }
         Ok(())
+    }
+
+    /// 根据当前贴图重建 hold_body（Repeat 环绕贴图，去掉头部/尾部行）
+    fn build_hold_body(&mut self) {
+        let pixels = self.hold.get_texture_data();
+        let width = self.hold.width() as u16;
+        let height = self.hold.height() as u16;
+        let atlas = self.hold_atlas;
+        let res = Texture2D::from_rgba8(
+            width,
+            height - atlas.0 - atlas.1,
+            &pixels.bytes[(atlas.0 as usize * width as usize * 4)..(pixels.bytes.len() - atlas.1 as usize * width as usize * 4)],
+        );
+        let context = unsafe { get_internal_gl() }.quad_context;
+        res.raw_miniquad_texture_handle().set_wrap(context, TextureWrap::Repeat);
+        self.hold_body = Some(res.into());
+    }
+
+    /// 生成低分辨率版本：所有贴图按 `factor` 等比例缩小，atlas 偏移同步缩放。
+    ///
+    /// 用于屏幕上 Note 数量较多时降分辨率渲染，降低纹理采样带宽。
+    pub fn downscaled(&self, hold_repeat: bool, factor: u32) -> Self {
+        let factor = factor.max(1);
+        let mut low = Self {
+            click: downscale_texture(&self.click, factor),
+            hold: downscale_texture(&self.hold, factor),
+            flick: downscale_texture(&self.flick, factor),
+            drag: downscale_texture(&self.drag, factor),
+            hold_body: self.hold_body.as_ref().map(|it| downscale_texture(it, factor)),
+            hold_atlas: (self.hold_atlas.0 / factor as u16, self.hold_atlas.1 / factor as u16),
+        };
+        if hold_repeat {
+            low.build_hold_body();
+        }
+        low
     }
 
     #[inline]
@@ -182,16 +262,33 @@ impl NoteStyle {
     }
 }
 
+#[derive(Clone)]
 pub struct ResourcePack {
     pub info: ResPackInfo,
     pub note_style: NoteStyle,
     pub note_style_mh: NoteStyle,
+    /// 低分辨率版本（Note 数量较多时使用），与 `note_style` 一一对应
+    pub note_style_low: NoteStyle,
+    /// 低分辨率版本（Note 数量较多时使用），与 `note_style_mh` 一一对应
+    pub note_style_mh_low: NoteStyle,
     pub sfx_click: AudioClip,
     pub challenge_texture: SafeTexture,
     pub sfx_drag: AudioClip,
     pub sfx_flick: AudioClip,
     pub ending: AudioClip,
     pub hit_fx: SafeTexture,
+}
+
+impl ResourcePack {
+    /// 按 (是否多指提示, 是否低分辨率) 选择 Note 贴图样式
+    pub fn style_for(&self, mh: bool, low: bool) -> &NoteStyle {
+        match (mh, low) {
+            (true, true) => &self.note_style_mh_low,
+            (true, false) => &self.note_style_mh,
+            (false, true) => &self.note_style_low,
+            (false, false) => &self.note_style,
+        }
+    }
 }
 
 impl ResourcePack {
@@ -236,23 +333,12 @@ impl ResourcePack {
         note_style_mh.verify()?;
 
         if info.hold_repeat {
-            fn get_body(style: &mut NoteStyle) {
-                let pixels = style.hold.get_texture_data();
-                let width = style.hold.width() as u16;
-                let height = style.hold.height() as u16;
-                let atlas = style.hold_atlas;
-                let res = Texture2D::from_rgba8(
-                    width,
-                    height - atlas.0 - atlas.1,
-                    &pixels.bytes[(atlas.0 as usize * width as usize * 4)..(pixels.bytes.len() - atlas.1 as usize * width as usize * 4)],
-                );
-                let context = unsafe { get_internal_gl() }.quad_context;
-                res.raw_miniquad_texture_handle().set_wrap(context, TextureWrap::Repeat);
-                style.hold_body = Some(res.into());
-            }
-            get_body(&mut note_style);
-            get_body(&mut note_style_mh);
+            note_style.build_hold_body();
+            note_style_mh.build_hold_body();
         }
+        // 预生成低分辨率 Note 贴图（屏幕上 Note 数量较多时降分辨率渲染，降低纹理采样开销）
+        let note_style_low = note_style.downscaled(info.hold_repeat, NOTE_LOW_RES_FACTOR);
+        let note_style_mh_low = note_style_mh.downscaled(info.hold_repeat, NOTE_LOW_RES_FACTOR);
         let hit_fx = image::load_from_memory(&fs.load_file("hit_fx.png").await.context("Missing hit_fx.png")?)?.into();
 
         macro_rules! load_clip {
@@ -282,7 +368,14 @@ impl ResourcePack {
                 {
                     sfx
                 } else {
-                    AudioClip::new(load_file(format!("{}.ogg", $path).as_str()).await?)?
+                    // 全局 assets 目录（整理后的布局把音效放在 assets/sfx/ 下；
+                    // 兼容旧的平铺 assets/ 根目录）
+                    let name = format!("{}.ogg", $path);
+                    let data = match load_file(format!("sfx/{name}").as_str()).await {
+                        Ok(data) => data,
+                        Err(_) => load_file(name.as_str()).await?,
+                    };
+                    AudioClip::new(data)?
                 }
             };
         }
@@ -293,6 +386,8 @@ impl ResourcePack {
             info,
             note_style,
             note_style_mh,
+            note_style_low,
+            note_style_mh_low,
             sfx_click: load_clip!("click"),
             sfx_drag: load_clip!("drag"),
             sfx_flick: load_clip!("flick"),
@@ -308,6 +403,8 @@ pub struct ParticleEmitter {
     pub emitter: Emitter,
     pub emitter_square: Emitter,
     pub hide_particles: bool,
+    /// 粒子削减模式下的交替计数（每两次发射只发一次）
+    reduce_tick: bool,
 }
 
 impl ParticleEmitter {
@@ -349,16 +446,36 @@ impl ParticleEmitter {
                 ..Default::default()
             }),
             hide_particles,
+            reduce_tick: false,
         };
         res.set_scale(scale);
         Ok(res)
     }
 
+    /// 普通模式发射（保留：UI/预览等场景直接使用）
     pub fn emit_at(&mut self, pt: Vec2, rotation: f32, color: Color) {
-        self.emitter.config.initial_rotation = rotation;
-        self.emitter.config.base_color = color;
-        self.emitter.emit(pt, 1);
-        if !self.hide_particles {
+        self.emit_at_impl(pt, rotation, color, false);
+    }
+
+    /// 削减模式发射：保留 hit_fx 主粒子、去掉碎屑粒子，且连续发射每两次只发一次。
+    /// 由“性能优化档位”的完全积极 / 自定义触发。
+    pub(crate) fn emit_at_reduced(&mut self, pt: Vec2, rotation: f32, color: Color) {
+        self.emit_at_impl(pt, rotation, color, true);
+    }
+
+    fn emit_at_impl(&mut self, pt: Vec2, rotation: f32, color: Color, reduce: bool) {
+        let emit_main = if reduce {
+            self.reduce_tick = !self.reduce_tick;
+            self.reduce_tick
+        } else {
+            true
+        };
+        if emit_main {
+            self.emitter.config.initial_rotation = rotation;
+            self.emitter.config.base_color = color;
+            self.emitter.emit(pt, 1);
+        }
+        if !reduce && !self.hide_particles {
             self.emitter_square.config.base_color = color;
             self.emitter_square.emit(pt, 4);
         }
@@ -367,6 +484,11 @@ impl ParticleEmitter {
     pub fn draw(&mut self, dt: f32) {
         self.emitter.draw(vec2(0., 0.), dt);
         self.emitter_square.draw(vec2(0., 0.), dt);
+    }
+
+    /// 当前是否没有任何存活粒子
+    pub fn is_empty(&self) -> bool {
+        self.emitter.is_empty() && self.emitter_square.is_empty()
     }
 
     pub fn set_scale(&mut self, scale: f32) {
@@ -449,6 +571,13 @@ pub struct Resource {
     pub chart_target: Option<MSRenderTarget>,
     pub no_effect: bool,
 
+    /// 当前屏幕上可见的 Note 数量达到阈值（见 `LOW_RES_NOTE_THRESHOLD`），
+    /// Note 渲染改用低分辨率贴图。由游戏场景每帧更新。
+    pub low_res_notes: bool,
+    /// 未来 1 秒内需要击打的 Note 数量过多（见 `HIT_FX_DENSITY_THRESHOLD`），
+    /// 打击特效（粒子）被禁用。由游戏场景每帧更新。
+    pub suppress_hit_fx: bool,
+
     pub note_buffer: RefCell<NoteBuffer>,
 
     pub model_stack: Vec<Matrix>,
@@ -504,6 +633,15 @@ impl Resource {
                 SafeTexture::from(Texture2D::from_image(&load_image($path).await?))
             };
         }
+        // 整理后的布局把这类素材放进分类目录；优先新路径，回退旧的平铺 assets/ 根目录
+        macro_rules! load_tex_fb {
+            ($flat:literal, $org:literal) => {
+                match load_image($org).await {
+                    Ok(img) => SafeTexture::from(Texture2D::from_image(&img)),
+                    Err(_) => load_tex!($flat),
+                }
+            };
+        }
         let res_pack = ResourcePack::from_path(config.res_pack_path.as_ref())
             .await
             .context("Failed to load resource pack")?;
@@ -553,11 +691,11 @@ impl Resource {
             arc_icon: load_tex!("rank/FC_ARC.png"),
             mod_icons: Self::load_mod_icons().await?,
             res_pack,
-            player: if let Some(player) = player { player } else { load_tex!("player.jpg") },
-            icon_back: load_tex!("back.png"),
-            icon_retry: load_tex!("retry.png").with_mipmap(),
-            icon_resume: load_tex!("resume.png"),
-            icon_proceed: load_tex!("proceed.png").with_mipmap(),
+            player: if let Some(player) = player { player } else { load_tex_fb!("player.jpg", "backgrounds/player.jpg") },
+            icon_back: load_tex_fb!("back.png", "icons/back.png"),
+            icon_retry: load_tex_fb!("retry.png", "icons/retry.png").with_mipmap(),
+            icon_resume: load_tex_fb!("resume.png", "icons/resume.png"),
+            icon_proceed: load_tex_fb!("proceed.png", "icons/proceed.png").with_mipmap(),
 
             emitter,
 
@@ -572,6 +710,9 @@ impl Resource {
             chart_target: None,
             no_effect,
 
+            low_res_notes: false,
+            suppress_hit_fx: false,
+
             note_buffer: RefCell::new(NoteBuffer::default()),
 
             model_stack: vec![Matrix::identity()],
@@ -583,15 +724,20 @@ impl Resource {
     }
 
     pub fn emit_at_origin(&mut self, rotation: f32, color: Color) {
-        if !self.config.particle {
+        if !self.config.eff_particles() || self.suppress_hit_fx {
             return;
         }
         let pt = self.world_to_screen(Point::default());
-        self.emitter.emit_at(
-            vec2(if self.config.flip_x() { -pt.x } else { pt.x }, -pt.y),
-            if self.res_pack.info.hit_fx_rotate { rotation.to_radians() } else { 0. },
-            color,
+        let pt = vec2(
+            if self.config.flip_x() { -pt.x } else { pt.x },
+            if self.config.flip_y() { pt.y } else { -pt.y },
         );
+        let rotation = if self.res_pack.info.hit_fx_rotate { rotation.to_radians() } else { 0. };
+        if self.config.eff_fx_reduce() {
+            self.emitter.emit_at_reduced(pt, rotation, color);
+        } else {
+            self.emitter.emit_at(pt, rotation, color);
+        }
     }
 
     pub fn update_size(&mut self, vp: (i32, i32, i32, i32)) -> bool {

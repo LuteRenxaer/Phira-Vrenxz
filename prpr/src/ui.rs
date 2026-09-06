@@ -1417,6 +1417,8 @@ thread_local! {
     pub static UI_BACK_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
     pub static UI_SUSPEND_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
     pub static UI_MESSAGE_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
+    pub static UI_ACHIEVEMENT_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
+    pub static UI_ACHIEVEMENT_CHALLENGE_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
 }
 
 pub fn button_hit() {
@@ -1469,6 +1471,22 @@ pub fn suspend_sound() {
 
 pub fn message_sound() {
     UI_MESSAGE_SOUND.with(|it| {
+        if let Some(sfx) = it.borrow_mut().as_mut() {
+            let _ = sfx.play(PlaySfxParams::default());
+        }
+    });
+}
+
+pub fn achievement_sound() {
+    UI_ACHIEVEMENT_SOUND.with(|it| {
+        if let Some(sfx) = it.borrow_mut().as_mut() {
+            let _ = sfx.play(PlaySfxParams::default());
+        }
+    });
+}
+
+pub fn achievement_challenge_sound() {
+    UI_ACHIEVEMENT_CHALLENGE_SOUND.with(|it| {
         if let Some(sfx) = it.borrow_mut().as_mut() {
             let _ = sfx.play(PlaySfxParams::default());
         }

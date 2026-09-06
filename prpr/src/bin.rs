@@ -29,7 +29,7 @@ use std::{
     collections::HashMap,
     io::{Read, Write},
     ops::Deref,
-    rc::Rc,
+    sync::Arc,
 };
 
 pub trait BinaryData: Sized {
@@ -37,15 +37,23 @@ pub trait BinaryData: Sized {
     fn write_binary<W: Write>(&self, w: &mut BinaryWriter<W>) -> Result<()>;
 }
 
-pub struct BinaryReader<R: Read>(pub R, u32);
+pub struct BinaryReader<R: Read>(pub R, u32, u32);
 
 impl<R: Read> BinaryReader<R> {
     pub fn new(reader: R) -> Self {
-        Self(reader, 0)
+        Self(reader, 0, 0)
     }
 
     pub fn reset_time(&mut self) {
         self.1 = 0;
+    }
+
+    pub fn set_version(&mut self, version: u32) {
+        self.2 = version;
+    }
+
+    pub fn version(&self) -> u32 {
+        self.2
     }
 
     pub fn time(&mut self) -> Result<f32> {
@@ -200,8 +208,8 @@ impl<T: BinaryData> BinaryData for Keyframe<T> {
                 let b = r.read::<u8>()?;
                 match b & 0xC0 {
                     0 => StaticTween::get_rc(b),
-                    0x80 => Rc::new(ClampedTween::new(b & 0x7f, r.read()?..r.read()?)),
-                    0xC0 => Rc::new(BezierTween::new((r.read()?, r.read()?), (r.read()?, r.read()?))),
+                    0x80 => Arc::new(ClampedTween::new(b & 0x7f, r.read()?..r.read()?)),
+                    0xC0 => Arc::new(BezierTween::new((r.read()?, r.read()?), (r.read()?, r.read()?))),
                     _ => panic!("invalid tween"),
                 }
             },
@@ -401,6 +409,12 @@ impl BinaryData for JudgeLine {
         let ctrl_obj = RefCell::new(r.read()?);
         let incline = r.read()?;
         let z_index = r.read()?;
+        // 向后兼容：版本 >= 1 才有 texture_anchor 字段
+        let (anchor_x, anchor_y) = if r.version() >= 1 {
+            (r.read::<f32>()?, r.read::<f32>()?)
+        } else {
+            (0.5, 0.5)
+        };
         Ok(Self {
             object,
             kind,
@@ -410,6 +424,7 @@ impl BinaryData for JudgeLine {
             parent,
             rot_with_parent,
             show_below,
+            texture_anchor: (anchor_x, anchor_y),
 
             attach_ui,
             ctrl_obj,
@@ -452,6 +467,8 @@ impl BinaryData for JudgeLine {
         w.write(self.ctrl_obj.borrow().deref())?;
         w.write(&self.incline)?;
         w.write(&self.z_index)?;
+        w.write_val(self.texture_anchor.0)?;
+        w.write_val(self.texture_anchor.1)?;
         Ok(())
     }
 }
@@ -471,16 +488,36 @@ impl BinaryData for ChartSettings {
     }
 }
 
+const CHART_MAGIC: u32 = 0x52494850; // "PHIR" little-endian
+const CHART_VERSION: u32 = 1;
+
 impl BinaryData for Chart {
     fn read_binary<R: Read>(r: &mut BinaryReader<R>) -> Result<Self> {
-        let offset = r.read()?;
-        let mut lines = r.array()?;
-        process_lines(&mut lines);
-        let settings = r.read()?;
-        Ok(Chart::new(offset, lines, BpmList::new(vec![(0., 60.)]), settings, ChartExtra::default(), HashMap::new()))
+        // 尝试读取 magic number 判断版本
+        let first = r.0.read_u32::<LE>()?;
+        if first == CHART_MAGIC {
+            // 新版本
+            let version = r.0.read_u32::<LE>()?;
+            r.set_version(version);
+            let offset = r.read()?;
+            let mut lines = r.array()?;
+            process_lines(&mut lines);
+            let settings = r.read()?;
+            Ok(Chart::new(offset, lines, BpmList::new(vec![(0., 60.)]), settings, ChartExtra::default(), HashMap::new()))
+        } else {
+            // 旧版本：first 是 offset 的位模式
+            r.set_version(0);
+            let offset = f32::from_bits(first);
+            let mut lines = r.array()?;
+            process_lines(&mut lines);
+            let settings = r.read()?;
+            Ok(Chart::new(offset, lines, BpmList::new(vec![(0., 60.)]), settings, ChartExtra::default(), HashMap::new()))
+        }
     }
 
     fn write_binary<W: Write>(&self, w: &mut BinaryWriter<W>) -> Result<()> {
+        w.0.write_u32::<LE>(CHART_MAGIC)?;
+        w.0.write_u32::<LE>(CHART_VERSION)?;
         w.write_val(self.offset)?;
         w.array(&self.lines)?;
         w.write(&self.settings)?;
