@@ -66,6 +66,7 @@ struct RoomDetail {
     locked: bool,
     players: Vec<String>,
     current_chart: Option<crate::server::CurrentChart>,
+    spectator_count: usize,
 }
 
 #[derive(serde::Deserialize)]
@@ -494,6 +495,7 @@ async fn room_detail_handler(
     let player_names = users.iter()
         .map(|user| user.name.clone())
         .collect::<Vec<_>>();
+    let monitors = room.monitors().await;
     
     let current_chart = room.chart.read().await.as_ref().map(|chart| crate::server::CurrentChart {
         id: chart.id,
@@ -508,6 +510,7 @@ async fn room_detail_handler(
         locked: room.is_locked(),
         players: player_names,
         current_chart,
+        spectator_count: monitors.len(),
     };
     
     Ok(Json(detail))
