@@ -988,6 +988,31 @@ impl SongScene {
         )
     }
 
+    /// 观战：加载对方正在游玩的谱面，并按远端判定事件同步播放（对方视角同步）。
+    /// `source` 由多人面板的后台任务持续喂入对方的判定事件与时间参考。
+    #[must_use]
+    pub fn global_launch_spectate(id: Option<i32>, local_path: &str, source: Arc<prpr::scene::SpectateSource>) -> Result<LocalSceneTask> {
+        // 交给 GameScene 构造时取走（见 prpr::scene::PENDING_SPECTATE）
+        *prpr::scene::PENDING_SPECTATE.lock().unwrap() = Some(source);
+        // client 传 None：观战不发送 touch/judge，也不参与成绩上报
+        let res = Self::global_launch(
+            id,
+            local_path,
+            Mods::default(),
+            GameMode::NoRetry,
+            None,
+            None,
+            None,
+            false,
+            false,
+        );
+        if res.is_err() {
+            // 启动失败：清掉待用数据源，避免影响后续正常游玩
+            *prpr::scene::PENDING_SPECTATE.lock().unwrap() = None;
+        }
+        res
+    }
+
     /// 与 [`SongScene::global_launch`] 相同的启动流程，但以“谱面预览”模式播放（autoplay 试听等）：
     /// `preview_mode` 下谱面自然播完不进入结算页（引擎层直接弹回）；`interrupt` 为外部写入的
     /// 打断信号（如多人模式房主点了开始），置位后预览立即结束。普通游玩请用

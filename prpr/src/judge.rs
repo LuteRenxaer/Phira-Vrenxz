@@ -151,6 +151,28 @@ pub enum Judgement {
     Miss,
 }
 
+/// 观战：来自远端玩家的单条判定（由多人服务端实时广播）。
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum SpectateJudgement {
+    Perfect,
+    Good,
+    Bad,
+    Miss,
+    /// 长条按住的判定（对应本地 `Err(true)`）
+    HoldPerfect,
+    /// 长条按住的判定（对应本地 `Err(false)`）
+    HoldGood,
+}
+
+/// 观战：远端玩家的一次判定事件（时间轴为该玩家的谱面时间）。
+#[derive(Debug, Copy, Clone)]
+pub struct SpectateEvent {
+    pub time: f64,
+    pub line_id: i32,
+    pub note_id: i32,
+    pub judgement: SpectateJudgement,
+}
+
 #[cfg(not(closed))]
 #[derive(Default)]
 pub(crate) struct JudgeInner {
@@ -988,6 +1010,90 @@ impl Judge {
             });
             if !matches!(chart.lines[line_id].notes[id as usize].kind, NoteKind::Hold { .. }) {
                 note_hitsound.play(res);
+            }
+        }
+    }
+
+    /// 观战：不使用本地输入，而是按远端玩家实时广播的判定事件驱动谱面。
+    /// 事件时间轴与远端一致，因此观战画面与对方游玩同步（音符命中/失误、分数与连击都由这里产生）。
+    pub fn spectate_update(&mut self, res: &mut Resource, chart: &mut Chart, events: &[SpectateEvent]) {
+        use SpectateJudgement as SJ;
+        for ev in events {
+            let line_id = ev.line_id;
+            let note_id = ev.note_id;
+            if line_id < 0 || note_id < 0 {
+                continue;
+            }
+            let (line_id, note_id) = (line_id as usize, note_id as usize);
+            if line_id >= chart.lines.len() {
+                continue;
+            }
+            let line = &mut chart.lines[line_id];
+            if note_id >= line.notes.len() {
+                continue;
+            }
+            let note = &mut line.notes[note_id];
+            let is_hold = matches!(note.kind, NoteKind::Hold { .. });
+            let t = ev.time;
+            match ev.judgement {
+                // 长条起步：只标记为按住状态，等收到的收尾判定再计分（避免重复计分）
+                SJ::Perfect | SJ::Good if is_hold => {
+                    if matches!(note.judge, JudgeStatus::NotJudged | JudgeStatus::PreJudge) {
+                        let ok = matches!(ev.judgement, SJ::Perfect);
+                        note.judge = JudgeStatus::Hold(ok, t, 0., false, f64::INFINITY);
+                        self.judgements.borrow_mut().push((t, line_id as _, note_id as _, Err(ok)));
+                        note.hitsound.play(res);
+                    }
+                }
+                other => {
+                    // 已完成判定的音符忽略重复事件
+                    if !matches!(note.judge, JudgeStatus::NotJudged | JudgeStatus::PreJudge | JudgeStatus::Hold(..)) {
+                        continue;
+                    }
+                    let (what, hold_ok) = match other {
+                        SJ::Perfect => (Judgement::Perfect, None),
+                        SJ::Good => (Judgement::Good, None),
+                        SJ::Bad => (Judgement::Bad, None),
+                        SJ::Miss => (Judgement::Miss, None),
+                        SJ::HoldPerfect => (Judgement::Perfect, Some(true)),
+                        SJ::HoldGood => (Judgement::Good, Some(false)),
+                    };
+                    note.judge = JudgeStatus::Judged;
+                    if let Some(ok) = hold_ok {
+                        self.judgements.borrow_mut().push((t, line_id as _, note_id as _, Err(ok)));
+                    }
+                    self.commit(t, what, line_id as _, note_id as _, 0.);
+                    // 视觉：与自动演奏一致的命中特效与音效
+                    let (note_transform, note_hitsound) = {
+                        let line = &mut chart.lines[line_id];
+                        let note = &mut line.notes[note_id];
+                        let nt = if is_hold { t } else { note.time };
+                        line.object.set_time(nt);
+                        note.object.set_time(nt);
+                        (note.object.now(res), note.hitsound.clone())
+                    };
+                    let line = &chart.lines[line_id];
+                    res.with_model(line.now_transform(res, &chart.lines) * note_transform, |res| {
+                        let color = match what {
+                            Judgement::Perfect => res.res_pack.info.fx_perfect(),
+                            Judgement::Good => res.res_pack.info.fx_good(),
+                            _ => res.res_pack.info.fx_good(),
+                        };
+                        res.emit_at_origin(line.notes[note_id].rotation(line), color);
+                    });
+                    if !is_hold {
+                        note_hitsound.play(res);
+                    }
+                }
+            }
+        }
+        // 推进每行的“待判定”游标，跳过已经判定的音符（渲染依赖该游标）
+        for (line, (idx, st)) in chart.lines.iter_mut().zip(self.notes.iter_mut()) {
+            while idx
+                .get(*st)
+                .is_some_and(|id| !matches!(line.notes[*id as usize].judge, JudgeStatus::NotJudged))
+            {
+                *st += 1;
             }
         }
     }
