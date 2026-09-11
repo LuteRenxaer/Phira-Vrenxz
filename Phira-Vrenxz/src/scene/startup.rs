@@ -1,5 +1,7 @@
 //! 加载主页的加载页。仿造 prpr 的 LoadingScene,只保留背景、Tip 和右下角的加载图标。
-//! 首次启动时会解压内置资源（关卡等的压缩包）。
+//! 首次启动时会解压内置资源（本体资源包）。
+//! 内置谱面包（`assets/Level.zip` / Android 的 `Expansion_package.zip`）不再解压，
+//! 由 `crate::scene::open_builtin_level_zip` 直接从 zip 读取。
 
 use super::MainScene;
 use crate::blue_archive_tips::random_tip;
@@ -20,34 +22,28 @@ const FADE_IN_TIME: f32 = 0.5;
 /// 主页加载完成后,加载页至少再显示这么久,避免一闪而过
 const MIN_SHOW_TIME: f32 = 0.8;
 
-/// 内置资源所在目录：
-/// - 桌面端：工作目录下的 `assets`；
-/// - Android：Java 侧已把资源 zip 复制到 `<getFilesDir()>/assets`，用绝对路径，
-///   不依赖进程工作目录。
-fn assets_root() -> std::path::PathBuf {
-    #[cfg(target_os = "android")]
-    if let Some(dir) = crate::writable_data_dir() {
-        return std::path::PathBuf::from(dir).join("assets");
-    }
-    std::path::PathBuf::from("assets")
-}
-
 /// 需要解压的内置资源包
 /// (压缩包名, 描述)
-const ASSET_PACKAGES: &[(&str, &str)] = &[
-    ("Expansion_package.zip", "扩展资源包"),
-    ("Ontology_package.zip", "本体资源包"),
-];
+/// 内置谱面包现在直接读 zip，不在此列。
+const ASSET_PACKAGES: &[(&str, &str)] = &[("Ontology_package.zip", "本体资源包")];
 
-/// 检查扩展资源包是否已完整解压（只关注关卡内容）
-fn expansion_package_complete(assets_dir: &std::path::Path) -> bool {
-    dir_is_complete(assets_dir.join("Level"), "json")
+/// 检查内置谱面包是否可用（存在且能作为 zip 打开，不解压）。
+fn level_package_available(assets_dir: &std::path::Path) -> bool {
+    let Some(path) = super::builtin_level_zip_in(assets_dir) else {
+        return false;
+    };
+    match prpr::fs::ZipFileSystem::open(&path) {
+        Ok(_) => true,
+        Err(err) => {
+            eprintln!("内置谱面包无法打开 {}: {err:#}", path.display());
+            false
+        }
+    }
 }
 
-/// 检查所有资源包是否已完整解压
+/// 检查所有资源包是否已就绪
 fn all_packages_complete(assets_dir: &std::path::Path) -> bool {
-    expansion_package_complete(assets_dir)
-        && assets_dir.join("achievements_icon").exists()
+    level_package_available(assets_dir) && assets_dir.join("achievements_icon").exists()
 }
 
 /// 解压进度共享状态
@@ -77,8 +73,8 @@ impl StartupLoadingScene {
     pub fn new(fallback: FontArc) -> Self {
         let tip = random_tip();
 
-        // 检查是否需要解压（标记文件不存在且资源包不完整）
-        let assets_dir = assets_root();
+        // 检查是否需要解压（标记文件不存在且本体资源不完整）
+        let assets_dir = super::assets_root();
         let marker = assets_dir.join(".extracted_builtin");
         let need_extract = !marker.exists() && !all_packages_complete(&assets_dir);
 
@@ -128,35 +124,9 @@ impl StartupLoadingScene {
     }
 }
 
-/// 检查目录是否包含指定扩展名的文件（递归），用于判断解压是否完整
-fn dir_is_complete<P: AsRef<std::path::Path>>(dir: P, check_ext: &str) -> bool {
-    let dir = dir.as_ref();
-    if !dir.exists() {
-        return false;
-    }
-    fn has_ext(dir: &std::path::Path, check_ext: &str) -> bool {
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    if has_ext(&path, check_ext) {
-                        return true;
-                    }
-                } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if ext.eq_ignore_ascii_case(check_ext) {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
-    has_ext(dir, check_ext)
-}
-
 /// 在后台线程解压内置资源
 fn extract_builtin_assets(progress: &Arc<Mutex<ExtractProgress>>) {
-    let assets_dir = assets_root();
+    let assets_dir = super::assets_root();
     let mut all_ok = true;
 
     for (i, (archive_name, desc)) in ASSET_PACKAGES.iter().enumerate() {

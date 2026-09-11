@@ -37,7 +37,7 @@ use crate::{
     data::BriefChartInfo,
     dir, get_data,
     images::Images,
-    scene::fs_from_path,
+    scene::{fs_from_path, open_builtin_level_zip},
 };
 use anyhow::Result;
 use image::DynamicImage;
@@ -45,8 +45,8 @@ use macroquad::prelude::*;
 use prpr::{
     core::{Resource, BOLD_FONT},
     ext::{semi_black, semi_white, SafeTexture, ScaleType, BLACK_TEXTURE},
-    fs,
-    scene::{NextScene, Scene},
+    fs::{self, FileSystem, ZipFileSystem},
+    scene::{show_error, NextScene, Scene},
     task::Task,
     time::TimeManager,
     ui::{FontArc, IntoShading, Shading, TextPainter, Ui},
@@ -117,72 +117,81 @@ pub fn load_local() -> Vec<ChartItem> {
         .collect()
 }
 
+/// 内置谱面列表。
+/// 内置谱面包不再解压：直接打开 `assets/Level.zip`（Android 为 `Expansion_package.zip`），
+/// 枚举 `Level/<谱师目录>/Level.json` 里列出的谱面，谱面信息同样从 zip 内的 `.pez` 解析。
+/// 压缩包缺失或损坏时返回空列表（并给出提示），不会 panic。
 pub fn load_builtin_task() -> Task<Result<Vec<ChartItem>>> {
     Task::new(async move {
         let tex = BLACK_TEXTURE.clone();
-        let level_dir = "assets/Level";
         let mut charts = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(level_dir) {
-            for entry in entries.flatten() {
-                let file_name = entry.file_name().to_string_lossy().to_string();
-                let full_path = entry.path();
-                if full_path.is_dir() {
-                    // 谱师文件夹：读取 Level.json
-                    let level_json_path = full_path.join("Level.json");
-                    if let Ok(content) = std::fs::read_to_string(&level_json_path) {
-                        if let Ok(level_data) = serde_json::from_str::<Vec<serde_json::Value>>(&content) {
-                            // 解析谱师信息
-                            let author = level_data.iter().find_map(|v| {
-                                let name = v.get("name")?.as_str()?;
-                                let terrace = v.get("terrace")?.as_str()?;
-                                let link = v.get("link")?.as_str()?;
-                                Some(LevelAuthor {
-                                    name: name.to_string(),
-                                    terrace: terrace.to_string(),
-                                    link: link.to_string(),
-                                })
-                            });
-                            // 找到 level 字段
-                            let level_list = level_data.iter().find_map(|v| v.get("level").and_then(|l| l.as_str()));
-                            if let Some(level_str) = level_list {
-                                for pez_name in level_str.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
-                                    let pez_path = full_path.join(pez_name);
-                                    if pez_path.exists() {
-                                        let path_str = format!("builtin:{}/{}", file_name, pez_name);
-                                        if let Ok(mut fs) = prpr::fs::fs_from_file(&pez_path) {
-                                            if let Ok(info) = prpr::fs::load_info(fs.deref_mut()).await {
-                                                charts.push(ChartItem {
-                                                    info: BriefChartInfo { id: None, ..info.into() },
-                                                    local_path: Some(path_str.clone()),
-                                                    illu: local_illustration(path_str, tex.clone(), false),
-                                                    chart_type: ChartType::Imported,
-                                                    level_author: author.clone(),
-                                                    xcsim_preview_url: None,
-                                                    xcsim_illustration_url: None,
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+        let mut zip = match open_builtin_level_zip() {
+            Ok(it) => it,
+            Err(err) => {
+                warn!("failed to open builtin level package: {err:#}");
+                // 压缩包存在却打不开（损坏）时给用户明确提示；只是缺失（开发环境）只记日志。
+                if crate::scene::builtin_level_zip_present() {
+                    show_error(err);
+                }
+                return Ok(charts);
+            }
+        };
+        // 每个谱师一个目录；根目录下的散文件（如 提示.txt）不作为谱面
+        for entry in zip.list_dir("") {
+            let Some(file_name) = entry.strip_suffix('/').filter(|it| !it.is_empty()) else {
+                continue;
+            };
+            let file_name = file_name.to_owned();
+            let Ok(content) = zip.load_file(&format!("{file_name}/Level.json")).await else {
+                continue;
+            };
+            let Ok(level_data) = serde_json::from_slice::<Vec<serde_json::Value>>(&content) else {
+                continue;
+            };
+            // 解析谱师信息
+            let author = level_data.iter().find_map(|v| {
+                let name = v.get("name")?.as_str()?;
+                let terrace = v.get("terrace")?.as_str()?;
+                let link = v.get("link")?.as_str()?;
+                Some(LevelAuthor {
+                    name: name.to_string(),
+                    terrace: terrace.to_string(),
+                    link: link.to_string(),
+                })
+            });
+            // 找到 level 字段
+            let Some(level_str) = level_data.iter().find_map(|v| v.get("level").and_then(|l| l.as_str())) else {
+                continue;
+            };
+            for pez_name in level_str.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                let rel_path = format!("{file_name}/{pez_name}");
+                let path_str = format!("builtin:{rel_path}");
+                let bytes = match zip.load_file(&rel_path).await {
+                    Ok(it) => it,
+                    Err(err) => {
+                        warn!("builtin chart {rel_path} is missing: {err:#}");
+                        continue;
                     }
-                } else {
-                    // 兼容旧结构：直接放文件
-                    let path_str = format!("builtin:{file_name}");
-                    if let Ok(mut fs) = prpr::fs::fs_from_file(&full_path) {
-                        if let Ok(info) = prpr::fs::load_info(fs.deref_mut()).await {
-                            charts.push(ChartItem {
-                                info: BriefChartInfo { id: None, ..info.into() },
-                                local_path: Some(path_str.clone()),
-                                illu: local_illustration(path_str, tex.clone(), false),
-                                chart_type: ChartType::Imported,
-                                level_author: None,
-                                xcsim_preview_url: None,
-                                xcsim_illustration_url: None,
-                            });
-                        }
+                };
+                // 压缩包里的压缩包（.pez / .zip 谱面）
+                let mut inner = match ZipFileSystem::new(bytes) {
+                    Ok(it) => it,
+                    Err(err) => {
+                        warn!("builtin chart {rel_path} is not an archive: {err:#}");
+                        continue;
                     }
+                };
+                match fs::load_info(&mut inner).await {
+                    Ok(info) => charts.push(ChartItem {
+                        info: BriefChartInfo { id: None, ..info.into() },
+                        local_path: Some(path_str.clone()),
+                        illu: local_illustration(path_str, tex.clone(), false),
+                        chart_type: ChartType::Imported,
+                        level_author: author.clone(),
+                        xcsim_preview_url: None,
+                        xcsim_illustration_url: None,
+                    }),
+                    Err(err) => warn!("failed to load info of builtin chart {rel_path}: {err:#}"),
                 }
             }
         }
