@@ -54,6 +54,20 @@ preview-interrupted-title = The host is starting the game!
 preview-interrupted-content = The host is starting the game! Ready to join?
 preview-ready = Ready
 preview-not-now = Not now
+preview-started-title = The host has started the game
+preview-started-content = The host started this round while you were previewing the chart. You can play together again next round.
+preview-started-ok = Got it
+# Spectating
+spectate = Spectate
+spectate-title = Spectating
+spectate-close = Close
+spectate-none = No one is playing right now.
+spectate-waiting = Waiting…
+spectate-watch = Watch Chart
+spectate-exit = Exit Spectate
+spectate-no-chart = No chart available to watch.
+spectate-joined = Spectating
+spectate-chart = Now playing: { $chart }
 
 lock-room = { $current ->
   [true] Unlock Room
@@ -148,6 +162,6 @@ mp-manage-transfer = Make host
 mp-manage-kick = Kick out
 mp-manage-cancel = Cancel
 user-list-hint = Tap outside to close
-room-list-tap-hint = Tap a row to join · tap outside to close
+room-list-tap-hint = Tap a row to join · tap Spectate to watch · tap outside to close
 mp-room-locked = 🔒 Password
 mp-room-counts = { $players } players / { $spectators } watching

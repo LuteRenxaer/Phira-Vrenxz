@@ -47,6 +47,20 @@ preview-interrupted-title = 房主要開始遊戲啦！
 preview-interrupted-content = 房主要開始遊戲啦！是否準備？
 preview-ready = 準備
 preview-not-now = 暫不
+preview-started-title = 房主已經開始遊戲了
+preview-started-content = 你還在預覽譜面時房主開始了這一局。本局結束後可以繼續一起遊玩。
+preview-started-ok = 知道了
+# 觀戰
+spectate = 觀戰
+spectate-title = 觀戰中
+spectate-close = 關閉
+spectate-none = 暫無玩家在遊玩
+spectate-waiting = 等待中…
+spectate-watch = 觀看譜面
+spectate-exit = 退出觀戰
+spectate-no-chart = 目前沒有可觀看的譜面
+spectate-joined = 已進入觀戰
+spectate-chart = 正在遊玩：{ $chart }
 lock-room =
     { $current ->
         [true] 解鎖房間
@@ -132,7 +146,7 @@ mp-manage-transfer = 設為房主
 mp-manage-kick = 移出房間
 mp-manage-cancel = 取消
 user-list-hint = 點擊空白處關閉
-room-list-tap-hint = 點擊房間行加入 · 點擊空白處關閉
+room-list-tap-hint = 點擊房間行加入 · 右側「觀戰」圍觀對局 · 點擊空白處關閉
 mp-room-locked = 🔒 需要密碼
 mp-room-counts = { $players } 名玩家 / { $spectators } 名觀戰
 
