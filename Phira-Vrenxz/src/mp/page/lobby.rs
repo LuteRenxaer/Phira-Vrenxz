@@ -54,8 +54,7 @@ pub struct View<'a> {
 }
 
 /// 右下角小按钮的尺寸。
-const SMALL_BTN_H: f32 = 0.095;
-const SMALL_BTN_W_MAX: f32 = 0.42;
+const SMALL_BTN_H: f32 = 0.115 * SCALE;
 
 #[derive(Default)]
 pub struct LobbyPage {
@@ -107,47 +106,34 @@ impl LobbyPage {
             None,
         );
 
-        // —— 右下角按钮簇（2×2，整体贴右下角）——
-        let cluster_w = (SMALL_BTN_W_MAX * 2. + BAR_COL_GAP).min(f.body.w * 0.5);
-        let bw = (cluster_w - BAR_COL_GAP) / 2.;
-        let bh = SMALL_BTN_H;
-        let cluster = Rect::new(f.body.right() - cluster_w, f.body.bottom() - bh * 2. - BAR_ROW_GAP, cluster_w, bh * 2. + BAR_ROW_GAP);
-        theme::button(ui, &mut self.create, t, Rect::new(cluster.x, cluster.y, bw, bh), mtl!("create-room"), FS_SMALL, primary(accent), WHITE);
-        theme::button(
+        // —— 右下角按钮：一条靠右的小按钮带（宽度按文字走，不再是 2×2 的小方块阵）——
+        let labels: Vec<String> = vec![
+            mtl!("create-room").into_owned(),
+            mtl!("join-room").into_owned(),
+            mtl!("mp-refresh").into_owned(),
+            mtl!("disconnect").into_owned(),
+        ];
+        let (bar, rects) = theme::button_bar(
             ui,
-            &mut self.join,
-            t,
-            Rect::new(cluster.x + bw + BAR_COL_GAP, cluster.y, bw, bh),
-            mtl!("join-room"),
-            FS_SMALL,
-            secondary(),
-            text(),
+            &labels,
+            f.body.x,
+            f.body.right(),
+            f.body.bottom(),
+            SMALL_BTN_H,
+            BAR_ROW_GAP,
+            BAR_COL_GAP,
+            theme::BarAlign::Right,
         );
-        theme::button(
-            ui,
-            &mut self.refresh,
-            t,
-            Rect::new(cluster.x, cluster.y + bh + BAR_ROW_GAP, bw, bh),
-            mtl!("mp-refresh"),
-            FS_SMALL,
-            secondary(),
-            text(),
-        );
-        theme::button(
-            ui,
-            &mut self.disconnect,
-            t,
-            Rect::new(cluster.x + bw + BAR_COL_GAP, cluster.y + bh + BAR_ROW_GAP, bw, bh),
-            mtl!("disconnect"),
-            FS_SMALL,
-            danger(),
-            WHITE,
-        );
+        let size = (SMALL_BTN_H * 3.4).clamp(0.22, FS_SMALL);
+        theme::button(ui, &mut self.create, t, rects[0], labels[0].clone(), size, primary(accent), WHITE);
+        theme::button(ui, &mut self.join, t, rects[1], labels[1].clone(), size, secondary(), text());
+        theme::button(ui, &mut self.refresh, t, rects[2], labels[2].clone(), size, secondary(), text());
+        theme::button(ui, &mut self.disconnect, t, rects[3], labels[3].clone(), size, danger(), WHITE);
 
-        // —— 中央：公共房间列表（列表底部留出按钮簇的高度）——
+        // —— 中央：公共房间列表（列表底部留出按钮带的高度）——
         let list_w = f.body.w.min(theme::MAX_LIST_W);
         let list_x = f.body.x + (f.body.w - list_w) / 2.;
-        let list_h = (cluster.y - BAR_GAP - f.body.y).max(0.12);
+        let list_h = (bar.y - BAR_GAP - f.body.y).max(0.12);
         let list = Rect::new(list_x, f.body.y, list_w, list_h);
         let rooms = v.rooms.unwrap_or(&[]);
 
@@ -180,7 +166,7 @@ impl LobbyPage {
         let row_h = ROW_TALL;
         let step = row_h + ROW_GAP;
         let view_h = rooms.len() as f32 * step;
-        let watch_w = 0.22f32.min(list_w * 0.26);
+        let watch_w = 0.27f32.min(list_w * 0.26) * SCALE;
         self.ids.clear();
         self.rows.resize_with(rooms.len(), DRectButton::new);
         self.watches.resize_with(rooms.len(), DRectButton::new);

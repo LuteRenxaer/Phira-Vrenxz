@@ -30,7 +30,7 @@ pub enum Action {
 }
 
 /// 三行信息（名字 / 分数 / 明细）所需的行高。
-const ROW_H: f32 = 0.2;
+const ROW_H: f32 = 0.245 * SCALE;
 
 #[derive(Default)]
 pub struct ResultsPage {
@@ -99,7 +99,7 @@ impl ResultsPage {
         if abort > 0 {
             parts.push(format!("{abort} {}", mtl!("results-aborted")));
         }
-        let summary_h = 0.14f32.min(f.body.h * 0.3);
+        let summary_h = 0.17f32.min(f.body.h * 0.3 * SCALE);
         let summary = Rect::new(f.body.x, f.body.y, f.body.w, summary_h);
         theme::card_accented(ui, summary, card(), accent);
         theme::text_left(
@@ -158,7 +158,7 @@ impl ResultsPage {
                     };
                     theme::text_left(ui, rr.x + CARD_PAD, rr.y + rr.h * 0.3, FS_SECTION, mark_color, &mark, 0.24);
 
-                    let name_x = rr.x + CARD_PAD + 0.26;
+                    let name_x = rr.x + CARD_PAD + 0.32 * SCALE;
                     let mut tags_right = rr.x + rr.w * 0.62;
                     if is_me {
                         let s = mtl!("mp-you");

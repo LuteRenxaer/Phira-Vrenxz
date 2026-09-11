@@ -39,14 +39,14 @@ impl ConnectPage {
 
         // 卡片：竖向居中偏上，宽度受限于内容区且不超过 1.2（避免平板横屏上过宽）
         let cw = f.body.w.min(1.2);
-        let ch = (0.34f32).min(f.body.h * 0.9);
+        let ch = (0.42f32 * SCALE).min(f.body.h * 0.9);
         let cx = f.body.x + (f.body.w - cw) / 2.;
         let cy = f.body.y + (f.body.h - ch).max(0.) * 0.42;
         let card_r = Rect::new(cx, cy, cw, ch);
         theme::card_rect(ui, card_r, card_soft());
 
         ui.text(mtl!("mp-connect-hint"))
-            .pos(card_r.center().x, card_r.y + 0.05)
+            .pos(card_r.center().x, card_r.y + 0.06 * SCALE)
             .anchor(0.5, 0.)
             .size(FS_SMALL)
             .color(text_dim())
@@ -58,15 +58,15 @@ impl ConnectPage {
         let aw = (ui.text(addr.as_str()).size(FS_SMALL).measure().w + 0.07).min(card_r.w - 0.08);
         theme::pill_text(
             ui,
-            Rect::new(card_r.center().x - aw / 2., card_r.y + 0.135, aw, 0.055),
+            Rect::new(card_r.center().x - aw / 2., card_r.y + 0.165 * SCALE, aw, 0.068 * SCALE),
             addr.as_str(),
             FS_SMALL,
             card(),
             text_muted(),
         );
 
-        let bw = (cw - 0.12).min(0.62);
-        let br = Rect::new(card_r.center().x - bw / 2., card_r.bottom() - 0.035 - BAR_BTN_H, bw, BAR_BTN_H);
+        let bw = (cw - 0.15 * SCALE).min(0.76 * SCALE);
+        let br = Rect::new(card_r.center().x - bw / 2., card_r.bottom() - 0.045 * SCALE - BAR_BTN_H, bw, BAR_BTN_H);
         if v.connecting {
             theme::button_static(ui, br, mtl!("mp-connecting"), FS_BUTTON, secondary(), text_dim());
             theme::progress_bar(

@@ -52,8 +52,8 @@ pub struct View<'a> {
     pub icon: &'a SafeTexture,
 }
 
-/// 玩家行的图标：行高按"名字 + 两行数据"来定。
-const ROW_H: f32 = 0.19;
+/// 玩家行的行高：一行名字 + 两行数据。
+const ROW_H: f32 = 0.24 * SCALE;
 
 #[derive(Default)]
 pub struct SpectatePage {
@@ -107,7 +107,7 @@ impl SpectatePage {
         );
 
         // —— 概要卡：谱面 / 人数 / 已开局人数 / 最高分 ——
-        let summary_h = 0.16f32.min(f.body.h * 0.3);
+        let summary_h = 0.2f32.min(f.body.h * 0.3 * SCALE);
         let summary = Rect::new(f.body.x, f.body.y, f.body.w, summary_h);
         theme::card_accented(ui, summary, card(), accent);
         let scoring: Vec<&SpectateStat> = v.stats.values().filter(|s| s.total() > 0).collect();
@@ -155,7 +155,7 @@ impl SpectatePage {
                     let st = v.stats.get(id).copied().unwrap_or_default();
                     theme::row_button(ui, &mut self.rows[i], t, rr, selected, accent, |ui, r| {
                         // 左：头像 + 名字 + 徽标
-                        let avr = (r.h * 0.26).min(0.036);
+                        let avr = (r.h * 0.26).min(0.044 * SCALE);
                         let cx = r.x + CARD_PAD + avr;
                         ui.avatar(cx, r.center().y, avr, t, UserManager::opt_avatar(*id, v.icon));
                         let name_x = cx + avr + 0.028;

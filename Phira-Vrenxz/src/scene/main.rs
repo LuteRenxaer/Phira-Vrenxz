@@ -54,6 +54,37 @@ fn position_file() -> Result<String> {
     Ok(format!("{}/mp-pos", dir::root()?))
 }
 
+/// 多人场景的底图：把 `backgrounds/mp_bg.png` 缩到 256 再高斯模糊，顺带压暗一档。
+///
+/// 和登录页的 `load_blurred_bg` 是同一套做法。理由：原图里有不少高对比细节，
+/// 直接铺满会跟界面上的文字、面片抢注意力（看着乱而且"脏"）；
+/// 模糊 + 压暗之后是一张柔和的深色底，浅色玻璃面片和白色文字都能立住。
+async fn load_mp_background() -> Result<SafeTexture> {
+    let bytes = load_file("backgrounds/mp_bg.png").await?;
+    let img = image::load_from_memory(&bytes)?;
+    let img = img.thumbnail(256, 256);
+    let rgb = img.to_rgb8();
+    let (w, h) = (rgb.width() as usize, rgb.height() as usize);
+    let mut pixels: Vec<[u8; 3]> = rgb.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect();
+    fastblur::gaussian_blur(&mut pixels, w, h, 24.0);
+    let mut rgba = Vec::with_capacity(w * h * 4);
+    for p in &pixels {
+        rgba.extend_from_slice(&[
+            (p[0] as f32 * 0.8) as u8,
+            (p[1] as f32 * 0.8) as u8,
+            (p[2] as f32 * 0.85) as u8,
+            255,
+        ]);
+    }
+    let tex = Texture2D::from_image(&Image {
+        width: w as _,
+        height: h as _,
+        bytes: rgba,
+    });
+    tex.set_filter(FilterMode::Linear);
+    Ok(SafeTexture::from(tex))
+}
+
 pub struct MainScene {
     state: SharedState,
 
@@ -221,9 +252,9 @@ impl MainScene {
     async fn new_inner(bgm: Option<Music>, fallback: FontArc) -> Result<Self> {
         let state = SharedState::new(fallback).await?;
         let icon_user = load_texture("icons/user.png").await?;
-        // 多人场景专用背景（失败时退回全局背景）
-        let mp_background = match load_texture("backgrounds/mp_bg.png").await {
-            Ok(tex) => SafeTexture::from(tex),
+        // 多人场景专用背景（模糊 + 压暗后的 mp_bg；失败时退回全局背景）
+        let mp_background = match load_mp_background().await {
+            Ok(tex) => tex,
             Err(err) => {
                 warn!("failed to load multiplayer background: {err}");
                 TEX_BACKGROUND.with(|it| it.borrow().clone().unwrap())
@@ -245,6 +276,10 @@ impl MainScene {
         };
         // 多人会话（跨场景存活）：多人场景只是它的一层视图壳
         MP_SESSION.with(|it| *it.borrow_mut() = Some(MpSession::new(icon_user.into(), mp_background, mp_bgm)));
+        // 本地核对界面用：PHIRA_MP_DEV 非空时直接进多人场景（正常运行为空）
+        if std::env::var_os("PHIRA_MP_DEV").is_some() {
+            crate::mp::request_enter();
+        }
         Ok(Self {
             state,
 
