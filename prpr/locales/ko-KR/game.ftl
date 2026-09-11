@@ -9,3 +9,4 @@ speed = 속도
 ex-time-out-of-range = 시간이 범위를 벗어났습니다
 ex-invalid-format = 잘못된 형식
 ex-time-set = 시간 번경됨
+spectate-remote-paused = 플레이어가 일시정지 중

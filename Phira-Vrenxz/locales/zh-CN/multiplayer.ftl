@@ -119,6 +119,12 @@ msg-game-end = 游戏结束
 msg-abort = `{ $user }` 放弃了游戏
 msg-kicked-me = 你已被房主移出房间
 msg-kicked = `{ $user }` 已被房主移出房间
+# 本地谱面分享 / 暂停同步（观战）
+msg-select-local-chart = `{ $user }` 选择了本地谱面: { $chart }
+msg-send-chart = `{ $user }` 开始分享谱面
+msg-download-ready = `{ $user }` 谱面下载完成
+msg-player-paused = `{ $user }` 暂停了游戏
+msg-player-resumed = `{ $user }` 继续了游戏
 msg-room-results = 本局结算：{ $n } 位玩家完成，点击查看排名
 results-title = 对局结算
 results-aborted = 中途放弃

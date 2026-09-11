@@ -119,6 +119,12 @@ msg-game-end = Game ended.
 msg-abort = `{ $user }` aborted the game.
 msg-kicked-me = You have been removed from the room by the host.
 msg-kicked = `{ $user }` has been removed from the room by the host.
+# Local chart sharing / pause sync (spectating)
+msg-select-local-chart = `{ $user }` selected a local chart: { $chart }
+msg-send-chart = `{ $user }` started sharing the chart
+msg-download-ready = `{ $user }` finished downloading the chart
+msg-player-paused = `{ $user }` paused the game
+msg-player-resumed = `{ $user }` resumed the game
 msg-room-results = Round finished: { $n } players. Tap to view ranking.
 results-title = Round Results
 results-aborted = Aborted
