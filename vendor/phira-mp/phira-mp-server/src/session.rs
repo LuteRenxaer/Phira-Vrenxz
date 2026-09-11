@@ -38,6 +38,9 @@ pub struct User {
     pub room: RwLock<Option<Arc<Room>>>,
 
     pub monitor: AtomicBool,
+    /// 该玩家当前是否暂停了游戏（由 PauseState 上报维护）。观战者中途加入时据此补发暂停状态，
+    /// 避免“对方已暂停时才进观战”看不到暂停画面。
+    pub paused: AtomicBool,
     pub game_time: AtomicU32,
 
     pub dangle_mark: Mutex<Option<Arc<()>>>,
@@ -53,6 +56,7 @@ impl User {
             session: RwLock::default(),
             room: RwLock::default(),
             monitor: AtomicBool::default(),
+            paused: AtomicBool::default(),
             game_time: AtomicU32::default(),
             dangle_mark: Mutex::default(),
         }
@@ -616,6 +620,16 @@ async fn join_room_impl(
         {
             user.try_send(ServerCommand::Message(Message::SelectLocalChart { user: 0, id, name }))
                 .await;
+        }
+        // 补发当前已暂停的玩家：观战者在对方已经暂停时才进房，也能立刻看到暂停画面
+        for u in room.users().await {
+            if u.paused.load(Ordering::SeqCst) {
+                user.try_send(ServerCommand::Message(Message::PlayerPaused {
+                    user: u.id,
+                    paused: true,
+                }))
+                .await;
+            }
         }
     }
     room.broadcast(ServerCommand::OnJoinRoom(user.to_info()))
@@ -1579,6 +1593,7 @@ async fn process(user: Arc<User>, cmd: ClientCommand) -> Option<ServerCommand> {
         ClientCommand::PauseState { paused } => {
             // 玩家暂停/继续：广播给房间内所有人（含观战者），观战端据此显示暂停画面。
             // 不需要应答（返回值 None），发送方也不等待回执。
+            user.paused.store(paused, Ordering::SeqCst);
             let room_opt = user.room.read().await.as_ref().map(Arc::clone);
             match room_opt {
                 Some(room) => {
