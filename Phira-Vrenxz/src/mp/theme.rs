@@ -22,58 +22,64 @@ use crate::{client::UserManager, mp::L10N_LOCAL};
 // ============================ 尺寸系统 ============================
 
 /// 竖屏页面左右边距。
-pub const PAGE_PAD: f32 = 0.055;
+pub const PAGE_PAD: f32 = 0.05;
 /// 横屏页面左右边距（横屏更宽松）。
-pub const PAGE_PAD_WIDE: f32 = 0.09;
+pub const PAGE_PAD_WIDE: f32 = 0.08;
 /// 页头距屏幕顶端。
-pub const HEADER_TOP: f32 = 0.04;
-/// 页头高度（返回按钮与标题同一行）。
-pub const HEADER_H: f32 = 0.11;
+pub const HEADER_TOP: f32 = 0.035;
+/// 页头高度（返回按钮与标题同一行）。对齐本体标题行 / 控件高度（约 0.1~0.12）。
+pub const HEADER_H: f32 = 0.12;
 /// 返回按钮的相对内边距（图标与按钮边缘的距离系数）。
 pub const HEADER_ICON_INSET: f32 = 0.02;
 /// 页头与内容区的间距。
 pub const BODY_GAP: f32 = 0.035;
 /// 内容区与底部操作条的间距。
 pub const BAR_GAP: f32 = 0.03;
-/// 底部操作条按钮高度。
-pub const BAR_BTN_H: f32 = 0.115;
-/// 底部操作条换行时的行间距。
-pub const BAR_ROW_GAP: f32 = 0.025;
-/// 底部操作条同一行内按钮的水平间距。
-pub const BAR_COL_GAP: f32 = 0.03;
-/// 底部操作条按钮的最小宽度。
+/// 操作条按钮高度。本体控件高度约 0.1，这里略大一点保证移动端触控面积。
+pub const BAR_BTN_H: f32 = 0.12;
+/// 操作条换行时的行间距。
+pub const BAR_ROW_GAP: f32 = 0.02;
+/// 操作条同一行内按钮的水平间距。
+pub const BAR_COL_GAP: f32 = 0.025;
+/// 操作条按钮的最小宽度。
 pub const BAR_BTN_MIN_W: f32 = 0.2;
 /// 带第二行信息的列表行高。
-pub const ROW_TALL: f32 = 0.15;
+pub const ROW_TALL: f32 = 0.13;
 /// 列表行之间的间距。
-pub const ROW_GAP: f32 = 0.016;
+pub const ROW_GAP: f32 = 0.015;
 /// 区块之间的间距。
-pub const SECTION_GAP: f32 = 0.028;
+pub const SECTION_GAP: f32 = 0.03;
 /// 区块内边距。
 pub const CARD_PAD: f32 = 0.03;
-/// 圆角。
-pub const R_CARD: f32 = 0.018;
-pub const R_ROW: f32 = 0.012;
-pub const R_BTN: f32 = 0.012;
+/// 圆角。**统一取 0.01**：本体页面用的就是这种接近直角的面片（`rounded(0.01)`），
+/// 大圆角会让多人界面显得像外挂的卡片式 App，而不是游戏本体的一部分。
+pub const R_CARD: f32 = 0.01;
+pub const R_ROW: f32 = 0.008;
+pub const R_BTN: f32 = 0.01;
 /// 宽屏时列表的最大宽度（避免超宽屏上单行过长、正文难读）。
 pub const MAX_LIST_W: f32 = 1.74;
 
 // ============================ 字号层级 ============================
+//
+// 取值对齐游戏本体的习惯（见 `page/library.rs`、`page/settings.rs`）：
+// 标题 0.7 / 区块 0.5 / 正文 0.4 / 次要 0.35。
+// 之前这套用的是 0.52/0.42/0.38/0.31 —— 整体偏小，而且相邻层级只差 0.04，
+// 视觉上"糊成一片、没有层次"，这正是多人界面看着平、看着难看的主因。
 
-/// 页面标题。
-pub const FS_PAGE_TITLE: f32 = 0.52;
+/// 页面标题（配合 `BOLD_FONT` 使用）。
+pub const FS_PAGE_TITLE: f32 = 0.7;
 /// 区块标题 / 卡片主标题。
-pub const FS_SECTION: f32 = 0.42;
+pub const FS_SECTION: f32 = 0.5;
 /// 正文（列表主文本）。
-pub const FS_BODY: f32 = 0.38;
+pub const FS_BODY: f32 = 0.4;
 /// 次要说明文字。
-pub const FS_SMALL: f32 = 0.31;
-/// 按钮文本。
-pub const FS_BUTTON: f32 = 0.4;
-/// 徽标文本。
-pub const FS_TAG: f32 = 0.28;
+pub const FS_SMALL: f32 = 0.35;
+/// 按钮文本。本体的按钮文字就是 0.5。
+pub const FS_BUTTON: f32 = 0.5;
+/// 徽标文本（比正文小一档，但仍要清晰可读）。
+pub const FS_TAG: f32 = 0.32;
 /// 大号强调文本（分数等）。
-pub const FS_BIG: f32 = 0.6;
+pub const FS_BIG: f32 = 0.7;
 
 // ============================ 颜色 ============================
 
@@ -149,9 +155,12 @@ pub fn tag_accent(accent: Color) -> Color {
 }
 
 /// 选中行 / 自己所在行的底色。
+///
+/// 本体页面的选中态是"加深底色"（`semi_black(0.5)`，见 `page/library.rs` 的页签），
+/// 而不是给整行铺一层主色——主色只留给主按钮与徽标，这样主色才有份量。
 #[inline]
-pub fn row_selected(accent: Color) -> Color {
-    color_alpha(accent, 0.2)
+pub fn row_selected(_accent: Color) -> Color {
+    semi_black(0.5)
 }
 
 // ============================ 页面骨架 ============================
@@ -208,24 +217,12 @@ pub fn frame(ui: &Ui, bar_h: f32) -> Frame {
     Frame { header, body, bar, wide }
 }
 
-/// 页头：左侧返回按钮 + 标题（+ 可选副标题）+ 可选右侧按钮。
+/// 返回按钮（方块底 + 返回图标）。
 ///
-/// 返回按钮与右侧按钮都用调用方持有的 `DRectButton` 渲染，因此渲染与触摸天然同源
-/// （触摸侧对同一个按钮调用 `touch`）。
-pub fn header(
-    ui: &mut Ui,
-    r: Rect,
-    back: &mut DRectButton,
-    right: &mut DRectButton,
-    t: f32,
-    title: &str,
-    sub: Option<&str>,
-    right_btn: Option<(&str, Color, Color)>,
-) {
-    // —— 返回 ——
-    let bs = r.h;
-    let br = Rect::new(r.x, r.y, bs, bs);
-    back.build(ui, t, br, |ui, path| {
+/// 与 [`header`] 用的是同一套画法；房间页这类"标题画在内容区"的页面用它单独排一个
+/// 细页头，避免整页再压一条标题行。
+pub fn back_button(ui: &mut Ui, btn: &mut DRectButton, t: f32, br: Rect) {
+    btn.build(ui, t, br, |ui, path| {
         ui.fill_path(&path, secondary());
         match crate::scene::TEX_ICON_BACK.with(|it| it.borrow().clone()) {
             Some(icon) => {
@@ -243,6 +240,50 @@ pub fn header(
             }
         }
     });
+}
+
+/// 无底色文本按钮（如房间页右上角的「离开房间」）：只画文字，命中区照旧由
+/// `DRectButton` 登记，因此渲染与触摸同源。
+pub fn text_button<'a>(
+    ui: &mut Ui,
+    btn: &mut DRectButton,
+    t: f32,
+    r: Rect,
+    label: impl Into<std::borrow::Cow<'a, str>>,
+    size: f32,
+    color: Color,
+) {
+    let label = label.into();
+    btn.build(ui, t, r, |ui, _| {
+        ui.text(label.as_ref())
+            .pos(r.center().x, r.center().y)
+            .anchor(0.5, 0.5)
+            .no_baseline()
+            .size(size)
+            .color(color)
+            .max_width(r.w)
+            .draw();
+    });
+}
+
+/// 页头：左侧返回按钮 + 标题（+ 可选副标题）+ 可选右侧按钮。
+///
+/// 返回按钮与右侧按钮都用调用方持有的 `DRectButton` 渲染，因此渲染与触摸天然同源
+/// （触摸侧对同一个按钮调用 `touch`）。
+pub fn header(
+    ui: &mut Ui,
+    r: Rect,
+    back: &mut DRectButton,
+    right: &mut DRectButton,
+    t: f32,
+    title: &str,
+    sub: Option<&str>,
+    right_btn: Option<(&str, Color, Color)>,
+) {
+    // —— 返回 ——
+    let bs = r.h;
+    let br = Rect::new(r.x, r.y, bs, bs);
+    back_button(ui, back, t, br);
 
     // —— 右侧按钮 ——
     let mut right_edge = r.right();

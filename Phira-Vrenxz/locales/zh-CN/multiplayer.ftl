@@ -174,3 +174,5 @@ room-list-tap-hint = 点击房间行加入 · 右侧「观战」围观对局
 mp-room-locked = 🔒 需密码
 mp-room-counts = { $players } 名玩家 / { $spectators } 名观战
 mp-spectate-hint = 点击玩家行选择同步观战的目标
+spectate-best = 最高分 { $score }
+spectate-syncing = 同步中

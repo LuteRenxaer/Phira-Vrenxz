@@ -84,3 +84,5 @@ msg-room-cycle = { $cycle ->
   [true] Đã chuyển phòng về chế độ vòng lặp
   *[other] Đã chuyển phòng về chế độ bình thường
 }
+spectate-best = Cao nhất { $score }
+spectate-syncing = Đang đồng bộ

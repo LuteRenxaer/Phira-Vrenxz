@@ -31,6 +31,8 @@ impl Scene for MultiplayerScene {
         MP_SESSION.with(|it| {
             if let Some(session) = it.borrow_mut().as_mut() {
                 session.enter(tm.now() as f32);
+                // 首次进入、以及从子场景（游玩 / 预览 / 观战）返回时都重新播放 BGM
+                session.play_bgm();
             }
         });
         Ok(())
@@ -57,8 +59,18 @@ impl Scene for MultiplayerScene {
     }
 
     fn next_scene(&mut self, tm: &mut TimeManager) -> NextScene {
-        MP_SESSION
+        let next = MP_SESSION
             .with(|it| it.borrow_mut().as_mut().and_then(|session| session.next_scene(tm.now() as f32)))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // 压栈子场景或离开多人场景时，先把多人的 BGM 停掉
+        // （回来时 `enter` 会重新播放），免得跟对局音乐叠在一起。
+        if !matches!(next, NextScene::None) {
+            MP_SESSION.with(|it| {
+                if let Some(session) = it.borrow_mut().as_mut() {
+                    session.pause_bgm();
+                }
+            });
+        }
+        next
     }
 }

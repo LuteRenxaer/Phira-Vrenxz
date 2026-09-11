@@ -84,3 +84,5 @@ msg-room-cycle = { $cycle ->
   [true] Room berubah menjadi mode cycling
   *[other] Room berubah menjadi mode normal
 }
+spectate-best = Terbaik { $score }
+spectate-syncing = Tersinkron

@@ -84,3 +84,5 @@ msg-room-cycle = { $cycle ->
   [true] Sala alterada para modo de ciclismo
   *[other] Sala alterada para modo normal
 }
+spectate-best = Melhor { $score }
+spectate-syncing = Sincronizado

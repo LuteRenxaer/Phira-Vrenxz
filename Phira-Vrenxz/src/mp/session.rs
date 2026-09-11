@@ -19,13 +19,16 @@ use prpr::{
     ext::{poll_future, LocalTask, SafeTexture},
     scene::{request_input, return_input, show_error, show_message, take_input, GameMode, NextScene},
     time::TimeManager,
-    ui::Ui,
+    ui::{Ui, UI_AUDIO},
 };
+use sasa::{AudioClip, Music};
+
+use tracing::warn;
 
 use super::{
     actions::DownloadStep,
     messages::{MessageLog, RoomNotice},
-    page::{connect, lobby, players, results, room, room_list, spectate as spectate_page, Page, Pages},
+    page::{connect, lobby, players, results, room, spectate as spectate_page, Page, Pages},
     preview::{Preview, PreviewReturn},
     spectate::Spectate,
     state::{DownloadIntent, MpState, PublicRoom},
@@ -35,11 +38,14 @@ use crate::{
     get_data,
     mp::L10N_LOCAL,
     page::SFader,
-    scene::{SongScene, TEX_BACKGROUND},
+    scene::SongScene,
 };
 
 /// 整页切换的淡入时长。
 const PAGE_TRANSIT: f32 = 0.22;
+
+/// 多人场景的背景音乐音量（用户要求：10%）。
+const BGM_VOLUME: f32 = 0.1;
 
 pub struct MpSession {
     state: MpState,
@@ -56,6 +62,10 @@ pub struct MpSession {
     background: SafeTexture,
     icon_user: SafeTexture,
     last_screen_size: (u32, u32),
+
+    /// 多人场景的背景音乐（`bgm/mp_bgm.mp3`，进入场景时以 10% 音量播放）
+    bgm_clip: Option<AudioClip>,
+    bgm: Option<Music>,
 
     /// 场景整体淡入淡出（进入 / 退出 / 压栈子场景）
     sf: SFader,
@@ -74,6 +84,7 @@ fn room_view(state: &MpState, spectate: &Spectate) -> room::RoomView {
         pending_download: state.pending_download.is_some(),
         syncing: state.syncing.is_some(),
         chart_id: state.chart_id,
+        chart_name: state.chart_name.clone(),
     }
 }
 
@@ -98,7 +109,9 @@ fn is_playing_room(room: &PublicRoom) -> bool {
 }
 
 impl MpSession {
-    pub fn new(icon_user: SafeTexture) -> Self {
+    /// `background` 为多人场景专用背景（`backgrounds/mp_bg.png`），
+    /// `bgm_clip` 为多人场景专用 BGM（`bgm/mp_bgm.mp3`，已解码；可能加载失败）。
+    pub fn new(icon_user: SafeTexture, background: SafeTexture, bgm_clip: Option<AudioClip>) -> Self {
         Self {
             state: MpState::new(),
             msgs: MessageLog::new(),
@@ -109,13 +122,56 @@ impl MpSession {
             page: Page::Connect,
             page_time: 0.,
 
-            background: TEX_BACKGROUND.with(|it| it.borrow().clone().unwrap()),
+            background,
             icon_user,
             last_screen_size: super::theme::screen_size(),
+
+            bgm_clip,
+            bgm: None,
 
             sf: SFader::new(),
             pending_scene: None,
             scene_task: None,
+        }
+    }
+
+    /// 进入多人场景 / 从子场景（游玩、预览、观战）回来时播放背景音乐。
+    pub fn play_bgm(&mut self) {
+        if self.bgm.is_none() {
+            let Some(clip) = self.bgm_clip.clone() else { return };
+            let music = UI_AUDIO.with(|it| {
+                it.borrow_mut().create_music(
+                    clip,
+                    sasa::MusicParams {
+                        amplifier: BGM_VOLUME,
+                        loop_mix_time: 2.0,
+                        command_buffer_size: 64,
+                        ..Default::default()
+                    },
+                )
+            });
+            match music {
+                Ok(music) => self.bgm = Some(music),
+                Err(err) => {
+                    warn!("failed to create multiplayer bgm: {err}");
+                    self.bgm_clip = None;
+                    return;
+                }
+            }
+        }
+        if let Some(bgm) = &mut self.bgm {
+            if let Err(err) = bgm.play() {
+                warn!("failed to play multiplayer bgm: {err}");
+            }
+        }
+    }
+
+    /// 压栈子场景（游玩 / 预览 / 观战）或离开多人场景时停掉背景音乐。
+    pub fn pause_bgm(&mut self) {
+        if let Some(bgm) = &mut self.bgm {
+            if let Err(err) = bgm.pause() {
+                warn!("failed to pause multiplayer bgm: {err}");
+            }
         }
     }
 
@@ -190,9 +246,6 @@ impl MpSession {
             Page::Connect => root == Page::Connect,
             Page::Lobby => root == Page::Lobby,
             Page::Room => root == Page::Room,
-            // 公共房间列表只在“已连接且未进房”时有效：从列表加入成功后就该看到房间页
-            Page::RoomList => self.state.client.is_some() && !self.state.in_room(),
-            Page::Players => self.state.in_room(),
             Page::Manage(id) => self
                 .state
                 .room()
@@ -236,9 +289,7 @@ impl MpSession {
     fn back(&mut self, t: f32) {
         match self.page {
             Page::Connect | Page::Lobby | Page::Room => self.exit_scene(t),
-            Page::RoomList => self.goto(Page::Lobby, t),
-            Page::Players => self.goto(Page::Room, t),
-            Page::Manage(_) => self.goto(Page::Players, t),
+            Page::Manage(_) => self.goto(Page::Room, t),
             Page::Results | Page::Spectate => self.goto(self.root_page(), t),
         }
     }
@@ -293,11 +344,6 @@ impl MpSession {
                     self.apply_lobby(a, t);
                 }
             }
-            Page::RoomList => {
-                if let Some(a) = self.pages.room_list.touch(touch, t) {
-                    self.apply_room_list(a, t);
-                }
-            }
             Page::Room => {
                 // 谱面下载状态行上的「取消」
                 if let Some(dl) = &mut self.state.download.ui {
@@ -315,12 +361,6 @@ impl MpSession {
                     }
                 } else {
                     self.sync_page(t);
-                }
-            }
-            Page::Players => {
-                let manageable = self.state.room().is_some_and(|r| room::manage_allowed(&r));
-                if let Some(a) = self.pages.players.touch(touch, t, manageable) {
-                    self.apply_players(a, t);
                 }
             }
             Page::Manage(id) => {
@@ -355,10 +395,7 @@ impl MpSession {
         match a {
             lobby::Action::CreateRoom => request_input("room_id", InputBox::new()),
             lobby::Action::JoinRoom => request_input("join_room", InputBox::new()),
-            lobby::Action::RoomList => {
-                self.goto(Page::RoomList, t);
-                self.state.load_room_list();
-            }
+            lobby::Action::Refresh => self.state.load_room_list(),
             lobby::Action::Disconnect => {
                 self.state.disconnect();
                 self.msgs.clear();
@@ -367,14 +404,7 @@ impl MpSession {
                 self.goto(Page::Connect, t);
             }
             lobby::Action::Back => self.back(t),
-        }
-    }
-
-    fn apply_room_list(&mut self, a: room_list::Action, t: f32) {
-        match a {
-            room_list::Action::Back => self.back(t),
-            room_list::Action::Refresh => self.state.load_room_list(),
-            room_list::Action::Join(room_id) => {
+            lobby::Action::Join(room_id) => {
                 // 正在游戏中的房间无法以玩家身份加入：直接进入观战
                 let playing = self
                     .state
@@ -391,7 +421,7 @@ impl MpSession {
                     show_message(mtl!("join-room-invalid-id")).error();
                 }
             }
-            room_list::Action::Spectate(room_id) => self.join_as_spectator(&room_id),
+            lobby::Action::Spectate(room_id) => self.join_as_spectator(&room_id),
         }
     }
 
@@ -404,7 +434,7 @@ impl MpSession {
                 self.spectate.cancel();
                 self.goto(Page::Lobby, t);
             }
-            room::Action::OpenPlayers => self.goto(Page::Players, t),
+            room::Action::Manage(id) => self.goto(Page::Manage(id), t),
             room::Action::ChatInput => request_input("chat", InputBox::new().default_text(&self.state.chat_text)),
             room::Action::ChatSend => {
                 if self.state.chat_text.is_empty() {
@@ -454,23 +484,16 @@ impl MpSession {
         }
     }
 
-    fn apply_players(&mut self, a: players::Action, t: f32) {
-        match a {
-            players::Action::Back => self.back(t),
-            players::Action::Manage(id) => self.goto(Page::Manage(id), t),
-        }
-    }
-
     fn apply_manage(&mut self, a: players::ManageAction, t: f32, id: i32) {
         match a {
             players::ManageAction::Back => self.back(t),
             players::ManageAction::Transfer => {
                 self.state.transfer_host(id);
-                self.goto(Page::Players, t);
+                self.goto(Page::Room, t);
             }
             players::ManageAction::Kick => {
                 self.state.kick_user(id);
-                self.goto(Page::Players, t);
+                self.goto(Page::Room, t);
             }
         }
     }
@@ -610,18 +633,28 @@ impl MpSession {
         if let Some(client) = self.state.client() {
             for rt in client.blocking_take_room_results() {
                 if !rt.is_empty() {
-                    // 收到结算后自动切到结算页
-                    self.pages.results.show(rt);
+                    // 收到结算后自动切到结算页（带上本局谱面名，结算页概要用）
+                    let chart = self
+                        .state
+                        .chart_name
+                        .clone()
+                        .or_else(|| self.state.local_chart.as_ref().map(|(_, name)| name.clone()));
+                    self.pages.results.show(rt, chart);
                     self.goto(Page::Results, t);
                 }
             }
             let pending = client.blocking_take_messages();
             for notice in self.msgs.ingest(&client, pending) {
-                // 观战：服务端在观战者加入时会补发当前谱面，记下来以便“同步观战”能加载它
-                if let RoomNotice::OnlineChart { id, .. } = &notice {
-                    if self.spectate.joined() {
-                        self.state.chart_id = Some(*id);
+                // 房间页左上角要显示"当前谱面"，名字只有服务端消息里带（房间状态里没有）
+                match &notice {
+                    RoomNotice::OnlineChart { id, name } => {
+                        self.state.chart_name = Some(name.clone());
+                        // 观战：服务端在观战者加入时会补发当前谱面，记下来以便"同步观战"能加载它
+                        if self.spectate.joined() {
+                            self.state.chart_id = Some(*id);
+                        }
                     }
+                    RoomNotice::LocalChart { name } => self.state.chart_name = Some(name.clone()),
                 }
                 self.spectate.notice(notice);
             }
@@ -827,6 +860,8 @@ impl MpSession {
     /// 按房间阶段推进：开局进入游玩场景、同步选谱 id、同步本地谱面分享状态。
     fn update_room_stage(&mut self, state: Option<RoomState>) -> Result<()> {
         if matches!(state, Some(RoomState::Playing)) {
+            // 开局即作废"预览回来待确认"的提示，免得下一局又冒出来
+            self.preview.dismiss_prompt();
             // 观战者只旁观：不进入游玩场景、不参与成绩上报
             if self.spectate.joined() {
                 self.state.game_start_consumed = true;
@@ -985,26 +1020,24 @@ impl MpSession {
                     self.pages.connect.render(ui, t, &v);
                 }
                 Page::Lobby => {
+                    // 主页就是房间大厅：第一次进来（还没拿到过列表）自动拉一次
+                    if self.state.room_list.is_none() && self.state.room_list_task.is_none() {
+                        self.state.load_room_list();
+                    }
+                    let joined = self.state.room_id().map(|it| it.to_string());
                     let v = lobby::View {
                         address: &get_data().config.mp_address,
-                        busy: self.state.create_room_task.is_some() || self.state.room_list_task.is_some(),
-                    };
-                    self.pages.lobby.render(ui, t, &v);
-                }
-                Page::RoomList => {
-                    let joined = self.state.room_id().map(|it| it.to_string());
-                    let v = room_list::View {
                         rooms: self.state.room_list.as_deref(),
                         loading: self.state.room_list_task.is_some(),
                         joined: joined.as_deref(),
                         spectating: self.spectate.joined(),
+                        busy: self.state.create_room_task.is_some() || self.state.room_list_task.is_some(),
                     };
-                    self.pages.room_list.render(ui, t, &v);
+                    self.pages.lobby.render(ui, t, &v);
                 }
                 Page::Room => self.render_room(ui, t),
-                Page::Players => self.render_players(ui, t),
                 Page::Manage(id) => self.render_manage(ui, t, id),
-                Page::Results => self.pages.results.render(ui, t),
+                Page::Results => self.pages.results.render(ui, t, self.state.me_id()),
                 Page::Spectate => self.render_spectate(ui, t),
             }
         });
@@ -1016,13 +1049,19 @@ impl MpSession {
     fn render_room(&mut self, ui: &mut Ui, t: f32) {
         let Some(room) = self.state.room() else { return };
         let view = room_view(&self.state, &self.spectate);
-        // 房间号（房间标题）：`ClientRoomState` 不带房间号，从连接上取
-        let room_id = self.state.room_id().map(|it| it.to_string());
-        let prompt = self.preview.prompt();
+        // 房间号（房名）：`ClientRoomState` 带房间号，但深链接/大厅进入时更可靠的是连接上的
+        let room_id = self.state.room_id().map(|it| it.to_string()).or_else(|| Some(room.id.to_string()));
         let syncing = self.state.syncing.is_some();
         let busy = self.state.busy();
+        let me = self.state.me_id();
+        let me_ready = me_ready(&self.state, &view);
+        let prompt = self.preview.prompt(self.state.room_state().as_ref(), me_ready);
         let chat_text = self.state.chat_text.clone();
         let download = self.state.download.ui.as_mut();
+        // 右侧用户列表直接显示头像，先为每个可见用户请求一次
+        for id in super::state::sorted_user_ids(&room, me) {
+            UserManager::request(id);
+        }
         let ctx = room::Render {
             room: &room,
             room_id: room_id.as_deref(),
@@ -1033,24 +1072,11 @@ impl MpSession {
             syncing,
             busy,
             prompt,
+            icon: &self.icon_user,
+            me,
+            me_ready,
         };
         self.pages.room.render(ui, t, ctx);
-    }
-
-    fn render_players(&mut self, ui: &mut Ui, t: f32) {
-        let Some(room) = self.state.room() else { return };
-        let me = self.state.me_id();
-        let view = room_view(&self.state, &self.spectate);
-        let v = players::View {
-            room: &room,
-            me,
-            icon: &self.icon_user,
-            me_ready: me_ready(&self.state, &view),
-        };
-        for id in super::state::sorted_user_ids(&room, me) {
-            UserManager::request(id);
-        }
-        self.pages.players.render(ui, t, &v);
     }
 
     fn render_manage(&mut self, ui: &mut Ui, t: f32, id: i32) {
@@ -1075,11 +1101,20 @@ impl MpSession {
             .map(|id| (id, client.user_name(id)))
             .collect();
         let chart_name = self.spectate.chart_name().map(|it| it.to_owned());
+        let room_id = self.state.room_id().map(|it| it.to_string());
+        let playing = matches!(self.state.room_state(), Some(RoomState::Playing));
+        // 观战榜也要显示头像
+        for (id, _) in &players {
+            UserManager::request(*id);
+        }
         let v = spectate_page::View {
+            room_id: room_id.as_deref(),
             chart_name: chart_name.as_deref(),
             target: self.spectate.target(),
+            playing,
             players: &players,
             stats: self.spectate.stats(),
+            icon: &self.icon_user,
         };
         self.pages.spectate.render(ui, t, &v);
     }
