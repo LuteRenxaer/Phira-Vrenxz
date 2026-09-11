@@ -38,7 +38,7 @@ use crate::{
     page::Fader,
     save_data,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use once_cell::sync::{Lazy, OnceCell};
 use prpr::{
@@ -129,11 +129,59 @@ pub fn fs_from_path(path: &str) -> Result<Box<dyn FileSystem + Send + Sync + 'st
         let (name, diff) = name.split_once(':').unwrap();
         Ok(Box::new(AssetsChartFileSystem(name.to_owned(), diff.to_owned())))
     } else if let Some(name) = path.strip_prefix("builtin:") {
-        let full_path = format!("assets/Level/{name}");
-        fs::fs_from_file(Path::new(&full_path))
+        // 内置谱面：直接从内置谱面包（zip）里读，不再解压到 `assets/Level/`。
+        // `name` 形如 `谱师目录/谱面.pez`，即压缩包内根目录（`Level/`）下的相对路径，
+        // 该 `.pez` 本身又是一个 zip，所以再套一层 ZipFileSystem。
+        let zip = open_builtin_level_zip()?;
+        Ok(Box::new(
+            zip.open_entry_as_zip(name).with_context(|| format!("failed to open builtin chart {name}"))?,
+        ))
     } else {
         fs::fs_from_file(Path::new(&format!("{}/{path}", dir::charts()?)))
     }
+}
+
+/// 内置资源所在目录：
+/// - 桌面端：工作目录下的 `assets`；
+/// - Android：Java 侧已把资源 zip 复制到 `<getFilesDir()>/assets`，用绝对路径，
+///   不依赖进程工作目录。
+pub(crate) fn assets_root() -> PathBuf {
+    #[cfg(target_os = "android")]
+    if let Some(dir) = crate::writable_data_dir() {
+        return PathBuf::from(dir).join("assets");
+    }
+    PathBuf::from("assets")
+}
+
+/// 内置谱面包的文件名。
+/// 桌面端是 `assets/Level.zip`；Android 侧 Java 把 APK 里的 `Expansion_package.zip`
+/// 复制到可写目录（两者内容一致，压缩包内根目录都是 `Level/`），因此按顺序探测。
+pub(crate) const BUILTIN_LEVEL_ARCHIVES: &[&str] = &["Level.zip", "Expansion_package.zip"];
+
+/// 在 `assets` 目录里找内置谱面包（zip）。不做解压，只做存在性检查。
+pub(crate) fn builtin_level_zip_in(assets_dir: &Path) -> Option<PathBuf> {
+    BUILTIN_LEVEL_ARCHIVES.iter().map(|it| assets_dir.join(it)).find(|it| it.is_file())
+}
+
+/// 内置谱面包是否存在。
+pub(crate) fn builtin_level_zip_present() -> bool {
+    builtin_level_zip_in(&assets_root()).is_some()
+}
+
+/// 打开内置谱面包的 zip 文件系统（惰性读文件，只载入中央目录）。
+pub(crate) fn open_builtin_level_zip() -> Result<fs::ZipFileSystem> {
+    let assets_dir = assets_root();
+    let path = builtin_level_zip_in(&assets_dir).ok_or_else(|| {
+        anyhow!(
+            "内置谱面包不存在（{}），内置谱面不可用",
+            BUILTIN_LEVEL_ARCHIVES
+                .iter()
+                .map(|it| assets_dir.join(it).display().to_string())
+                .collect::<Vec<_>>()
+                .join(" / ")
+        )
+    })?;
+    fs::ZipFileSystem::open(&path).with_context(|| format!("无法打开内置谱面包 {}", path.display()))
 }
 
 pub fn confirm_dialog(title: impl Into<String>, content: impl Into<String>, res: Arc<AtomicBool>) {
