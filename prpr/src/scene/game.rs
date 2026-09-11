@@ -156,6 +156,65 @@ impl SpectateSource {
 /// 待启动的观战数据源：由客户端在启动观战场景前放入，GameScene 构造时取走。
 pub static PENDING_SPECTATE: Mutex<Option<Arc<SpectateSource>>> = Mutex::new(None);
 
+/// 观战暂停画面的状态机。
+///
+/// 观战暂停交互集中在这一个枚举里表达，不再用多个 bool 描述：
+/// - 被观战者暂停 → [`SpectatePauseUi::RemoteWaiting`]：显示暂停画面（变暗/模糊，
+///   与正常暂停一致）、暂停按钮可见、**不显示**三个控制按钮，屏幕正中显示
+///   「玩家暂停中」；
+/// - 双击暂停按钮 → [`SpectatePauseUi::RemoteControls`]：显示退出/重试/继续三个
+///   按钮并隐藏中心文字（「重试」在观战下始终置灰且点击无效）；
+/// - 按「继续」时远端仍暂停 → 回到 `RemoteWaiting`（只收起按钮并重新显示文字）；
+///   远端已继续 → 回到 `Hidden` 并靠已有时间轴同步追上对方；
+/// - 观战者自己点暂停 → [`SpectatePauseUi::LocalPaused`]：只暂停本机画面
+///   （绝不通知服务器）、重试禁用、继续→恢复并对齐对方时间轴、退出→退出观战，
+///   且**不显示**「玩家暂停中」。
+///
+/// 渲染入口只有一个：[`GameScene::render_spectate_pause_prompt`]。
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SpectatePauseUi {
+    /// 不在观战暂停画面（正常播放中，或非观战游玩）
+    #[default]
+    Hidden,
+    /// 被观战者暂停：居中显示「玩家暂停中」，不显示三个控制按钮
+    RemoteWaiting,
+    /// 被观战者暂停，且观战者双击展开了控制按钮：隐藏居中文字
+    RemoteControls,
+    /// 观战者自己暂停本机画面：显示控制按钮、无居中文字
+    LocalPaused,
+}
+
+impl SpectatePauseUi {
+    /// 本次暂停是否由被观战者（远端）引起——远端继续时需要自动恢复播放。
+    #[inline]
+    pub fn is_remote(self) -> bool {
+        matches!(self, Self::RemoteWaiting | Self::RemoteControls)
+    }
+
+    /// 是否显示屏幕正中的「玩家暂停中」。
+    #[inline]
+    pub fn shows_prompt(self) -> bool {
+        matches!(self, Self::RemoteWaiting)
+    }
+
+    /// 是否显示退出/重试/继续三个控制按钮。
+    #[inline]
+    pub fn shows_controls(self) -> bool {
+        !self.shows_prompt()
+    }
+
+    /// 观战暂停画面里双击暂停按钮的结果。
+    /// 自己暂停时控制按钮本来就可见，双击不做任何切换。
+    #[inline]
+    fn toggled_controls(self) -> Self {
+        match self {
+            Self::RemoteWaiting => Self::RemoteControls,
+            Self::RemoteControls => Self::RemoteWaiting,
+            other => other,
+        }
+    }
+}
+
 /// 多人正式游玩时的暂停/继续广播钩子：由多人面板在启动对局前置入，
 /// GameScene 构造时取走。仅在真正进入/离开暂停时调用（暂停传 true、继续传 false），
 /// 单机游玩为 None，不受影响；观战场景不会取走它（观战者本地的暂停不通知服务器）。
@@ -266,13 +325,12 @@ pub struct GameScene {
     /// 观战：为 Some 时本场景不使用本地输入，而是按远端玩家广播的判定事件驱动谱面，
     /// 并把音乐时间轴同步到对方进度（见 [`SpectateSource`]）。
     spectate: Option<Arc<SpectateSource>>,
-    /// 观战：暂停面板的三个控制按钮（退出/重试/继续）是否已展开。
-    /// 远端暂停时默认收起（只显示暂停按钮与「玩家暂停中」），双击暂停按钮可展开。
-    spectate_controls: bool,
+    /// 观战暂停画面的状态机（见 [`SpectatePauseUi`]）。
+    /// 它唯一决定了三个控制按钮与屏幕正中「玩家暂停中」的显隐，
+    /// 取代了原先散落的 `spectate_controls` / `spectate_paused_by_remote` 两个 bool。
+    spectate_pause: SpectatePauseUi,
     /// 观战暂停画面里双击暂停按钮的首次点击时刻（真实时间；暂停时 tm.now() 会冻结）
     spectate_click_time: f32,
-    /// 观战：当前暂停是否是被观战者暂停导致的（对方继续后需要自动恢复播放）。
-    spectate_paused_by_remote: bool,
     /// 多人正式游玩：暂停/继续时上报服务器的钩子（见 [`PAUSE_NOTIFY`]）
     pause_notify: Option<Arc<dyn Fn(bool) + Send + Sync>>,
     pub res: Resource,
@@ -542,9 +600,8 @@ impl GameScene {
             preview_mode,
             interrupt,
             spectate,
-            spectate_controls: false,
+            spectate_pause: SpectatePauseUi::Hidden,
             spectate_click_time: f32::NEG_INFINITY,
-            spectate_paused_by_remote: false,
             pause_notify,
             res,
             chart,
@@ -652,14 +709,15 @@ impl GameScene {
             });
         if pause_btn_pressed {
             if self.spectate.is_some() && tm.paused() {
-                // 观战暂停画面：双击暂停按钮 → 展开/收起「退出/重试/继续」三个控制按钮。
+                // 观战暂停画面：双击暂停按钮 → 在「只显示暂停按钮 + 玩家暂停中」与
+                // 「显示退出/重试/继续」之间切换（见 SpectatePauseUi）。
                 // 注意暂停时 tm.now() 是冻结的，这里用真实时间判断两次点击的间隔。
                 let t = tm.real_time() as f32;
                 if t - self.spectate_click_time > PAUSE_CLICK_INTERVAL {
                     self.spectate_click_time = t;
                 } else {
                     self.spectate_click_time = f32::NEG_INFINITY;
-                    self.spectate_controls = !self.spectate_controls;
+                    self.spectate_pause = self.spectate_pause.toggled_controls();
                 }
             } else if !tm.paused() {
                 let t = tm.now() as f32;
@@ -673,6 +731,12 @@ impl GameScene {
                     tm.pause();
                     suspend_sound();
                     self.pause_need_blur = true;
+                    // 观战者自己暂停：只暂停本机画面，绝不通知服务器
+                    // （观战场景没有 pause_notify 钩子，notify_paused 也会因 spectate 而跳过），
+                    // 进入 LocalPaused：控制按钮可见、不显示「玩家暂停中」。
+                    if self.spectate.is_some() {
+                        self.spectate_pause = SpectatePauseUi::LocalPaused;
+                    }
                     notify_paused(self.spectate.is_some(), self.pause_notify.as_ref(), true);
                     #[cfg(target_env = "ohos")]
                     miniquad::native::set_interceptor_state(false);
@@ -1121,10 +1185,11 @@ impl GameScene {
             let btn_icons_arr = [*res.icon_back, *res.icon_retry, *res.icon_resume];
             let mut btn_disabled = [false, no_retry, self.dead];
             let mut btn_rects = [Rect::default(); 3];
-            // 观战：被观战者暂停、且观战者还没展开控制按钮时，只显示暂停按钮与「玩家暂停中」，
-            // 不画退出/重试/继续三个按钮（双击左上角暂停按钮可展开，见 ui()）
-            let spectate_remote_paused = spectate.as_ref().is_some_and(|it| it.is_remote_paused());
-            let hide_controls = spectate.is_some() && !self.spectate_controls && spectate_remote_paused;
+            // 观战暂停画面：三个控制按钮与居中文字的显隐完全由状态机决定。
+            // 「被观战者暂停且尚未展开控制按钮」时只显示暂停按钮与「玩家暂停中」，
+            // 不画退出/重试/继续（双击左上角暂停按钮可展开，见 ui()）。
+            let spectate_pause = if spectate.is_some() { self.spectate_pause } else { SpectatePauseUi::Hidden };
+            let hide_controls = !spectate_pause.shows_controls();
             if spectate.is_some() {
                 // 观战模式下「重试」永远不可用（置灰且点击无效）
                 btn_disabled[1] = true;
@@ -1175,7 +1240,7 @@ impl GameScene {
                     clicked = None;
                 }
                 // 观战：被观战者仍在暂停时按「继续」只是收起控制按钮，不恢复播放
-                let spectate_hold = spectate.is_some() && spectate_remote_paused && clicked == Some(1);
+                let spectate_hold = spectate.is_some() && self.spectate_pause.is_remote() && clicked == Some(1);
                 let mut pos = self.music.position();
                 if self.mode == GameMode::Exercise {
                     pos = tm.now();
@@ -1214,9 +1279,8 @@ impl GameScene {
                         if let Some(source) = &spectate {
                             if source.is_remote_paused() {
                                 // 被观战者仍然暂停着：不恢复播放，收起控制按钮并重新显示「玩家暂停中」，
-                                // 并标记为“远端暂停”，等对方继续后自动恢复（见 update()）
-                                self.spectate_controls = false;
-                                self.spectate_paused_by_remote = true;
+                                // 并保持“远端暂停”状态，等对方继续后自动恢复（见 update()）
+                                self.spectate_pause = SpectatePauseUi::RemoteWaiting;
                             } else {
                                 // 观战者本地暂停后继续：恢复播放，并把时间轴直接对齐到对方进度。
                                 // 这里不做普通对局的“回退 3 秒”，否则会和对方错开。
@@ -1227,8 +1291,7 @@ impl GameScene {
                                     tm.seek_to(dst);
                                     self.music.seek_to(dst)?;
                                 }
-                                self.spectate_controls = false;
-                                self.spectate_paused_by_remote = false;
+                                self.spectate_pause = SpectatePauseUi::Hidden;
                                 #[cfg(target_env = "ohos")]
                                 miniquad::native::set_interceptor_state(true);
                             }
@@ -1263,12 +1326,7 @@ impl GameScene {
             }
             // 观战：被观战者暂停且未展开控制按钮时，屏幕正中显示「玩家暂停中」
             if hide_controls {
-                ui.text("玩家暂停中")
-                    .pos(0., 0.)
-                    .anchor(0.5, 0.5)
-                    .size(0.6)
-                    .color(WHITE)
-                    .draw();
+                self.render_spectate_pause_prompt(ui);
             }
             if self.mode == GameMode::Exercise {
                 let asp = self.touch_scale();
@@ -1482,6 +1540,24 @@ impl GameScene {
         }
     }
 
+    /// 观战暂停画面里**唯一**的观战专属渲染函数。
+    ///
+    /// 暂停画面本身的变暗/模糊、暂停按钮、以及退出/重试/继续三个控制按钮的显隐
+    /// 由 [`SpectatePauseUi`]（`self.spectate_pause`）统一决定；这里只负责在被观战者
+    /// 暂停、且观战者尚未展开控制按钮时，在屏幕正中显示「玩家暂停中」。
+    fn render_spectate_pause_prompt(&self, ui: &mut Ui) {
+        debug_assert!(
+            self.spectate.is_some() && self.spectate_pause.shows_prompt(),
+            "spectate pause prompt should only be drawn while a remote-paused spectate is active"
+        );
+        ui.text(tl!("spectate-remote-paused"))
+            .pos(0., 0.)
+            .anchor(0.5, 0.5)
+            .size(0.6)
+            .color(WHITE)
+            .draw();
+    }
+
     fn finish_and_show_result(&mut self) -> Result<()> {
         // 谱面预览/观战：自然播完也不进 EndingScene 结算页、不写记录，直接结束返回
         if self.preview_mode || self.spectate.is_some() {
@@ -1634,15 +1710,14 @@ impl Scene for GameScene {
                 tm.pause();
                 suspend_sound();
                 self.pause_need_blur = true;
-                self.spectate_paused_by_remote = true;
-                self.spectate_controls = false;
+                self.spectate_pause = SpectatePauseUi::RemoteWaiting;
                 #[cfg(target_env = "ohos")]
                 miniquad::native::set_interceptor_state(false);
-            } else if !remote_paused && self.spectate_paused_by_remote && tm.paused() {
+            } else if !remote_paused && self.spectate_pause.is_remote() && tm.paused() {
                 // 被观战者继续：观战端自动恢复播放（时间轴由下面的 seek 同步逻辑追上对方）
                 self.music.play()?;
                 tm.resume();
-                self.spectate_paused_by_remote = false;
+                self.spectate_pause = SpectatePauseUi::Hidden;
                 #[cfg(target_env = "ohos")]
                 miniquad::native::set_interceptor_state(true);
             }

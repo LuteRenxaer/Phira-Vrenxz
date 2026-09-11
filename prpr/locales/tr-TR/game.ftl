@@ -9,3 +9,4 @@ speed = Hız
 ex-time-out-of-range = Süre aralık dışı
 ex-invalid-format = Geçersiz format
 ex-time-set = Süre değişti
+spectate-remote-paused = Oyuncu duraklattı
