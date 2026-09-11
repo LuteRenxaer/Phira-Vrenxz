@@ -580,11 +580,11 @@ async fn join_room_impl(
     if room.locked.load(Ordering::SeqCst) {
         bail!(tl!("join-room-locked"));
     }
-    if !matches!(*room.state.read().await, InternalRoomState::SelectChart) {
+    // 观战者（monitor）可在任意阶段加入：正在选谱、等待就绪、乃至已经开打的对局都能围观；
+    // 普通玩家仍只允许在选谱阶段加入，避免中途插进正在进行的对局。
+    // 观战者只读：不占玩家位、不参与就绪判定、不影响对局与结算。
+    if !monitor && !matches!(*room.state.read().await, InternalRoomState::SelectChart) {
         bail!(tl!("join-game-ongoing"));
-    }
-    if monitor && !user.can_monitor() {
-        bail!(tl!("join-cant-monitor"));
     }
     if !room.add_user(Arc::downgrade(user), monitor).await {
         bail!(tl!("join-room-full"));
@@ -599,12 +599,35 @@ async fn join_room_impl(
     if monitor && !room.live.fetch_or(true, Ordering::SeqCst) {
         info!(room = id.to_string(), "room goes live");
     }
+    // 观战者中途加入：单独补发当前谱面信息，便于观战端加载/显示正在游玩的谱面
+    if monitor {
+        let current_chart = room
+            .chart
+            .read()
+            .await
+            .as_ref()
+            .map(|c| (c.id, c.name.clone()));
+        let local_chart = room.local_chart.read().await.clone();
+        if let Some((id, name)) = current_chart {
+            user.try_send(ServerCommand::Message(Message::SelectChart { user: 0, name, id }))
+                .await;
+        } else if let Some((id, name)) = local_chart
+            && let (Ok(id), Ok(name)) = (id.try_into(), name.try_into())
+        {
+            user.try_send(ServerCommand::Message(Message::SelectLocalChart { user: 0, id, name }))
+                .await;
+        }
+    }
     room.broadcast(ServerCommand::OnJoinRoom(user.to_info()))
         .await;
-    // 发送欢迎消息（进房提示）
+    // 发送欢迎消息（进房提示）——观战者单独给观战提示，避免和玩家欢迎语混淆
     room.broadcast(ServerCommand::Message(Message::Chat {
         user: 0, // 使用0表示系统消息
-        content: format!("Welcome \"{}\"欢迎进入房间喵!", user.name),
+        content: if monitor {
+            format!("Welcome \"{}\"欢迎观战喵!", user.name)
+        } else {
+            format!("Welcome \"{}\"欢迎进入房间喵!", user.name)
+        },
     }))
     .await;
     room.send(Message::JoinRoom {

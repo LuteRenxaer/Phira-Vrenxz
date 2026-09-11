@@ -84,6 +84,8 @@ enum RoomAction {
     Ready,
     Cancel,
     Preview,
+    /// 打开观战浮层（房内任何人可用；观战者在此查看实时进度并退出观战）
+    Spectate,
 }
 
 struct ActItem {
@@ -314,6 +316,8 @@ pub struct MPPanel {
     room_list_task: Option<Task<Result<Vec<PublicRoom>>>>,
     // 公共房间浮层行命中（渲染时同步记录，坐标与 abs 一致）
     room_rows_hits: Vec<(String, Rect)>,
+    // 公共房间浮层每行的「观战」按钮命中区
+    room_spectate_hits: Vec<(String, Rect)>,
 
     // 对局结算排名弹层
     results: Option<Vec<phira_mp_common::RoomResultEntry>>,
@@ -331,6 +335,76 @@ pub struct MPPanel {
     manage_p: Smooth<f32>,
     manage_target: Option<i32>,
     manage_cancel_btn: DRectButton,
+
+    // —— 观战系统 ——
+    // 是否以观战者身份加入了房间（只读旁观）
+    spectating: bool,
+    // 观战入口按钮（房间列表浮层每行的“观战”+ 大厅说明）
+    spectate_btn: DRectButton,
+    // 观战浮层
+    spectate_p: Smooth<f32>,
+    spectate_scroll: Scroll,
+    spectate_close_btn: DRectButton,
+    // 观战期间各玩家实时统计（由服务端 live 广播的判定事件累计）
+    spectate_stats: std::collections::HashMap<i32, SpectateStat>,
+    // 观战浮层里“观看谱面”按钮：下载/加载当前谱面并以 autoplay 观看
+    spectate_watch_btn: DRectButton,
+    // 观战观看前需要先下载谱面（下载完成后自动开始观看）
+    spectate_pending: bool,
+    // 观战浮层的退出观战按钮
+    spectate_exit_btn: DRectButton,
+    // 观战中正在游玩的谱面名（由服务端补发的选谱消息记录）
+    spectate_chart_name: Option<String>,
+}
+
+/// 观战中的单个玩家实时统计（依据服务端广播的 Judges 事件累计，仅用于观战展示）。
+#[derive(Clone, Copy, Default)]
+struct SpectateStat {
+    perfect: u32,
+    good: u32,
+    bad: u32,
+    miss: u32,
+    combo: u32,
+    max_combo: u32,
+}
+
+impl SpectateStat {
+    fn apply(&mut self, judgement: phira_mp_common::Judgement) {
+        use phira_mp_common::Judgement as J;
+        match judgement {
+            J::Perfect | J::HoldPerfect => {
+                self.perfect += 1;
+                self.combo += 1;
+                self.max_combo = self.max_combo.max(self.combo);
+            }
+            J::Good | J::HoldGood => {
+                self.good += 1;
+                self.combo += 1;
+                self.max_combo = self.max_combo.max(self.combo);
+            }
+            J::Bad => {
+                self.bad += 1;
+                self.combo = 0;
+            }
+            J::Miss => {
+                self.miss += 1;
+                self.combo = 0;
+            }
+        }
+    }
+
+    fn total(&self) -> u32 {
+        self.perfect + self.good + self.bad + self.miss
+    }
+
+    /// 观战用近似准确率（与服务端结算一致的 P/G 权重口径）。
+    fn accuracy(&self) -> f32 {
+        let total = self.total();
+        if total == 0 {
+            return 0.;
+        }
+        (self.perfect as f32 + self.good as f32 * 0.65) / total as f32
+    }
 }
 
 impl MPPanel {
@@ -415,6 +489,7 @@ impl MPPanel {
             room_list: None,
             room_list_task: None,
             room_rows_hits: Vec::new(),
+            room_spectate_hits: Vec::new(),
 
             results: None,
             results_p: Smooth::default(),
@@ -427,6 +502,17 @@ impl MPPanel {
             manage_p: Smooth::default(),
             manage_target: None,
             manage_cancel_btn: DRectButton::new(),
+
+            spectating: false,
+            spectate_btn: DRectButton::new(),
+            spectate_p: Smooth::default(),
+            spectate_scroll: Scroll::new(),
+            spectate_close_btn: DRectButton::new(),
+            spectate_stats: std::collections::HashMap::new(),
+            spectate_watch_btn: DRectButton::new(),
+            spectate_pending: false,
+            spectate_exit_btn: DRectButton::new(),
+            spectate_chart_name: None,
         }
     }
 
@@ -502,6 +588,9 @@ impl MPPanel {
 
     fn create_room(&mut self, id: RoomId) {
         let client = self.clone_client();
+        // 以玩家身份建房：清理可能残留的观战状态
+        self.spectating = false;
+        self.spectate_stats.clear();
         self.create_room_task = Some(Task::new(async move {
             client.create_room(id).await?;
             Ok(())
@@ -667,13 +756,21 @@ impl MPPanel {
             true,
             Some(Arc::clone(&interrupt)),
         )?;
-        // 后台轮询房间状态（预览期间 MPPanel 自身不更新，只能靠独立任务监视）
+        // 后台轮询房间状态（预览期间 MPPanel 自身不更新，只能靠独立任务监视）：
+        // - 自己游玩时的预览：房间离开选谱阶段（房主开始）即打断；
+        // - 观战观看：房间结束本局/离开对局（回到选谱或已不在房间）才结束观看。
         if let Some(client) = self.client.clone() {
             let flag = Arc::clone(&interrupt);
             let stop_flag = Arc::clone(&stop);
-            Task::new(async move {
-                Self::preview_watch_loop(client, flag, stop_flag).await;
-            });
+            if self.spectating {
+                Task::new(async move {
+                    Self::spectate_watch_loop(client, flag, stop_flag).await;
+                });
+            } else {
+                Task::new(async move {
+                    Self::preview_watch_loop(client, flag, stop_flag).await;
+                });
+            }
         }
         self.preview_interrupt = Some(interrupt);
         self.preview_watch_stop = Some(stop);
@@ -706,8 +803,128 @@ impl MPPanel {
         }
     }
 
+    /// 观战观看期间的轮询：本局结束（房间回到选谱）、被移出房间或离开房间时结束观看画面。
+    async fn spectate_watch_loop(client: Arc<Client>, interrupt: Arc<AtomicBool>, stop: Arc<AtomicBool>) {
+        loop {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            if stop.load(Ordering::Relaxed) {
+                break;
+            }
+            match client.blocking_room_state() {
+                // 已离开/被移出房间：结束观看
+                None => {
+                    interrupt.store(true, Ordering::Relaxed);
+                    break;
+                }
+                // 本局已结束、回到选谱阶段：结束观看
+                Some(RoomState::SelectChart(_)) => {
+                    interrupt.store(true, Ordering::Relaxed);
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // ---------- 观战系统 ----------
+
+    /// 以观战者身份（monitor）加入指定房间：只读旁观，不占玩家位、不参与就绪。
+    fn join_room_as_spectator(&mut self, room_id: String) {
+        let Ok(id) = room_id.clone().try_into() else {
+            show_message(mtl!("join-room-invalid-id")).error();
+            return;
+        };
+        let client = self.clone_client();
+        self.join_room_task = Some(Task::new(async move {
+            client.join_room(id, true).await?;
+            client.room_state().await.ok_or_else(|| anyhow!("expected room state"))
+        }));
+        // 标记观战意图：入房成功后展示观战视图
+        self.spectating = true;
+    }
+
+    /// 观战期间的实时数据收集：把服务端 live 广播的判定事件累计成每个玩家的统计。
+    fn update_spectate_stats(&mut self) {
+        let Some(client) = self.client.clone() else { return };
+        let Some(room) = client.blocking_state() else {
+            self.spectate_stats.clear();
+            return;
+        };
+        // 只统计真正的玩家（monitor 观战者没有判定事件，可跳过）
+        for (id, user) in room.users.iter() {
+            if user.monitor {
+                continue;
+            }
+            let live = client.live_player(*id);
+            let events: Vec<_> = live.judge_events.blocking_lock().drain(..).collect();
+            if events.is_empty() {
+                continue;
+            }
+            let stat = self.spectate_stats.entry(*id).or_default();
+            for ev in events {
+                stat.apply(ev.judgement);
+            }
+        }
+        // 房间已回到选谱阶段：清空上一局统计，准备下一局观战
+        if matches!(room.state, RoomState::SelectChart(_)) {
+            self.spectate_stats.clear();
+        }
+    }
+
+    /// 观战者观看当前谱面：下载/加载正在游玩或已选定的谱面，以 autoplay 观看（不结算、不影响房间）。
+    fn start_spectate_watch(&mut self) {
+        let Some(client) = self.client.clone() else { return };
+        let Some(room) = client.blocking_state() else { return };
+        // 在线谱：取当前选中/正在游玩的谱面 id
+        let (id, path) = match room.state {
+            RoomState::SelectChart(Some(id)) => (Some(id), format!("download/{id}")),
+            _ => match self.chart_id {
+                Some(id) => (Some(id), format!("download/{id}")),
+                None => {
+                    show_message(mtl!("spectate-no-chart")).error();
+                    return;
+                }
+            },
+        };
+        // 本地没有缓存：先下载，完成后 post_download 自动进入观战观看
+        if !self.local_chart_ready(id, None) {
+            self.chart_id = id;
+            self.spectate_pending = true;
+            if let Some(id) = self.chart_id {
+                self.check_download_preview(id);
+            }
+            return;
+        }
+        if let Err(err) = self.launch_preview(path, id) {
+            show_error(err.context(mtl!("preview-failed")));
+        }
+    }
+
+    /// 退出观战：离开房间并清理观战状态。
+    fn exit_spectate(&mut self) {
+        self.spectating = false;
+        self.spectate_stats.clear();
+        self.spectate_chart_name = None;
+        self.spectate_p.goto(0., 0., USER_LIST_TRANSIT);
+        let client = self.clone_client();
+        self.task = Some(Task::new(async move { client.leave_room().await }));
+    }
+
     fn post_download(&mut self) {
         let client = self.clone_client();
+        if self.spectate_pending {
+            self.spectate_pending = false;
+            // 谱面下载完成后进入观战观看（autoplay）
+            let Some(id) = self.chart_id else {
+                show_message(mtl!("spectate-no-chart")).error();
+                return;
+            };
+            let path = format!("download/{id}");
+            if let Err(err) = self.launch_preview(path, Some(id)) {
+                show_error(err.context(mtl!("preview-failed")));
+            }
+            return;
+        }
         if self.preview_pending {
             self.preview_pending = false;
             // 谱面下载完成后进入预览
@@ -909,6 +1126,14 @@ impl MPPanel {
         let mut items = Vec::new();
         let state = room.state;
         let is_host = room.is_host;
+        // 观战者只读：不显示开始/就绪等操作，仅保留观战入口
+        if self.spectating {
+            items.push(ActItem {
+                act: RoomAction::Spectate,
+                label: mtl!("spectate-title").into_owned(),
+            });
+            return items;
+        }
         match state {
             RoomState::SelectChart(_) => {
                 if is_host {
@@ -946,6 +1171,11 @@ impl MPPanel {
         if self.is_previewable(room) {
             items.push(ActItem { act: RoomAction::Preview, label: mtl!("preview").into_owned() });
         }
+        // 观战入口：房内任何人都能打开观战浮层（观战者在此查看实时进度 / 退出观战）
+        items.push(ActItem {
+            act: RoomAction::Spectate,
+            label: if self.spectating { mtl!("spectate-title").into_owned() } else { mtl!("spectate").into_owned() },
+        });
         items
     }
 
@@ -1311,6 +1541,17 @@ impl MPPanel {
                             .max_width(r.w)
                             .draw();
                     }),
+                    RoomAction::Spectate => self.spectate_btn.render_shadow(ui, r, t, |ui, path| {
+                        ui.fill_path(&path, if self.spectating { accent } else { fill });
+                        ui.text(&item.label)
+                            .pos(r.center().x, r.center().y)
+                            .anchor(0.5, 0.5)
+                            .no_baseline()
+                            .size(0.42)
+                            .color(if self.spectating { WHITE } else { fg })
+                            .max_width(r.w)
+                            .draw();
+                    }),
                 }
             }
         }
@@ -1461,6 +1702,9 @@ impl MPPanel {
             match join.try_into() {
                 Ok(id) => {
                     let client = self.clone_client();
+                    // 深链接为正常游玩进房：清理观战状态
+                    self.spectating = false;
+                    self.spectate_stats.clear();
                     self.join_room_task = Some(Task::new(async move {
                         client.join_room(id, false).await?;
                         client.room_state().await.ok_or_else(|| anyhow!("expected room state"))
@@ -1484,26 +1728,29 @@ impl MPPanel {
 
     pub fn enter(&mut self) {
         self.entered = true;
-        // 谱面预览场景结束（弹回 MainScene 时 enter 会被调用）：停止后台轮询；
-        // 若刚才是被“房主开始”打断，且房间仍停在 WaitingForReady、自己还未就绪，
-        // 弹醒目确认框询问是否现在准备（点“准备”走与“就绪”相同的下载→ready 流程）。
-        if let Some(stop) = self.preview_watch_stop.take() {
-            stop.store(true, Ordering::Relaxed);
-        }
-        let Some(interrupt) = self.preview_interrupt.take() else {
-            return;
-        };
-        if !interrupt.load(Ordering::Relaxed) {
-            // 预览自然结束/中途退出：无需询问
+        // 谱面预览/观战画面结束（弹回 MainScene 时 enter 会被调用）：停止后台轮询。
+        // 注意：这里用“是否从预览画面返回”作为判据，而不依赖打断标志是否已置位——
+        // 房主开始往往就发生在预览结束的同一瞬间，只看标志会漏掉提示。
+        let from_preview = self.preview_watch_stop.take().is_some();
+        self.preview_interrupt = None;
+        if !from_preview {
             return;
         }
-        // 已被房主开始打断：只有房间仍在 WaitingForReady 且自己未就绪才询问；
-        // 若已进入 Playing（可能已开局），不在这里准备，交给 update 里的正式开局逻辑接走
-        let ask_ready = self.client.as_ref().is_some_and(|client| {
-            matches!(client.blocking_room_state(), Some(RoomState::WaitingForReady))
-                && !client.blocking_is_ready().unwrap_or(false)
-        });
+        // 观战者只旁观：观看结束（本局结束/退出房间）不询问准备
+        if self.spectating {
+            return;
+        }
+        // 房间停在等待就绪、而自己尚未就绪：说明房主已开始等自己准备，弹醒目确认框
+        let room_state = self.client.as_ref().and_then(|client| client.blocking_room_state());
+        if matches!(room_state, Some(RoomState::Playing)) {
+            // 已经开局（自己已就绪、马上进入对局）：给一条轻提示，不打断流程
+            show_message(mtl!("preview-started-title")).warn();
+            return;
+        }
+        let ask_ready = matches!(room_state, Some(RoomState::WaitingForReady))
+            && !self.client.as_ref().is_some_and(|c| c.blocking_is_ready().unwrap_or(false));
         if !ask_ready {
+            // 已回到选谱等其它状态：无需询问
             return;
         }
         let confirm = Arc::clone(&self.preview_ready_confirm);
@@ -1573,15 +1820,33 @@ impl MPPanel {
         }
         if *self.room_list_p.to() > 0.5 {
             if matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled) {
-                let hit = self.room_rows_hits.iter().find(|(_, r)| r.contains(touch.position));
+                // 优先判定「观战」按钮：以 monitor 身份旁观
+                let watch = self.room_spectate_hits.iter().find(|(_, r)| r.contains(touch.position)).cloned();
+                if let Some((room_id, _)) = watch {
+                    self.room_list_p.goto(0., t, USER_LIST_TRANSIT);
+                    self.join_room_as_spectator(room_id);
+                    return true;
+                }
+                let hit = self.room_rows_hits.iter().find(|(_, r)| r.contains(touch.position)).cloned();
                 if let Some((room_id, _)) = hit {
                     self.room_list_p.goto(0., t, USER_LIST_TRANSIT);
-                    let client = self.clone_client();
-                    if let Ok(id) = room_id.clone().try_into() {
-                        self.join_room_task = Some(Task::new(async move {
-                            client.join_room(id, false).await?;
-                            client.room_state().await.ok_or_else(|| anyhow!("expected room state"))
-                        }));
+                    // 正在游戏中的房间无法以玩家身份加入：直接进入观战
+                    let playing = self
+                        .room_list
+                        .as_deref()
+                        .and_then(|rooms| rooms.iter().find(|r| r.id == room_id))
+                        .is_some_and(|r| r.state.contains("游戏") || r.state.eq_ignore_ascii_case("playing"));
+                    if playing {
+                        self.join_room_as_spectator(room_id);
+                    } else {
+                        let client = self.clone_client();
+                        if let Ok(id) = room_id.clone().try_into() {
+                            self.spectating = false;
+                            self.join_room_task = Some(Task::new(async move {
+                                client.join_room(id, false).await?;
+                                client.room_state().await.ok_or_else(|| anyhow!("expected room state"))
+                            }));
+                        }
                     }
                 } else {
                     self.room_list_p.goto(0., t, USER_LIST_TRANSIT);
@@ -1599,6 +1864,31 @@ impl MPPanel {
             }
             if matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled) {
                 self.results_p.goto(0., t, USER_LIST_TRANSIT);
+            }
+            return true;
+        }
+        // 观战浮层
+        if self.spectate_p.transiting(t) {
+            return true;
+        }
+        if *self.spectate_p.to() > 0.5 {
+            if self.spectate_scroll.touch(touch, t) {
+                return true;
+            }
+            if self.spectate_close_btn.touch(touch, t) {
+                self.spectate_p.goto(0., t, USER_LIST_TRANSIT);
+                return true;
+            }
+            if self.spectate_watch_btn.touch(touch, t) {
+                self.start_spectate_watch();
+                return true;
+            }
+            if self.spectate_exit_btn.touch(touch, t) {
+                self.exit_spectate();
+                return true;
+            }
+            if matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled) {
+                self.spectate_scroll.y_scroller.halt();
             }
             return true;
         }
@@ -1661,6 +1951,10 @@ impl MPPanel {
             if self.leave_room_btn.touch(touch, t) {
                 let client = self.clone_client();
                 self.task = Some(Task::new(async move { client.leave_room().await }));
+                // 离开房间同时结束观战状态（观战者离开即退出观战）
+                self.spectating = false;
+                self.spectate_stats.clear();
+                self.spectate_p.goto(0., t, USER_LIST_TRANSIT);
                 return true;
             }
             // 玩家列表浮层开关（栏头）
@@ -1775,6 +2069,12 @@ impl MPPanel {
                     self.start_preview();
                     return true;
                 }
+                // 打开观战浮层（观战者查看实时进度 / 退出观战）
+                if has(RoomAction::Spectate) && self.spectate_btn.touch(touch, t) {
+                    self.spectate_scroll.y_scroller.reset();
+                    self.spectate_p.goto(1., t, USER_LIST_TRANSIT);
+                    return true;
+                }
             }
         } else {
             // 未进房（大厅）：创建 / 加入 / 公共房间 / 断开
@@ -1840,7 +2140,24 @@ impl MPPanel {
             }
         }
         if let Some(client) = &self.client {
-            self.msgs.extend(client.blocking_take_messages().into_iter().map(|msg| {
+            let pending = client.blocking_take_messages();
+            // 观战：服务端在观战者加入时会补发当前谱面（SelectChart/SelectLocalChart），
+            // 记录下来以便“观看谱面”能加载正在游玩的那张谱。
+            if self.spectating {
+                for m in &pending {
+                    match m {
+                        phira_mp_common::Message::SelectChart { id, name, .. } if *id > 0 => {
+                            self.chart_id = Some(*id);
+                            self.spectate_chart_name = Some(name.clone());
+                        }
+                        phira_mp_common::Message::SelectLocalChart { name, .. } => {
+                            self.spectate_chart_name = Some(name.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            self.msgs.extend(pending.into_iter().map(|msg| {
                 use phira_mp_common::Message as M;
                 match msg {
                     M::Chat { user, content, .. } => Message {
@@ -1924,7 +2241,11 @@ impl MPPanel {
             }));
             let state = client.blocking_room_state();
             if matches!(state, Some(RoomState::Playing)) {
-                if !self.game_start_consumed {
+                // 观战者只旁观：不进入游玩场景、不参与成绩上报
+                if self.spectating {
+                    self.game_start_consumed = true;
+                    self.need_upload = false;
+                } else if !self.game_start_consumed {
                     self.game_start_consumed = true;
                     RECORD_ID.store(-1, Ordering::Relaxed);
                     // 开局清空上一局结算记录，避免残留导致误判“完成”
@@ -2126,6 +2447,12 @@ impl MPPanel {
                             RoomState::SelectChart(id) => id,
                             _ => None,
                         };
+                        // 观战意图：入房成功后自动打开观战浮层，直接看到实时进度
+                        if self.spectating {
+                            self.spectate_scroll.y_scroller.reset();
+                            self.spectate_p.goto(1., 0., USER_LIST_TRANSIT);
+                            show_message(mtl!("spectate-joined")).ok();
+                        }
                     }
                 }
                 self.join_room_task = None;
@@ -2216,6 +2543,19 @@ impl MPPanel {
         }
         // 处理本地谱面同步事件
         self.update_local_chart();
+
+        // 观战：累计服务端 live 广播的判定事件，供观战浮层展示实时进度
+        if self.spectating {
+            // 已不在房间（离开/被移出/房间解散）：自动结束观战状态，避免影响后续正常游玩
+            let in_room = self.client.as_ref().is_some_and(|c| c.blocking_room_id().is_some());
+            if !in_room {
+                self.spectating = false;
+                self.spectate_stats.clear();
+                self.spectate_p.goto(0., 0., USER_LIST_TRANSIT);
+            } else {
+                self.update_spectate_stats();
+            }
+        }
 
         // 本地谱面同步任务完成
         if let Some(task) = &mut self.local_chart_task {
@@ -2363,11 +2703,148 @@ impl MPPanel {
             self.render_lobby_body(ui, t);
         }
 
-        // —— 居中浮层（重排版）：玩家列表 / 公共房间 / 结算 / 房主操作菜单 ——
+        // —— 居中浮层（重排版）：玩家列表 / 公共房间 / 结算 / 房主操作菜单 / 观战 ——
         self.render_user_overlay(ui, t);
         self.render_room_list_overlay(ui, t);
         self.render_results_overlay(ui, t);
         self.render_manage_overlay(ui, t);
+        self.render_spectate_overlay(ui, t);
+    }
+
+    /// 观战浮层：展示观战中各玩家的实时判定统计，以及“观看谱面 / 退出观战”。
+    fn render_spectate_overlay(&mut self, ui: &mut Ui, t: f32) {
+        let p = self.spectate_p.now(t);
+        if p <= 1e-4 {
+            return;
+        }
+        let Some(client) = self.client.clone() else {
+            self.spectate_p.goto(0., t, USER_LIST_TRANSIT);
+            return;
+        };
+        let Some(room) = client.blocking_state() else {
+            self.spectate_p.goto(0., t, USER_LIST_TRANSIT);
+            return;
+        };
+        let accent = ui.accent();
+        let me = client.me().map(|it| it.id);
+        let ids = sorted_user_ids(&room, me);
+        let players: Vec<i32> = ids
+            .into_iter()
+            .filter(|id| room.users.get(id).is_some_and(|u| !u.monitor))
+            .collect();
+        let n = players.len();
+        let row_h = 0.16;
+        let panel_w = 0.95;
+        let max_rows = 9usize;
+        let panel_h = (0.5 + n.min(max_rows) as f32 * (row_h + 0.02)).min(ui.top * 2. - 0.1);
+        let stats = self.spectate_stats.clone();
+        let names: Vec<(i32, String)> = players.iter().map(|id| (*id, client.user_name(*id))).collect();
+        ui.abs_scope(|ui| {
+            ui.alpha(p, |ui| {
+                ui.fill_rect(ui.screen_rect(), semi_black(p * 0.55));
+                let panel = Rect::new(-panel_w / 2., -panel_h / 2., panel_w, panel_h);
+                ui.fill_path(&panel.rounded(0.018), semi_black(0.42));
+                let left = panel.x + 0.04;
+                ui.text(mtl!("spectate-title"))
+                    .pos(left, panel.y + 0.03)
+                    .size(0.5)
+                    .color(WHITE)
+                    .draw_using(&prpr::core::BOLD_FONT);
+                // 正在游玩的谱面名（服务端补发选谱消息时记录）
+                if let Some(chart) = self.spectate_chart_name.clone() {
+                    let label = mtl!("spectate-chart", "chart" => chart.as_str());
+                    ui.text(&label)
+                        .pos(left, panel.y + 0.095)
+                        .size(0.32)
+                        .max_width(panel_w - 0.34)
+                        .color(semi_white(0.7))
+                        .draw();
+                }
+                // 关闭按钮
+                let close = Rect::new(panel.right() - 0.24, panel.y + 0.03, 0.2, 0.09);
+                let close_label = mtl!("spectate-close").into_owned();
+                self.spectate_close_btn.render_shadow(ui, close, t, |ui, path| {
+                    ui.fill_path(&path, semi_white(0.12));
+                    ui.text(&close_label)
+                        .pos(close.center().x, close.center().y)
+                        .anchor(0.5, 0.5)
+                        .no_baseline()
+                        .size(0.34)
+                        .color(semi_white(0.92))
+                        .max_width(close.w - 0.02)
+                        .draw();
+                });
+                // 玩家实时统计
+                let vh = (panel_h - 0.34).max(0.2);
+                ui.scope(|ui| {
+                    ui.dx(left);
+                    ui.dy(panel.y + 0.14);
+                    self.spectate_scroll.size((panel_w - 0.08, vh - 0.14));
+                    self.spectate_scroll.render(ui, |ui| {
+                        if n == 0 {
+                            ui.text(mtl!("spectate-none")).pos(0., 0.).size(0.38).color(semi_white(0.6)).draw();
+                        }
+                        for (i, (id, name)) in names.iter().enumerate() {
+                            let rr = Rect::new(0., i as f32 * (row_h + 0.02), panel_w - 0.08, row_h);
+                            ui.fill_path(&rr.rounded(0.01), semi_black(0.22));
+                            let st = stats.get(id).copied().unwrap_or_default();
+                            ui.text(name)
+                                .pos(rr.x + 0.03, rr.y + rr.h * 0.32)
+                                .size(0.4)
+                                .max_width(rr.w * 0.42)
+                                .color(WHITE)
+                                .draw();
+                            let line = format!(
+                                "{} {:07} · {:.2}% · {}x · P{} G{} B{} M{}",
+                                if st.total() == 0 { mtl!("spectate-waiting").into_owned() } else { String::new() },
+                                (st.accuracy() as f64 * 900000. + st.max_combo as f64 * 100.) as u32,
+                                st.accuracy() * 100.,
+                                st.max_combo,
+                                st.perfect,
+                                st.good,
+                                st.bad,
+                                st.miss
+                            );
+                            ui.text(&line)
+                                .pos(rr.x + rr.w * 0.45, rr.y + rr.h * 0.32)
+                                .size(0.34)
+                                .max_width(rr.w * 0.53)
+                                .color(semi_white(0.9))
+                                .draw();
+                        }
+                        (panel_w - 0.08, (n.min(max_rows) as f32) * (row_h + 0.02))
+                    });
+                });
+                // 底部按钮：观看谱面(autoplay) / 退出观战
+                let btn_h = 0.1;
+                let bw = (panel_w - 0.1) / 2.;
+                let watch_r = Rect::new(panel.x + 0.04, panel.bottom() - btn_h - 0.04, bw, btn_h);
+                let exit_r = Rect::new(watch_r.right() + 0.02, watch_r.y, bw, btn_h);
+                self.spectate_watch_btn.render_shadow(ui, watch_r, t, |ui, path| {
+                    ui.fill_path(&path, accent);
+                    ui.text(mtl!("spectate-watch"))
+                        .pos(watch_r.center().x, watch_r.center().y)
+                        .anchor(0.5, 0.5)
+                        .no_baseline()
+                        .size(0.4)
+                        .color(WHITE)
+                        .max_width(watch_r.w - 0.02)
+                        .draw();
+                });
+                let exit_label = mtl!("spectate-exit").into_owned();
+                self.spectate_exit_btn.render_shadow(ui, exit_r, t, |ui, path| {
+                    ui.fill_path(&path, Color::from_rgba(120, 40, 40, 235));
+                    ui.text(&exit_label)
+                        .pos(exit_r.center().x, exit_r.center().y)
+                        .anchor(0.5, 0.5)
+                        .no_baseline()
+                        .size(0.4)
+                        .color(WHITE)
+                        .max_width(exit_r.w - 0.02)
+                        .draw();
+                });
+            });
+        });
     }
 
     // ---------- 居中浮层 ----------
@@ -2469,6 +2946,7 @@ impl MPPanel {
                     .color(semi_white(0.95))
                     .draw_using(&prpr::core::BOLD_FONT);
                 self.room_rows_hits.clear();
+                self.room_spectate_hits.clear();
                 if self.room_list.is_none() && self.room_list_task.is_some() {
                     ui.text(mtl!("room-list-loading")).pos(left, panel.y + 0.16).size(0.38).color(semi_white(0.6)).draw();
                 }
@@ -2481,26 +2959,45 @@ impl MPPanel {
                     let rr = Rect::new(panel.x + 0.03, y, panel_w - 0.06, row_h);
                     ui.fill_path(&rr.rounded(0.01), semi_black(0.22));
                     let label = format!("#{}  ·  {}  ·  {}", room.id, room.state, mtl!("mp-room-counts", "players" => room.player_count as u64, "spectators" => room.spectator_count as u64));
+                    // 右侧预留「观战」按钮，文本区域相应收窄
+                    let watch_w = 0.2;
+                    let watch_r = Rect::new(rr.right() - watch_w - 0.02, rr.y + rr.h * 0.2, watch_w, rr.h * 0.6);
                     ui.text(&label)
                         .pos(rr.x + 0.03, rr.center().y)
                         .anchor(0., 0.5)
                         .size(0.38)
-                        .max_width(rr.w - (if room.locked { 0.4 } else { 0.2 }))
+                        .max_width(rr.w - watch_w - (if room.locked { 0.26 } else { 0.1 }))
                         .color(if room.locked { semi_white(0.55) } else { semi_white(0.95) })
                         .draw();
                     if room.locked {
                         let locked_tag = mtl!("mp-room-locked");
                         pill_text(
                             ui,
-                            Rect::new(rr.right() - 0.2, rr.y + rr.h * 0.25, 0.17, rr.h * 0.5),
+                            Rect::new(watch_r.x - 0.19, rr.y + rr.h * 0.25, 0.17, rr.h * 0.5),
                             locked_tag.as_ref(),
                             0.3,
                             semi_white(0.08),
                             semi_white(0.6),
                         );
                     }
-                    // 点击整行可加入
-                    self.room_rows_hits.push((room.id.clone(), rr));
+                    // 「观战」按钮：以 monitor 身份旁观（对局进行中也可围观）
+                    let watching_here = self.spectating
+                        && self
+                            .client
+                            .as_ref()
+                            .and_then(|c| c.blocking_room_id())
+                            .is_some_and(|rid| rid.to_string() == room.id);
+                    pill_text(
+                        ui,
+                        watch_r,
+                        mtl!("spectate").as_ref(),
+                        0.32,
+                        if watching_here { color_alpha(ui.accent(), 0.75) } else { semi_white(0.12) },
+                        semi_white(0.95),
+                    );
+                    self.room_spectate_hits.push((room.id.clone(), watch_r));
+                    // 点击整行剩余区域可加入（对局进行中的房间会被服务端拒绝，提示改用观战）
+                    self.room_rows_hits.push((room.id.clone(), Rect::new(rr.x, rr.y, rr.w - watch_w - 0.03, rr.h)));
                     y += row_h + 0.02;
                 }
                 if rooms.len() > max_rows {
