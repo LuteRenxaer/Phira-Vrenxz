@@ -67,6 +67,11 @@ pub struct MpSession {
     bgm_clip: Option<AudioClip>,
     bgm: Option<Music>,
 
+    /// 本地核对界面用的后门（见 [`MpSession::dev_tick`]），正常运行时为 `None`
+    dev_spec: Option<String>,
+    dev_connected: bool,
+    dev_room_started: bool,
+
     /// 场景整体淡入淡出（进入 / 退出 / 压栈子场景）
     sf: SFader,
     /// 待压栈的子场景（游玩 / 预览 / 观战）
@@ -128,6 +133,10 @@ impl MpSession {
 
             bgm_clip,
             bgm: None,
+
+            dev_spec: std::env::var("PHIRA_MP_DEV").ok(),
+            dev_connected: false,
+            dev_room_started: false,
 
             sf: SFader::new(),
             pending_scene: None,
@@ -615,8 +624,35 @@ impl MpSession {
 
     // ---------- 每帧更新 ----------
 
+    /// 本地核对界面用的临时后门（`PHIRA_MP_DEV=lobby` / `PHIRA_MP_DEV=room:<房间号>`）：
+    /// 自动连接、（可选）建好房间，然后停在对应页面，方便截图检查版面。
+    /// 正常运行时环境变量为空，这里一行都不会执行。
+    fn dev_tick(&mut self) {
+        let Some(spec) = self.dev_spec.clone() else { return };
+        if self.state.client.is_none() {
+            if self.state.connect_task.is_none() && !self.dev_connected {
+                self.dev_connected = true;
+                self.state.connect();
+            }
+            return;
+        }
+        if let Some(id) = spec.strip_prefix("room:") {
+            if !self.state.in_room() && self.state.create_room_task.is_none() && self.state.join_room_task.is_none() && !self.dev_room_started {
+                self.dev_room_started = true;
+                if let Ok(room_id) = id.to_owned().try_into() {
+                    self.state.create_room(room_id);
+                }
+            }
+        } else if self.state.in_room() && !self.dev_room_started {
+            // `lobby`：服务端可能把上一局的房间粘回来，先退出去，才能看到主页
+            self.dev_room_started = true;
+            self.state.leave_room();
+        }
+    }
+
     pub fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
         let t = tm.now() as f32;
+        self.dev_tick();
         // 深链接（主菜单未取走时由这里兜底处理）
         if let Some(link) = crate::mp::take_pending_room_link() {
             self.set_deep_link(link);
