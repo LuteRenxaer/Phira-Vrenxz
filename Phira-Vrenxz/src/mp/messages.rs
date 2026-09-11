@@ -1,7 +1,7 @@
-//! 房间消息流：把服务端下发的 `Message` 渲染成底部滚动列表，并把聊天输入
+//! 房间消息流：把服务端下发的 `Message` 渲染成滚动列表，并把聊天输入
 //! 送出去。观战需要的“当前正在游玩的谱面”信息也从这里顺带取出
 //! （服务端在观战者进房时会补发选谱消息），因此 [`MessageLog::ingest`] 会返回
-//! [`RoomNotice`]，由面板转交给观战会话。
+//! [`RoomNotice`]，由会话转交给观战模块。
 
 use macroquad::prelude::*;
 use phira_mp_client::Client;
@@ -11,6 +11,7 @@ use prpr::{
     ui::{DrawText, Scroll, Ui},
 };
 
+use super::theme::{FS_BODY, FS_SMALL};
 use crate::mp::L10N_LOCAL;
 
 /// 消息流里的一条消息（坐标由渲染时测量写入）。
@@ -25,7 +26,7 @@ impl Message {
     fn text<'a, 's, 'ui>(&'s self, ui: &'ui mut Ui<'a>, max_width: f32) -> DrawText<'a, 's, 'ui> {
         ui.text(&self.content)
             .pos(0., self.y)
-            .size(0.4)
+            .size(FS_BODY)
             .color(self.color)
             .max_width(max_width)
             .multiline()
@@ -146,7 +147,7 @@ impl MessageLog {
                     ui.text(mtl!("mp-msg-none"))
                         .pos(r.w / 2., 0.04)
                         .anchor(0.5, 0.)
-                        .size(0.36)
+                        .size(FS_SMALL)
                         .color(semi_white(0.4))
                         .draw();
                     return (r.w, r.h);

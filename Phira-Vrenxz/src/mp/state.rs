@@ -1,6 +1,9 @@
-//! 多人面板的连接与房间状态：所有在途任务句柄、谱面下载流程、本地谱面分享
+//! 多人会话的连接与房间状态：所有在途任务句柄、谱面下载流程、本地谱面分享
 //! 状态、对局流程标记都集中在这里。本模块**不做任何绘制**，只负责“状态 +
 //! 生命周期”，协议调用见 [`super::actions`]。
+//!
+//! 会话对象（[`super::MpSession`]）在场景进出、进游玩/预览/观战子场景时一直存活，
+//! 因此房间与连接状态不会因为它们之间的切换而丢失。
 
 use std::{
     path::Path,
@@ -55,7 +58,7 @@ pub struct ChartDownload {
     pub chart_id: i32,
 }
 
-/// 面板持有的全部协议状态与任务句柄。
+/// 会话持有的全部协议状态与任务句柄。
 pub struct MpState {
     pub client: Option<Arc<Client>>,
 
@@ -82,7 +85,7 @@ pub struct MpState {
     // —— 本地谱面分享 ——
     /// 当前分享/同步中的本地谱面 (uuid, 谱面名)
     pub local_chart: Option<(String, String)>,
-    /// 谱面同步进度（浮层提示用）
+    /// 谱面同步进度（房间页状态行显示）
     pub syncing: Option<Arc<crate::mp::serve::ChartSyncing>>,
     /// 待下载的本地谱面 (chart_id, chart_name)
     pub pending_download: Option<(String, String)>,
@@ -181,7 +184,7 @@ impl MpState {
         self.room().map(|it| it.state)
     }
 
-    /// 是否有面板级任务在跑（决定是否显示全屏 loading）。
+    /// 是否有会话级任务在跑（页面据此显示状态行，而不是弹出浮层 loading）。
     pub fn busy(&self) -> bool {
         self.connect_task.is_some()
             || self.create_room_task.is_some()
@@ -233,7 +236,7 @@ impl MpState {
         }
     }
 
-    /// 断开连接（保留面板其余状态，交由面板决定是否清空消息）。
+    /// 断开连接（保留会话其余状态，交由会话决定是否清空消息）。
     pub fn disconnect(&mut self) {
         self.client = None;
         self.connect_task = None;
@@ -253,4 +256,26 @@ impl MpState {
         self.need_upload = false;
         self.entered = false;
     }
+}
+
+/// 以「自己优先、其余按 id 升序」排出的用户 id 列表。
+/// 玩家列表/观战列表的渲染与触摸都必须用它，保证行索引一一对应。
+pub fn sorted_user_ids(room: &ClientRoomState, me: Option<i32>) -> Vec<i32> {
+    let mut ids: Vec<i32> = room.users.keys().copied().collect();
+    ids.sort_unstable();
+    if let Some(m) = me {
+        if let Some(pos) = ids.iter().position(|&x| x == m) {
+            let me = ids.remove(pos);
+            ids.insert(0, me);
+        }
+    }
+    ids
+}
+
+/// 只包含真正玩家（非 monitor 观战者）的 id 列表，顺序同 [`sorted_user_ids`]。
+pub fn player_ids(room: &ClientRoomState, me: Option<i32>) -> Vec<i32> {
+    sorted_user_ids(room, me)
+        .into_iter()
+        .filter(|id| room.users.get(id).is_some_and(|u| !u.monitor))
+        .collect()
 }

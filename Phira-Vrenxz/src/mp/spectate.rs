@@ -1,4 +1,4 @@
-//! 观战：会话状态 + 观战浮层 + 同步观战的数据喂送。
+//! 观战会话：旁观（monitor）状态 + 同步观战的数据喂送。
 //!
 //! # 两种观战
 //! - **旁观**：以 `client.join_room(id, true)`（monitor）进入任意房间，含正在对局
@@ -9,6 +9,9 @@
 //!   `prpr::scene::SpectateSource`，用 `SongScene::global_launch_spectate` 启动。
 //!   后台任务持续搬运 `client.live_player(target).judge_events / touch_frames`
 //!   并 `set_time_ref`，同时每轮 `set_remote_paused(client.blocking_player_paused(target))`。
+//!
+//! 观战的信息展示（谱面名、每人 P/G/B/M/连击/近似准确率与分数、选择目标）是
+//! 多人场景里的一个**整屏页面**（见 [`super::page::spectate`]），本模块只提供数据。
 //!
 //! # 观战暂停画面
 //! 暂停画面本身（变暗/模糊、暂停按钮、退出/重试/继续三键、屏幕正中的
@@ -36,25 +39,16 @@ use std::{
 };
 
 use anyhow::Result;
-use macroquad::prelude::*;
 use phira_mp_client::Client;
 use phira_mp_common::{ClientRoomState, Judgement, RoomState};
 use prpr::{
-    core::Smooth,
-    ext::{semi_black, semi_white, LocalTask, RectExt},
+    ext::LocalTask,
     scene::{NextScene, SpectateSource},
     task::Task,
-    ui::{DRectButton, Scroll, Ui},
 };
 
-use super::{
-    messages::RoomNotice,
-    widgets::{blocks_touch, button, color_alpha, danger, overlay_panel, overlay_title, sorted_user_ids, visible, OVERLAY_TRANSIT},
-};
-use crate::{
-    mp::L10N_LOCAL,
-    scene::SongScene,
-};
+use super::messages::RoomNotice;
+use crate::scene::SongScene;
 
 /// 同步观战的喂数据间隔。
 const FEED_INTERVAL: Duration = Duration::from_millis(40);
@@ -114,24 +108,6 @@ impl SpectateStat {
     }
 }
 
-/// 观战浮层里可执行的动作。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SpectateAction {
-    /// 「同步观战」：加载对方谱面并按对方视角同步播放
-    Watch,
-    /// 「退出观战」：离开房间
-    Exit,
-    /// 点玩家行：选择同步观战的目标
-    SelectTarget(i32),
-}
-
-/// [`Spectate::touch`] 的结果。
-pub enum SpectateTouch {
-    Consumed,
-    Action(SpectateAction),
-    Pass,
-}
-
 pub struct Spectate {
     /// 是否以观战者身份（monitor）加入了房间
     joined: bool,
@@ -145,15 +121,6 @@ pub struct Spectate {
     source: Option<Arc<SpectateSource>>,
     /// 喂数据任务的停止信号（Some 表示同步观战场景正在运行）
     feed_stop: Option<Arc<AtomicBool>>,
-
-    // —— 浮层 ——
-    p: Smooth<f32>,
-    scroll: Scroll,
-    close_btn: DRectButton,
-    watch_btn: DRectButton,
-    exit_btn: DRectButton,
-    /// 玩家行命中区（渲染时记录）
-    row_hits: Vec<(i32, Rect)>,
 }
 
 impl Default for Spectate {
@@ -171,12 +138,6 @@ impl Spectate {
             target: None,
             source: None,
             feed_stop: None,
-            p: Smooth::default(),
-            scroll: Scroll::new(),
-            close_btn: DRectButton::new(),
-            watch_btn: DRectButton::new(),
-            exit_btn: DRectButton::new(),
-            row_hits: Vec::new(),
         }
     }
 
@@ -196,6 +157,16 @@ impl Spectate {
         self.target
     }
 
+    #[inline]
+    pub fn stats(&self) -> &HashMap<i32, SpectateStat> {
+        &self.stats
+    }
+
+    #[inline]
+    pub fn chart_name(&self) -> Option<&str> {
+        self.chart_name.as_deref()
+    }
+
     /// 以观战者身份进房：清空上一轮统计，准备围观。
     pub fn begin(&mut self) {
         self.joined = true;
@@ -205,11 +176,11 @@ impl Spectate {
     }
 
     /// 以玩家身份进房（或建房 / 深链接进房）：清空观战意图。
-    pub fn cancel(&mut self, t: f32) {
+    pub fn cancel(&mut self) {
         self.joined = false;
         self.stats.clear();
         self.chart_name = None;
-        self.p.goto(0., t, OVERLAY_TRANSIT);
+        self.target = None;
     }
 
     /// 消费消息流里提取出的选谱信息（观战者进房时服务端补发）。
@@ -223,7 +194,7 @@ impl Spectate {
         }
     }
 
-    /// 累计服务端 live 广播的判定事件，供观战浮层展示实时进度。
+    /// 累计服务端 live 广播的判定事件，供观战页展示实时进度。
     pub fn collect_stats(&mut self, client: &Client) {
         let Some(room) = client.blocking_state() else {
             self.stats.clear();
@@ -251,12 +222,12 @@ impl Spectate {
     }
 
     /// 每帧：已在房间外则自动结束观战状态（离开 / 被移出 / 房间解散）。
-    pub fn poll_room(&mut self, client: Option<&Client>, t: f32) {
+    pub fn poll_room(&mut self, client: Option<&Client>) {
         if !self.joined {
             return;
         }
         if client.and_then(|c| c.blocking_room_id()).is_none() {
-            self.cancel(t);
+            self.cancel();
         }
     }
 
@@ -285,7 +256,7 @@ impl Spectate {
     pub fn begin_watch(&mut self, client: Option<Arc<Client>>, id: Option<i32>, path: &str, target: i32) -> Result<LocalTask<Result<NextScene>>> {
         let source = SpectateSource::new();
         let stop = Arc::new(AtomicBool::new(false));
-        // 场景结束时面板需要读它的“退出观战”请求，因此在这里留一份
+        // 场景结束时会话需要读它的“退出观战”请求，因此在这里留一份
         self.source = Some(Arc::clone(&source));
         let task = match SongScene::global_launch_spectate(id, path, Arc::clone(&source)) {
             Ok(task) => task,
@@ -305,7 +276,7 @@ impl Spectate {
         Ok(task)
     }
 
-    /// 观战场景结束回到面板：停止喂数据任务。
+    /// 观战场景结束回到多人场景：停止喂数据任务。
     pub fn on_scene_return(&mut self) {
         if let Some(stop) = self.feed_stop.take() {
             stop.store(true, Ordering::Relaxed);
@@ -318,13 +289,13 @@ impl Spectate {
     }
 
     /// 真正退出观战：离开房间并清理观战状态。
-    pub fn finish(&mut self, t: f32) {
+    pub fn finish(&mut self) {
         self.on_scene_return();
         self.source = None;
         self.joined = false;
         self.stats.clear();
         self.chart_name = None;
-        self.p.goto(0., t, OVERLAY_TRANSIT);
+        self.target = None;
     }
 
     /// 持续把目标玩家的判定事件与时间参考喂给观战场景，
@@ -367,170 +338,5 @@ impl Spectate {
             // 被观战者的暂停状态：远端暂停时观战端进入暂停画面（对方继续后自动恢复）
             source.set_remote_paused(client.blocking_player_paused(target));
         }
-    }
-
-    // ---------- 浮层 ----------
-
-    pub fn invalidate(&mut self) {
-        self.close_btn.invalidate();
-        self.watch_btn.invalidate();
-        self.exit_btn.invalidate();
-    }
-
-    pub fn update(&mut self, t: f32) {
-        if visible(self.p.now(t)) {
-            self.scroll.update(t);
-        }
-    }
-
-    pub fn open(&mut self, t: f32) {
-        self.scroll.y_scroller.reset();
-        self.p.goto(1., t, OVERLAY_TRANSIT);
-    }
-
-    pub fn close(&mut self, t: f32) {
-        self.p.goto(0., t, OVERLAY_TRANSIT);
-    }
-
-    /// 观战浮层触摸。
-    pub fn touch(&mut self, touch: &Touch, t: f32) -> SpectateTouch {
-        // 仅当朝打开方向（`to() > 0.`）时才拦触摸：收起过程与 `Smooth::default()`
-        // 的开机初始态不吞触摸（见 `widgets::blocks_touch`）。
-        if blocks_touch(&self.p, t) {
-            return SpectateTouch::Consumed;
-        }
-        if *self.p.to() <= 0.5 {
-            return SpectateTouch::Pass;
-        }
-        if self.scroll.touch(touch, t) {
-            return SpectateTouch::Consumed;
-        }
-        if self.close_btn.touch(touch, t) {
-            self.close(t);
-            return SpectateTouch::Consumed;
-        }
-        if self.watch_btn.touch(touch, t) {
-            return SpectateTouch::Action(SpectateAction::Watch);
-        }
-        if self.exit_btn.touch(touch, t) {
-            return SpectateTouch::Action(SpectateAction::Exit);
-        }
-        // 点玩家行：选择要同步观战的玩家
-        if matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled) {
-            if let Some((id, _)) = self.row_hits.iter().find(|(_, r)| r.contains(touch.position)) {
-                return SpectateTouch::Action(SpectateAction::SelectTarget(*id));
-            }
-            self.scroll.y_scroller.halt();
-        }
-        SpectateTouch::Consumed
-    }
-
-    /// 观战浮层：展示正在游玩的谱面、各玩家实时统计，以及「同步观战 / 退出观战」。
-    pub fn render(&mut self, ui: &mut Ui, t: f32, client: &Client, room: &ClientRoomState) {
-        let p = self.p.now(t);
-        if !visible(p) {
-            // 已完全收起：直接返回即可。
-            // 不要在这里 `goto(0., t, ..)`：那会每帧把 `start_time` 重置为当前帧时间，
-            // 使 `Smooth::transiting(t)`（判定区间含起点）恒为真，
-            // `Spectate::touch` 于是永远返回 Consumed 吞掉所有触摸。
-            return;
-        }
-        let accent = ui.accent();
-        let me = client.me().map(|it| it.id);
-        // 观战对象只能是真正的玩家（monitor 没有判定事件）
-        let players: Vec<i32> = sorted_user_ids(room, me)
-            .into_iter()
-            .filter(|id| room.users.get(id).is_some_and(|u| !u.monitor))
-            .collect();
-        let n = players.len();
-        let row_h = 0.16;
-        let panel_w = 0.95;
-        let max_rows = 9usize;
-        let panel_h = (0.5 + n.min(max_rows) as f32 * (row_h + 0.02)).min(ui.top * 2. - 0.1);
-        let stats = self.stats.clone();
-        let names: Vec<(i32, String)> = players.iter().map(|id| (*id, client.user_name(*id))).collect();
-        let target = self.target;
-        let chart_name = self.chart_name.clone();
-        ui.abs_scope(|ui| {
-            ui.alpha(p, |ui| {
-                let panel = overlay_panel(ui, p, panel_w, panel_h, 0.55);
-                let left = panel.x + 0.04;
-                overlay_title(ui, left, panel.y + 0.03, &mtl!("spectate-title"), 0.5);
-                // 正在游玩的谱面名（服务端补发选谱消息时记录）
-                if let Some(chart) = chart_name {
-                    let label = mtl!("spectate-chart", "chart" => chart.as_str());
-                    ui.text(&label)
-                        .pos(left, panel.y + 0.095)
-                        .size(0.32)
-                        .max_width(panel_w - 0.34)
-                        .color(semi_white(0.7))
-                        .draw();
-                }
-                // 关闭按钮
-                let close = Rect::new(panel.right() - 0.24, panel.y + 0.03, 0.2, 0.09);
-                button(ui, &mut self.close_btn, t, close, mtl!("spectate-close"), 0.34, semi_white(0.12), semi_white(0.92));
-                // 玩家实时统计
-                let vh = (panel_h - 0.34).max(0.2);
-                self.row_hits.clear();
-                ui.scope(|ui| {
-                    ui.dx(left);
-                    ui.dy(panel.y + 0.14);
-                    self.scroll.size((panel_w - 0.08, vh - 0.14));
-                    self.scroll.render(ui, |ui| {
-                        if n == 0 {
-                            ui.text(mtl!("spectate-none"))
-                                .pos(0., 0.)
-                                .size(0.38)
-                                .color(semi_white(0.6))
-                                .draw();
-                        }
-                        for (i, (id, name)) in names.iter().enumerate() {
-                            let rr = Rect::new(0., i as f32 * (row_h + 0.02), panel_w - 0.08, row_h);
-                            let is_target = Some(*id) == target;
-                            ui.fill_path(&rr.rounded(0.01), if is_target { color_alpha(accent, 0.35) } else { semi_black(0.22) });
-                            let st = stats.get(id).copied().unwrap_or_default();
-                            ui.text(name)
-                                .pos(rr.x + 0.03, rr.y + rr.h * 0.32)
-                                .size(0.4)
-                                .max_width(rr.w * 0.42)
-                                .color(WHITE)
-                                .draw();
-                            let waiting = if st.total() == 0 {
-                                mtl!("spectate-waiting").into_owned()
-                            } else {
-                                String::new()
-                            };
-                            let line = format!(
-                                "{} {:07} · {:.2}% · {}x · P{} G{} B{} M{}",
-                                waiting,
-                                st.score(),
-                                st.accuracy() * 100.,
-                                st.max_combo,
-                                st.perfect,
-                                st.good,
-                                st.bad,
-                                st.miss
-                            );
-                            ui.text(&line)
-                                .pos(rr.x + rr.w * 0.45, rr.y + rr.h * 0.32)
-                                .size(0.34)
-                                .max_width(rr.w * 0.53)
-                                .color(semi_white(0.9))
-                                .draw();
-                            // 点这一行 = 选择要同步观战的玩家
-                            self.row_hits.push((*id, rr));
-                        }
-                        (panel_w - 0.08, n.min(max_rows) as f32 * (row_h + 0.02))
-                    });
-                });
-                // 底部按钮：同步观战 / 退出观战
-                let btn_h = 0.1;
-                let bw = (panel_w - 0.1) / 2.;
-                let watch_r = Rect::new(panel.x + 0.04, panel.bottom() - btn_h - 0.04, bw, btn_h);
-                let exit_r = Rect::new(watch_r.right() + 0.02, watch_r.y, bw, btn_h);
-                button(ui, &mut self.watch_btn, t, watch_r, mtl!("spectate-watch"), 0.4, accent, WHITE);
-                button(ui, &mut self.exit_btn, t, exit_r, mtl!("spectate-exit"), 0.4, danger(), WHITE);
-            });
-        });
     }
 }

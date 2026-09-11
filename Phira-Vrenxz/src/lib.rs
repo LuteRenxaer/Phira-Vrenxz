@@ -626,7 +626,7 @@ pub extern "C" fn Java_quad_1native_QuadNative_markAutoImport(_env: EnvUnowned, 
 
 /// 深链接（phira://room/join|create/<...>?server=...）多人启动参数。
 /// Java 侧保证三个参数都不为 null（空字符串表示未提供），这里只暂存，
-/// 等玩家进入多人面板、连上服务器后再由 MPPanel 自动加入/创建房间。
+/// 等玩家进入多人场景、连上服务器后再由多人会话自动加入/创建房间。
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "C" fn Java_quad_1native_QuadNative_setStartupArgs(

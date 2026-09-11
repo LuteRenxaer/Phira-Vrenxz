@@ -7,7 +7,7 @@ use crate::{
     page::{ChartItem, Fader, CHOOSE_COVER, CHOSEN_COVER},
     popup::Popup,
     save_data,
-    scene::{render_release_to_refresh, SongScene, MP_PANEL},
+    scene::{render_release_to_refresh, SongScene},
 };
 use anyhow::Result;
 use core::f32;
@@ -192,7 +192,9 @@ impl ChartsView {
         NEED_UPDATE.fetch_and(false, Ordering::Relaxed)
     }
 
-    pub fn touch(&mut self, touch: &Touch, t: f32, rt: f32) -> Result<bool> {
+    /// `rt`（真实时间）保留在签名里以兼容既有调用方：多人选谱已改成「请求进入多人场景」，
+    /// 不再需要它来驱动面板滑出动画。
+    pub fn touch(&mut self, touch: &Touch, t: f32, _rt: f32) -> Result<bool> {
         if self.chart_menu.showing() {
             self.chart_menu.touch(touch, t);
             return Ok(true);
@@ -218,26 +220,26 @@ impl ChartsView {
                 if let Some(chart) = &item.chart {
                     if item.btn.touch(touch, t) {
                         item.long_touch.reset();
-                        let handled_by_mp = MP_PANEL.with(|it| {
-                            if let Some(panel) = it.borrow_mut().as_mut() {
-                                if panel.in_room() {
-                                    if let Some(id) = chart.info.id {
-                                        panel.select_chart(id);
-                                        panel.show(rt);
-                                    } else {
-                                        // 本地谱面（无在线 id）：作为本地谱面分享选择
-                                        panel.select_local_chart(
-                                            chart.local_path.clone().unwrap_or_default(),
-                                            chart.info.name.clone(),
-                                        );
-                                        panel.show(rt);
-                                    }
-                                    return true;
-                                }
+                        // 在房里点谱面 = 为多人房间选谱（在线谱）或选本地谱分享。
+                        // 选完后请求进入多人场景，回到房间页。
+                        let handled_by_mp = crate::mp::MP_SESSION.with(|it| {
+                            let mut guard = it.borrow_mut();
+                            let Some(session) = guard.as_mut() else { return false };
+                            if !session.in_room() {
+                                return false;
                             }
-                            false
+                            if let Some(id) = chart.info.id {
+                                session.select_chart(id);
+                            } else {
+                                session.select_local_chart(
+                                    chart.local_path.clone().unwrap_or_default(),
+                                    chart.info.name.clone(),
+                                );
+                            }
+                            true
                         });
                         if handled_by_mp {
+                            crate::mp::request_enter();
                             button_hit_large();
                             continue;
                         }

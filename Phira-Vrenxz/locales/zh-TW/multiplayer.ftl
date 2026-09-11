@@ -15,7 +15,7 @@ join-room-invalid-id = 房間 ID 無效
 join-room-failed = 加入房間失敗
 join-room-password-title = 輸入房間密碼
 room-list = 公共房間
-room-list-title = 公共房間（點擊加入）
+room-list-title = 公共房間
 room-list-loading = 載入中…
 room-list-empty = 暫無可加入的房間
 room-list-failed = 取得房間列表失敗
@@ -53,7 +53,6 @@ preview-started-ok = 知道了
 # 觀戰
 spectate = 觀戰
 spectate-title = 觀戰中
-spectate-close = 關閉
 spectate-none = 暫無玩家在遊玩
 spectate-waiting = 等待中…
 spectate-watch = 同步觀戰
@@ -126,9 +125,13 @@ msg-room-cycle =
        *[other] 房間已切換為普通模式
     }
 
-# —— 新版面板 UI ——
+# —— 整屏分頁 UI ——
 mp-connect-hint = 連線伺服器後，即可與好友一起遊玩
-mp-close-hint = 點擊面板外任意處關閉
+mp-connecting = 連線中…
+mp-server = 伺服器：{ $addr }
+mp-back = 返回
+mp-refresh = 重新整理
+mp-manage-hint = 點擊玩家列可管理該玩家
 mp-lobby-connected = 已連線到伺服器
 mp-lobby-not-room = 尚未進入房間
 mp-room-tag = 房間 #{ $id }
@@ -151,10 +154,10 @@ mp-manage-title = 管理 { $name }
 mp-manage-transfer = 設為房主
 mp-manage-kick = 移出房間
 mp-manage-cancel = 取消
-user-list-hint = 點擊空白處關閉
-room-list-tap-hint = 點擊房間行加入 · 右側「觀戰」圍觀對局 · 點擊空白處關閉
+room-list-tap-hint = 點擊房間列加入 · 右側「觀戰」圍觀對局
 mp-room-locked = 🔒 需要密碼
 mp-room-counts = { $players } 名玩家 / { $spectators } 名觀戰
+mp-spectate-hint = 點擊玩家列選擇同步觀戰的目標
 
 # Phira-Vrenxz 本地譜面（補齊與簡中/繁英一致）
 mp-server-no-local-chart = 此伺服器不支援本地譜面

@@ -10,7 +10,7 @@ pub(crate) mod event;
 pub use event::EventScene;
 
 mod main;
-pub use main::{MainScene, BGM_VOLUME_UPDATED, MP_PANEL};
+pub use main::{MainScene, BGM_VOLUME_UPDATED};
 
 mod song;
 pub use song::{compress_folder, Downloading, SongScene, RECORD_ID, LAST_MP_FINISH};

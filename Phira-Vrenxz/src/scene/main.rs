@@ -3,7 +3,7 @@ use crate::{
     charts_view::NEED_UPDATE,
     data::LocalChart,
     dir, get_data, get_data_mut,
-    mp::MPPanel,
+    mp::{MpSession, MultiplayerScene, MP_SESSION},
     page::{ExportInfo, HomePage, NextPage, Page, ResPackItem, SharedState},
     save_data,
     scene::{confirm_dialog, import_chart_to, parse_warnings_to_string, TEX_BACKGROUND, TEX_ICON_BACK},
@@ -47,7 +47,6 @@ pub static BGM_VOLUME_UPDATED: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
     static RESPACK_ITEM: RefCell<Option<ResPackItem>> = RefCell::default();
-    pub static MP_PANEL: RefCell<Option<MPPanel>> = RefCell::default();
 }
 
 #[inline]
@@ -222,7 +221,8 @@ impl MainScene {
     async fn new_inner(bgm: Option<Music>, fallback: FontArc) -> Result<Self> {
         let state = SharedState::new(fallback).await?;
         let icon_user = load_texture("icons/user.png").await?;
-        MP_PANEL.with(|it| *it.borrow_mut() = Some(MPPanel::new(icon_user.into())));
+        // 多人会话（跨场景存活）：多人场景只是它的一层视图壳
+        MP_SESSION.with(|it| *it.borrow_mut() = Some(MpSession::new(icon_user.into())));
         Ok(Self {
             state,
 
@@ -282,11 +282,6 @@ impl Scene for MainScene {
         }
         self.state.update(tm);
         self.pages.last_mut().unwrap().enter(&mut self.state)?;
-        MP_PANEL.with(|it| {
-            if let Some(panel) = it.borrow_mut().as_mut() {
-                panel.enter();
-            }
-        });
         Ok(())
     }
 
@@ -317,15 +312,9 @@ impl Scene for MainScene {
         }
 
         if get_data().config.mp_enabled {
-            if MP_PANEL.with(|it| it.borrow_mut().as_mut().is_some_and(|it| it.touch(tm, touch))) {
-                return Ok(true);
-            }
             if self.mp_btn.touch(touch) && !self.mp_moved {
-                MP_PANEL.with(|it| {
-                    if let Some(panel) = it.borrow_mut().as_mut() {
-                        panel.show(tm.real_time() as _);
-                    }
-                });
+                // 进入多人场景（与主菜单平级的整屏场景）
+                crate::mp::request_enter();
                 self.mp_move = None;
                 self.mp_moved = false;
                 return Ok(true);
@@ -375,26 +364,17 @@ impl Scene for MainScene {
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
         UI_AUDIO.with(|it| it.borrow_mut().recover_if_needed())?;
-        // Android 深链接（phira://）：把待处理的房间动作交给多人面板并打开它
+        // Android 深链接（phira://）：把待处理的房间动作交给多人会话并进入多人场景
         if let Some(link) = crate::mp::take_pending_room_link() {
             if !get_data().config.mp_enabled {
                 get_data_mut().config.mp_enabled = true;
             }
-            MP_PANEL.with(|it| {
-                if let Some(panel) = it.borrow_mut().as_mut() {
-                    panel.set_deep_link(link);
-                    panel.show(tm.real_time() as _);
+            MP_SESSION.with(|it| {
+                if let Some(session) = it.borrow_mut().as_mut() {
+                    session.set_deep_link(link);
                 }
             });
-        }
-        if get_data().config.mp_enabled {
-            MP_PANEL.with(|it| {
-                if let Some(panel) = it.borrow_mut().as_mut() {
-                    panel.update(tm)
-                } else {
-                    Ok(())
-                }
-            })?;
+            crate::mp::request_enter();
         }
         let s = &mut self.state;
         s.update(tm);
@@ -782,12 +762,6 @@ impl Scene for MainScene {
             self.mp_btn.set(ui, r);
             let r = r.feather(-0.02);
             ui.fill_rect(r, (*self.mp_icon, r));
-
-            MP_PANEL.with(|it| {
-                if let Some(panel) = it.borrow_mut().as_mut() {
-                    panel.render(tm, ui);
-                }
-            });
         }
 
         if self.import_task.is_some() {
@@ -803,9 +777,14 @@ impl Scene for MainScene {
     }
 
     fn next_scene(&mut self, _tm: &mut TimeManager) -> NextScene {
-        let res = MP_PANEL
-            .with(|it| it.borrow_mut().as_mut().and_then(|it| it.next_scene()))
-            .unwrap_or(self.pages.last_mut().unwrap().next_scene(&mut self.state));
+        // 进入多人场景：主菜单按钮 / 谱面库选谱 / 深链接都会置一次性请求。
+        // 多人场景与主菜单平级（压栈 Overlay），返回时 Pop 回主菜单。
+        let enter_mp = crate::mp::take_enter_request() && crate::mp::session_ready();
+        let res = if enter_mp {
+            NextScene::Overlay(Box::new(MultiplayerScene::new()))
+        } else {
+            self.pages.last_mut().unwrap().next_scene(&mut self.state)
+        };
         if !matches!(res, NextScene::None) {
             if let Some(bgm) = &mut self.bgm {
                 let _ = bgm.fade_out(0.5);

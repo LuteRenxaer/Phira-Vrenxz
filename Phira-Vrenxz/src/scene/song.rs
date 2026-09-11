@@ -238,6 +238,55 @@ impl Downloading {
         self.cancel_download_btn.render_text(ui, r, t, tl!("dl-cancel"), 0.6, true);
     }
 
+    /// 内联渲染（多人房间页的「谱面下载」状态行）：在给定矩形内画谱面名、状态文字、
+    /// 进度条与「取消」按钮，**不铺满全屏、不加暗色遮罩**。
+    ///
+    /// 「取消」按钮的命中区就在本函数里登记（`cancel_download_btn`），因此
+    /// [`Self::touch`] 与该按钮的显示天然同源。
+    pub fn render_inline(&mut self, ui: &mut Ui, r: Rect, t: f32) {
+        let accent = ui.accent();
+        let status = self.status.lock().unwrap().clone();
+        let text_w = (r.w - 0.42).max(0.1);
+        ui.text(&self.info.name)
+            .pos(r.x + 0.03, r.y + r.h * 0.28)
+            .anchor(0., 0.5)
+            .no_baseline()
+            .max_width(text_w)
+            .size(0.38)
+            .color(semi_white(0.92))
+            .draw();
+        ui.text(status)
+            .pos(r.x + 0.03, r.y + r.h * 0.6)
+            .anchor(0., 0.5)
+            .no_baseline()
+            .max_width(text_w)
+            .size(0.31)
+            .color(semi_white(0.6))
+            .draw();
+        // 进度条（进度未知时画一条满宽的浅色底，靠状态文字表达“进行中”）
+        let bar = Rect::new(r.x + 0.03, r.y + r.h * 0.82, text_w, 0.012);
+        ui.fill_path(&bar.rounded(0.006), semi_black(0.35));
+        if let Some(p) = *self.prog.lock().unwrap() {
+            let w = bar.w * p.clamp(0., 1.);
+            if w > 0.002 {
+                let shading = Color { a: 0.85, ..accent };
+                ui.fill_path(&Rect::new(bar.x, bar.y, w, bar.h).rounded(0.006), shading);
+            }
+        }
+        let cr = Rect::new(r.right() - 0.36, r.y + r.h * 0.18, 0.32, r.h * 0.64);
+        self.cancel_download_btn.render_shadow(ui, cr, t, |ui, path| {
+            ui.fill_path(&path, semi_black(0.4));
+            ui.text(tl!("dl-cancel"))
+                .pos(cr.center().x, cr.center().y)
+                .anchor(0.5, 0.5)
+                .no_baseline()
+                .size(0.36)
+                .color(semi_white(0.9))
+                .max_width(cr.w - 0.02)
+                .draw();
+        });
+    }
+
     pub fn check(&mut self) -> Result<Option<Option<LocalTuple>>> {
         if let Some(res) = self.task.take() {
             match res {

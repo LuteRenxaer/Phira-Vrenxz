@@ -19,7 +19,7 @@ join-room-invalid-id = Invalid room ID.
 join-room-failed = Failed to join room.
 join-room-password-title = Enter room password
 room-list = Public Rooms
-room-list-title = Public Rooms (tap to join)
+room-list-title = Public Rooms
 room-list-loading = Loading…
 room-list-empty = No joinable rooms.
 room-list-failed = Failed to load rooms.
@@ -60,7 +60,6 @@ preview-started-ok = Got it
 # Spectating
 spectate = Spectate
 spectate-title = Spectating
-spectate-close = Close
 spectate-none = No one is playing right now.
 spectate-waiting = Waiting…
 spectate-watch = Sync Spectate
@@ -142,9 +141,13 @@ mp-server-no-local-chart = This server does not support local charts
 mp-syncing-chart = Syncing chart...
 mp-sync-failed = Chart sync failed: { $err }
 
-# —— new panel UI ——
+# —— full-screen paged UI ——
 mp-connect-hint = Connect to a server to play with friends
-mp-close-hint = Tap outside to close
+mp-connecting = Connecting…
+mp-server = Server: { $addr }
+mp-back = Back
+mp-refresh = Refresh
+mp-manage-hint = Tap a player row to manage that player
 mp-lobby-connected = Connected to server
 mp-lobby-not-room = Not in a room yet
 mp-room-tag = Room #{ $id }
@@ -167,7 +170,7 @@ mp-manage-title = Manage { $name }
 mp-manage-transfer = Make host
 mp-manage-kick = Kick out
 mp-manage-cancel = Cancel
-user-list-hint = Tap outside to close
-room-list-tap-hint = Tap a row to join · tap Spectate to watch · tap outside to close
+room-list-tap-hint = Tap a row to join · tap Spectate to watch
 mp-room-locked = 🔒 Password
 mp-room-counts = { $players } players / { $spectators } watching
+mp-spectate-hint = Tap a player row to pick the sync-watch target

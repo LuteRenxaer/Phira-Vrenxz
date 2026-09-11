@@ -1,13 +1,12 @@
 //! 谱面预览会话：autoplay 试听当前谱面。
 //!
-//! 预览只在“回到面板”时才有意义，因此这里只保存两件事：
+//! 预览只在“回到多人场景”时才有意义，因此这里只保存三件事：
 //! - **打断信号**：后台轮询房间状态，一旦房主开始（离开选谱阶段）就置位，
 //!   `GameScene` 检测到后立即结束预览（不结算）；
-//! - **停止信号**：预览场景结束回到面板后置位，结束后台轮询。
-//!
-//! 回到面板后按房间状态决定是否弹「房主要开始游戏啦」确认框；
-//! 点「准备」只是置位一个标志，真正的下载→就绪流程由面板执行，
-//! 与在房间里直接点「准备」走的是同一条路径。
+//! - **停止信号**：预览场景结束回到多人场景后置位，结束后台轮询；
+//! - **待确认标记**：回到房间页时若房主已在等准备而自己尚未就绪，则置位，
+//!   由房间页渲染一条**内联提示条**（「准备 / 暂不」两个按钮）——
+//!   不再使用引擎的居中 `Dialog`，多人模式内部没有任何浮窗。
 
 use std::{
     sync::{
@@ -25,21 +24,17 @@ use prpr::{
     ext::LocalTask,
     scene::{GameMode, NextScene},
     task::Task,
-    ui::Dialog,
 };
 
-use crate::{
-    mp::L10N_LOCAL,
-    scene::SongScene,
-};
+use crate::scene::SongScene;
 
-/// 预览场景结束回到面板后的处理结果。
+/// 预览场景结束回到多人场景后的处理结果。
 pub enum PreviewReturn {
     /// 不是从预览返回，或无需处理
     Ignore,
     /// 房主已经开局：只给一条轻提示，不打断对局流程
     AlreadyStarted,
-    /// 房主在等准备、而自己尚未就绪：弹确认框询问是否准备
+    /// 房主在等准备、而自己尚未就绪：房间页显示内联确认条
     AskReady,
 }
 
@@ -49,8 +44,8 @@ pub struct Preview {
     stop: Option<Arc<AtomicBool>>,
     /// 打断信号：房间离开选谱阶段（房主开始）时置位
     interrupt: Option<Arc<AtomicBool>>,
-    /// 确认框「准备」按钮的置位（面板在 update 里消费）
-    ready_confirm: Arc<AtomicBool>,
+    /// 是否需要在房间页显示「准备 / 暂不」内联确认条
+    prompt: bool,
 }
 
 impl Preview {
@@ -58,7 +53,7 @@ impl Preview {
         Self {
             stop: None,
             interrupt: None,
-            ready_confirm: Arc::new(AtomicBool::new(false)),
+            prompt: false,
         }
     }
 
@@ -81,7 +76,7 @@ impl Preview {
         )?;
         if let Some(client) = client {
             let (interrupt, stop) = (Arc::clone(&interrupt), Arc::clone(&stop));
-            // 预览期间面板自身不更新，只能靠独立任务轮询房间状态
+            // 预览期间会话自身不更新，只能靠独立任务轮询房间状态
             Task::new(async move { Self::watch_loop(client, interrupt, stop).await });
         }
         self.interrupt = Some(interrupt);
@@ -97,7 +92,7 @@ impl Preview {
         self.interrupt = None;
     }
 
-    /// 预览场景结束回到面板：清理运行态并给出后续动作。
+    /// 预览场景结束回到多人场景：清理运行态并给出后续动作。
     pub fn on_return(&mut self, room: Option<&RoomState>, is_ready: bool, spectating: bool) -> PreviewReturn {
         // 判据是“是否从预览画面返回”，而不依赖打断标志是否已置位——
         // 房主开始往往就发生在预览结束的同一瞬间，只看标志会漏掉提示。
@@ -117,24 +112,20 @@ impl Preview {
         }
     }
 
-    /// 弹「房主要开始游戏啦」确认框；点「准备」后由 [`Self::take_ready_request`] 消费。
-    pub fn ask_ready(&self) {
-        let confirm = Arc::clone(&self.ready_confirm);
-        Dialog::plain(mtl!("preview-interrupted-title"), mtl!("preview-interrupted-content"))
-            .buttons(vec![mtl!("preview-not-now").into_owned(), mtl!("preview-ready").into_owned()])
-            .listener(move |_dialog, id| {
-                if id == 1 {
-                    confirm.store(true, Ordering::Relaxed);
-                }
-                false
-            })
-            .show();
+    /// 请求显示内联的「房主要开始游戏啦」确认条。
+    #[inline]
+    pub fn ask_ready(&mut self) {
+        self.prompt = true;
     }
 
-    /// 确认框的「准备」是否被点过（一次性消费）。
     #[inline]
-    pub fn take_ready_request(&self) -> bool {
-        self.ready_confirm.swap(false, Ordering::Relaxed)
+    pub fn prompt(&self) -> bool {
+        self.prompt
+    }
+
+    #[inline]
+    pub fn dismiss_prompt(&mut self) {
+        self.prompt = false;
     }
 
     /// 房间状态轮询：开始时若还在选谱/本地谱阶段，则一旦离开该阶段即视为“房主开始”；

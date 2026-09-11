@@ -19,7 +19,7 @@ join-room-invalid-id = 无效的房间 ID
 join-room-failed = 加入房间失败
 join-room-password-title = 输入房间密码
 room-list = 公共房间
-room-list-title = 公共房间（点击加入）
+room-list-title = 公共房间
 room-list-loading = 加载中…
 room-list-empty = 暂无可加入的房间
 room-list-failed = 获取房间列表失败
@@ -60,7 +60,6 @@ preview-started-ok = 知道了
 # 观战
 spectate = 观战
 spectate-title = 观战中
-spectate-close = 关闭
 spectate-none = 暂无玩家在游玩
 spectate-waiting = 等待中…
 spectate-watch = 同步观战
@@ -142,9 +141,13 @@ mp-server-no-local-chart = 当前服务器不支持本地谱面
 mp-syncing-chart = 正在同步谱面...
 mp-sync-failed = 谱面同步失败: { $err }
 
-# —— 新版面板 UI ——
+# —— 整屏分页 UI ——
 mp-connect-hint = 连接服务器后，即可与好友一起游玩
-mp-close-hint = 点击面板外任意处关闭
+mp-connecting = 连接中…
+mp-server = 服务器：{ $addr }
+mp-back = 返回
+mp-refresh = 刷新
+mp-manage-hint = 点击玩家行可管理该玩家
 mp-lobby-connected = 已连接到服务器
 mp-lobby-not-room = 尚未进入房间
 mp-room-tag = 房间 #{ $id }
@@ -167,7 +170,7 @@ mp-manage-title = 管理 { $name }
 mp-manage-transfer = 设为房主
 mp-manage-kick = 移出房间
 mp-manage-cancel = 取消
-user-list-hint = 点击空白处关闭
-room-list-tap-hint = 点击房间行加入 · 右侧「观战」围观对局 · 点击空白处关闭
+room-list-tap-hint = 点击房间行加入 · 右侧「观战」围观对局
 mp-room-locked = 🔒 需密码
 mp-room-counts = { $players } 名玩家 / { $spectators } 名观战
+mp-spectate-hint = 点击玩家行选择同步观战的目标
