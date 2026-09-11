@@ -84,3 +84,5 @@ msg-room-cycle = { $cycle ->
   [true] La salle est passée en mode cycle.
   *[other] La salle est passée en mode normal.
 }
+spectate-best = Meilleur { $score }
+spectate-syncing = Synchronisé

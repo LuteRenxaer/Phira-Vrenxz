@@ -34,7 +34,7 @@ pub enum PreviewReturn {
     Ignore,
     /// 房主已经开局：只给一条轻提示，不打断对局流程
     AlreadyStarted,
-    /// 房主在等准备、而自己尚未就绪：房间页显示内联确认条
+    /// 从预览回来了：房间页按实时状态决定是否显示内联确认条
     AskReady,
 }
 
@@ -44,8 +44,12 @@ pub struct Preview {
     stop: Option<Arc<AtomicBool>>,
     /// 打断信号：房间离开选谱阶段（房主开始）时置位
     interrupt: Option<Arc<AtomicBool>>,
-    /// 是否需要在房间页显示「准备 / 暂不」内联确认条
-    prompt: bool,
+    /// 从预览回来后置位：房间页据此按"实时状态"决定要不要显示确认条
+    ///
+    /// 关键是这里存的是**意图**而不是"要不要显示"的快照：房主按下开始与预览结束
+    /// 之间差几十毫秒都很正常，返回那一刻房间还停在选谱阶段的话，用快照判断就会漏掉
+    /// 提示（这正是"房主开始后没有提示"的原因）。
+    armed: bool,
 }
 
 impl Preview {
@@ -53,7 +57,7 @@ impl Preview {
         Self {
             stop: None,
             interrupt: None,
-            prompt: false,
+            armed: false,
         }
     }
 
@@ -105,27 +109,33 @@ impl Preview {
             return PreviewReturn::Ignore;
         }
         match room {
+            // 房主已经开局：只提示，不需要再问准备
             Some(RoomState::Playing) => PreviewReturn::AlreadyStarted,
-            // 房间停在等待就绪、而自己尚未就绪：房主已开始等自己准备
-            Some(RoomState::WaitingForReady) if !is_ready => PreviewReturn::AskReady,
-            _ => PreviewReturn::Ignore,
+            // 房主在等准备、而自己已经准备过了：也不需要再问
+            Some(RoomState::WaitingForReady) if is_ready => PreviewReturn::Ignore,
+            // 其余情况一律先"武装"提示：房间页会在房主进入等待准备、
+            // 而自己还没准备时把它显示出来（哪怕返回时还停在选谱阶段）
+            _ => PreviewReturn::AskReady,
         }
     }
 
     /// 请求显示内联的「房主要开始游戏啦」确认条。
     #[inline]
     pub fn ask_ready(&mut self) {
-        self.prompt = true;
+        self.armed = true;
     }
 
+    /// 当前是否该显示确认条：从预览回来后，房间正等着自己准备。
+    ///
+    /// 由房间页每帧按实时状态询问，因此房主开始得比预览结束晚一点也不会漏提示。
     #[inline]
-    pub fn prompt(&self) -> bool {
-        self.prompt
+    pub fn prompt(&self, room: Option<&RoomState>, is_ready: bool) -> bool {
+        self.armed && !is_ready && matches!(room, Some(RoomState::WaitingForReady))
     }
 
     #[inline]
     pub fn dismiss_prompt(&mut self) {
-        self.prompt = false;
+        self.armed = false;
     }
 
     /// 房间状态轮询：开始时若还在选谱/本地谱阶段，则一旦离开该阶段即视为“房主开始”；

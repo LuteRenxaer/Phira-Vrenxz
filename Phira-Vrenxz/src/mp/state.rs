@@ -80,6 +80,8 @@ pub struct MpState {
     // —— 谱面 ——
     /// 房间当前选中的在线谱面
     pub chart_id: Option<i32>,
+    /// 当前谱面的名字（在线谱面由服务端的选谱消息带下来，本地谱面则用 `local_chart`）
+    pub chart_name: Option<String>,
     pub download: ChartDownload,
 
     // —— 本地谱面分享 ——
@@ -130,6 +132,7 @@ impl MpState {
             chat_task: None,
             chat_text: String::new(),
             chart_id: None,
+            chart_name: None,
             download: ChartDownload::default(),
             local_chart: None,
             syncing: None,
@@ -249,6 +252,7 @@ impl MpState {
         self.room_list_task = None;
         self.join_pwd_pending = None;
         self.chart_id = None;
+        self.chart_name = None;
         self.download = ChartDownload::default();
         self.reset_local_chart();
         self.local_chart = None;
@@ -258,10 +262,28 @@ impl MpState {
     }
 }
 
-/// 以「自己优先、其余按 id 升序」排出的用户 id 列表。
+/// 服务端回放录制器的虚拟用户 id / 名字（`phira-mp-server` 的 `replay::RECORDER_BOT_*`）。
+///
+/// 它只是挂在房间里的一个 monitor（不参与对局、不会说话），玩家列表里不该出现，
+/// 人数统计也不该把它算进去 —— 否则"3 名玩家"里永远混着一个假的。
+pub const RECORDER_BOT_USER_ID: i32 = -999;
+/// 见 [`RECORDER_BOT_USER_ID`]。
+pub const RECORDER_BOT_USER_NAME: &str = "回放录制器";
+
+/// 该用户是不是回放录制器（按 id 判定，id 对不上时按名字兜底）。
+pub fn is_recorder(id: i32, name: &str) -> bool {
+    id == RECORDER_BOT_USER_ID || name == RECORDER_BOT_USER_NAME
+}
+
+/// 以「自己优先、其余按 id 升序」排出的用户 id 列表（不含回放录制器）。
 /// 玩家列表/观战列表的渲染与触摸都必须用它，保证行索引一一对应。
 pub fn sorted_user_ids(room: &ClientRoomState, me: Option<i32>) -> Vec<i32> {
-    let mut ids: Vec<i32> = room.users.keys().copied().collect();
+    let mut ids: Vec<i32> = room
+        .users
+        .iter()
+        .filter(|(id, u)| !is_recorder(**id, &u.name))
+        .map(|(id, _)| *id)
+        .collect();
     ids.sort_unstable();
     if let Some(m) = me {
         if let Some(pos) = ids.iter().position(|&x| x == m) {
@@ -270,6 +292,14 @@ pub fn sorted_user_ids(room: &ClientRoomState, me: Option<i32>) -> Vec<i32> {
         }
     }
     ids
+}
+
+/// 房间里真正的人数（不含回放录制器）。
+pub fn user_count(room: &ClientRoomState) -> usize {
+    room.users
+        .iter()
+        .filter(|(id, u)| !is_recorder(**id, &u.name))
+        .count()
 }
 
 /// 只包含真正玩家（非 monitor 观战者）的 id 列表，顺序同 [`sorted_user_ids`]。

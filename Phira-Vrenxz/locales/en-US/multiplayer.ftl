@@ -174,3 +174,5 @@ room-list-tap-hint = Tap a row to join · tap Spectate to watch
 mp-room-locked = 🔒 Password
 mp-room-counts = { $players } players / { $spectators } watching
 mp-spectate-hint = Tap a player row to pick the sync-watch target
+spectate-best = Best { $score }
+spectate-syncing = Synced

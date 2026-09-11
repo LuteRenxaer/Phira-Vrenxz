@@ -39,30 +39,34 @@ impl ConnectPage {
 
         // 卡片：竖向居中偏上，宽度受限于内容区且不超过 1.2（避免平板横屏上过宽）
         let cw = f.body.w.min(1.2);
-        let ch = 0.42;
+        let ch = (0.34f32).min(f.body.h * 0.9);
         let cx = f.body.x + (f.body.w - cw) / 2.;
         let cy = f.body.y + (f.body.h - ch).max(0.) * 0.42;
-        let card = Rect::new(cx, cy, cw, ch);
-        theme::card_rect(ui, card, card_soft());
+        let card_r = Rect::new(cx, cy, cw, ch);
+        theme::card_rect(ui, card_r, card_soft());
 
         ui.text(mtl!("mp-connect-hint"))
-            .pos(card.center().x, card.y + 0.045)
+            .pos(card_r.center().x, card_r.y + 0.05)
             .anchor(0.5, 0.)
             .size(FS_SMALL)
             .color(text_dim())
-            .max_width(card.w - 0.08)
+            .max_width(card_r.w - 0.1)
             .multiline()
             .draw();
-        ui.text(mtl!("mp-server", "addr" => v.address))
-            .pos(card.center().x, card.y + 0.135)
-            .anchor(0.5, 0.)
-            .size(FS_SMALL)
-            .color(text_muted())
-            .max_width(card.w - 0.08)
-            .draw();
+        // 服务器地址：单独一行胶囊，地址长了也不会跟说明文字挤在一起
+        let addr = mtl!("mp-server", "addr" => v.address);
+        let aw = (ui.text(addr.as_str()).size(FS_SMALL).measure().w + 0.07).min(card_r.w - 0.08);
+        theme::pill_text(
+            ui,
+            Rect::new(card_r.center().x - aw / 2., card_r.y + 0.135, aw, 0.055),
+            addr.as_str(),
+            FS_SMALL,
+            card(),
+            text_muted(),
+        );
 
         let bw = (cw - 0.12).min(0.62);
-        let br = Rect::new(card.center().x - bw / 2., card.bottom() - 0.045 - 0.115, bw, 0.115);
+        let br = Rect::new(card_r.center().x - bw / 2., card_r.bottom() - 0.035 - BAR_BTN_H, bw, BAR_BTN_H);
         if v.connecting {
             theme::button_static(ui, br, mtl!("mp-connecting"), FS_BUTTON, secondary(), text_dim());
             theme::progress_bar(

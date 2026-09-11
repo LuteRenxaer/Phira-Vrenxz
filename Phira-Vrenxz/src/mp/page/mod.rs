@@ -7,10 +7,9 @@
 //!
 //! 页面结构：
 //! - [`connect`]：未连接（连接服务器）
-//! - [`lobby`]：已连接未进房（创建 / 加入 / 公共房间 / 断开连接）
-//! - [`room_list`]：公共房间列表（点行加入，行内「观战」旁观）
-//! - [`room`]：房间主体（状态卡、谱面下载/同步状态行、玩家入口、聊天流、操作条）
-//! - [`players`]：玩家列表 + 房主对某玩家的管理页
+//! - [`lobby`]：主页（已连接未进房）：中央是公共房间列表，右下角是创建 / 加入 / 刷新 / 断开
+//! - [`room`]：房间主体（房名+当前谱面、右侧用户列表、聊天/日志、左下角功能按钮）
+//! - [`players`]：房主对某个玩家的管理页（设为房主 / 移出房间）
 //! - [`results`]：对局结算排名
 //! - [`spectate`]：观战（实时统计 + 同步观战 / 退出观战）
 
@@ -19,19 +18,16 @@ pub mod lobby;
 pub mod players;
 pub mod results;
 pub mod room;
-pub mod room_list;
 pub mod spectate;
 
 /// 多人场景内的页面。
 ///
-/// `Manage` 带目标玩家 id：房主在玩家列表里点某一行后进入该页。
+/// `Manage` 带目标玩家 id：房主在房间页的用户列表里点某一行后进入该页。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     Connect,
     Lobby,
-    RoomList,
     Room,
-    Players,
     Manage(i32),
     Results,
     Spectate,
@@ -42,9 +38,7 @@ pub enum Page {
 pub struct Pages {
     pub connect: connect::ConnectPage,
     pub lobby: lobby::LobbyPage,
-    pub room_list: room_list::RoomListPage,
     pub room: room::RoomPage,
-    pub players: players::PlayersPage,
     pub manage: players::ManagePage,
     pub results: results::ResultsPage,
     pub spectate: spectate::SpectatePage,
@@ -60,9 +54,7 @@ impl Pages {
     pub fn invalidate(&mut self) {
         self.connect.invalidate();
         self.lobby.invalidate();
-        self.room_list.invalidate();
         self.room.invalidate();
-        self.players.invalidate();
         self.manage.invalidate();
         self.results.invalidate();
         self.spectate.invalidate();
@@ -70,9 +62,8 @@ impl Pages {
 
     /// 滚动惯性（所有页面的滚动区都更新，代价可忽略且不会漏掉惯性收尾）。
     pub fn update(&mut self, t: f32) {
-        self.room_list.update(t);
+        self.lobby.update(t);
         self.room.update(t);
-        self.players.update(t);
         self.results.update(t);
         self.spectate.update(t);
     }

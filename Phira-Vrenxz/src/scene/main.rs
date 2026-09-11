@@ -221,8 +221,30 @@ impl MainScene {
     async fn new_inner(bgm: Option<Music>, fallback: FontArc) -> Result<Self> {
         let state = SharedState::new(fallback).await?;
         let icon_user = load_texture("icons/user.png").await?;
+        // 多人场景专用背景（失败时退回全局背景）
+        let mp_background = match load_texture("backgrounds/mp_bg.png").await {
+            Ok(tex) => SafeTexture::from(tex),
+            Err(err) => {
+                warn!("failed to load multiplayer background: {err}");
+                TEX_BACKGROUND.with(|it| it.borrow().clone().unwrap())
+            }
+        };
+        // 多人场景专用 BGM（`MpSession::play_bgm` 以 10% 音量播放；失败时就没有 BGM）
+        let mp_bgm = match load_file("bgm/mp_bgm.mp3").await {
+            Ok(data) => match AudioClip::new(data) {
+                Ok(clip) => Some(clip),
+                Err(err) => {
+                    warn!("failed to decode multiplayer bgm: {err}");
+                    None
+                }
+            },
+            Err(err) => {
+                warn!("failed to load multiplayer bgm: {err}");
+                None
+            }
+        };
         // 多人会话（跨场景存活）：多人场景只是它的一层视图壳
-        MP_SESSION.with(|it| *it.borrow_mut() = Some(MpSession::new(icon_user.into())));
+        MP_SESSION.with(|it| *it.borrow_mut() = Some(MpSession::new(icon_user.into(), mp_background, mp_bgm)));
         Ok(Self {
             state,
 
@@ -366,6 +388,8 @@ impl Scene for MainScene {
         UI_AUDIO.with(|it| it.borrow_mut().recover_if_needed())?;
         // Android 深链接（phira://）：把待处理的房间动作交给多人会话并进入多人场景
         if let Some(link) = crate::mp::take_pending_room_link() {
+            // TEMP DEBUG (to be removed)
+            eprintln!("[DBG] pending room link taken: {link:?}");
             if !get_data().config.mp_enabled {
                 get_data_mut().config.mp_enabled = true;
             }

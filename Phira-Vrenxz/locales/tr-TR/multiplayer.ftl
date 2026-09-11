@@ -84,3 +84,5 @@ msg-room-cycle = { $cycle ->
   [true] Oda dönen moda geçirildi
   *[other] Oda normal moda geçirildi
 }
+spectate-best = En iyi { $score }
+spectate-syncing = Eşitlendi

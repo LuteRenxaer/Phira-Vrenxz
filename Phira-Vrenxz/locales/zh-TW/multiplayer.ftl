@@ -163,3 +163,5 @@ mp-spectate-hint = 點擊玩家列選擇同步觀戰的目標
 mp-server-no-local-chart = 此伺服器不支援本地譜面
 mp-syncing-chart = 正在同步譜面...
 mp-sync-failed = 譜面同步失敗: { $err }
+spectate-best = 最高分 { $score }
+spectate-syncing = 同步中

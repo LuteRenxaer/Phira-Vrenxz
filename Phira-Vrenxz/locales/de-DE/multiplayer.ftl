@@ -72,3 +72,5 @@ msg-room-cycle =
         [true] Raummodus geändert zu Round-Robin.
        *[other] Raummodus geändert zu Normal.
     }
+spectate-best = Beste { $score }
+spectate-syncing = Synchronisiert
