@@ -1576,5 +1576,24 @@ async fn process(user: Arc<User>, cmd: ClientCommand) -> Option<ServerCommand> {
             .await;
             Some(ServerCommand::TransferHost(err_to_str(res)))
         }
+        ClientCommand::PauseState { paused } => {
+            // 玩家暂停/继续：广播给房间内所有人（含观战者），观战端据此显示暂停画面。
+            // 不需要应答（返回值 None），发送方也不等待回执。
+            let room_opt = user.room.read().await.as_ref().map(Arc::clone);
+            match room_opt {
+                Some(room) => {
+                    debug!("user {} paused state: {}", user.id, paused);
+                    room.send(Message::PlayerPaused {
+                        user: user.id,
+                        paused,
+                    })
+                    .await;
+                }
+                None => {
+                    warn!("user {} sent pause state but not in any room", user.id);
+                }
+            }
+            None
+        }
     }
 }

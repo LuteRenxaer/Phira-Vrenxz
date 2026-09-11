@@ -10,7 +10,7 @@ use std::{
     collections::VecDeque,
     sync::{
         Arc,
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -55,6 +55,8 @@ pub enum LocalChartEvent {
 pub struct LivePlayer {
     pub touch_frames: Mutex<Vec<TouchFrame>>,
     pub judge_events: Mutex<Vec<JudgeEvent>>,
+    /// 该玩家当前是否暂停了游戏（由服务端广播的 `Message::PlayerPaused` 更新，供观战同步使用）。
+    pub paused: AtomicBool,
 }
 
 impl Default for LivePlayer {
@@ -68,6 +70,7 @@ impl LivePlayer {
         Self {
             touch_frames: Mutex::default(),
             judge_events: Mutex::default(),
+            paused: AtomicBool::new(false),
         }
     }
 }
@@ -124,6 +127,13 @@ impl State {
                 .entry(player)
                 .or_insert_with(|| Arc::new(LivePlayer::new())),
         )
+    }
+
+    /// 读取某玩家当前是否暂停（不存在记录时视为未暂停，不创建记录）。
+    pub fn player_paused(&self, player: i32) -> bool {
+        self.live_players
+            .get(&player)
+            .map_or(false, |it| it.paused.load(Ordering::SeqCst))
     }
 }
 
@@ -279,6 +289,12 @@ impl Client {
 
     pub fn blocking_room_state(&self) -> Option<RoomState> {
         self.state.room.blocking_read().as_ref().map(|it| it.state)
+    }
+
+    /// 某玩家当前是否暂停了游戏（观战端据此刻画“玩家暂停中”画面）。
+    /// 该状态来自服务端广播的 [`Message::PlayerPaused`]；没有记录时返回 false。
+    pub fn blocking_player_paused(&self, player: i32) -> bool {
+        self.state.player_paused(player)
     }
 
     pub async fn room_state(&self) -> Option<RoomState> {
@@ -738,6 +754,10 @@ async fn process(state: Arc<State>, cmd: ServerCommand) {
                     if let Message::RoomResults { results } = &msg {
                         state.room_results.lock().await.push_back(results.clone());
                     }
+                }
+                // 多人同步观战：记录某个玩家（被观战者）的暂停状态
+                Message::PlayerPaused { user, paused } => {
+                    state.live_player(user).paused.store(paused, Ordering::SeqCst);
                 }
                 _ => {}
             }

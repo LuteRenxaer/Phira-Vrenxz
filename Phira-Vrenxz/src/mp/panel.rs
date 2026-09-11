@@ -360,6 +360,8 @@ pub struct MPPanel {
     spectate_target: Option<i32>,
     // 后台喂数据任务的停止信号（观战画面结束时置位）
     spectate_feed_stop: Option<Arc<AtomicBool>>,
+    // 当前观战场景的数据源：场景结束时读它的“退出观战”请求（用户在暂停面板里点了退出）
+    spectate_source: Option<Arc<prpr::scene::SpectateSource>>,
     // 观战浮层里玩家行的命中区（点选要观战的玩家）
     spectate_rows_hits: Vec<(i32, Rect)>,
 }
@@ -522,6 +524,7 @@ impl MPPanel {
             spectate_chart_name: None,
             spectate_target: None,
             spectate_feed_stop: None,
+            spectate_source: None,
             spectate_rows_hits: Vec::new(),
         }
     }
@@ -931,6 +934,8 @@ impl MPPanel {
     fn launch_spectate_scene(&mut self, path: String, id: Option<i32>, target: i32) -> Result<()> {
         let source = prpr::scene::SpectateSource::new();
         let stop = Arc::new(AtomicBool::new(false));
+        // 场景结束时面板需要读它的“退出观战”请求（见 enter()），因此在这里留一份
+        self.spectate_source = Some(Arc::clone(&source));
         self.scene_task = crate::scene::SongScene::global_launch_spectate(id, &path, Arc::clone(&source))?;
         if let Some(client) = self.client.clone() {
             let stop_flag = Arc::clone(&stop);
@@ -984,12 +989,15 @@ impl MPPanel {
             if let Some(last) = frames.last() {
                 source.set_time_ref(last.time as f64);
             }
+            // 被观战者的暂停状态：远端暂停时观战端进入暂停画面（对方继续后自动恢复）
+            source.set_remote_paused(client.blocking_player_paused(target));
         }
     }
 
     /// 退出观战：离开房间并清理观战状态。
     fn exit_spectate(&mut self) {
         self.spectating = false;
+        self.spectate_source = None;
         self.spectate_stats.clear();
         self.spectate_chart_name = None;
         self.spectate_p.goto(0., 0., USER_LIST_TRANSIT);
@@ -1819,15 +1827,20 @@ impl MPPanel {
 
     pub fn enter(&mut self) {
         self.entered = true;
+        // 观战画面结束：停止后台喂数据任务
+        if let Some(stop) = self.spectate_feed_stop.take() {
+            stop.store(true, Ordering::Relaxed);
+        }
+        // 观战画面结束：观战者在暂停面板里点了「退出」→ 这里真正退出观战（离开房间）。
+        // 必须在下面的提前 return 之前处理。
+        if self.spectate_source.as_ref().is_some_and(|it| it.take_quit_request()) {
+            self.exit_spectate();
+        }
         // 谱面预览/观战画面结束（弹回 MainScene 时 enter 会被调用）：停止后台轮询。
         // 注意：这里用“是否从预览画面返回”作为判据，而不依赖打断标志是否已置位——
         // 房主开始往往就发生在预览结束的同一瞬间，只看标志会漏掉提示。
         let from_preview = self.preview_watch_stop.take().is_some();
         self.preview_interrupt = None;
-        // 观战画面结束：停止后台喂数据任务
-        if let Some(stop) = self.spectate_feed_stop.take() {
-            stop.store(true, Ordering::Relaxed);
-        }
         if !from_preview {
             return;
         }
@@ -2331,6 +2344,14 @@ impl MPPanel {
                             M::RoomResults { results } => {
                                 mtl!("msg-room-results", "n" => results.len() as u64)
                             }
+                            // 多人同步观战：某玩家暂停/继续
+                            M::PlayerPaused { user, paused } => {
+                                format!(
+                                    "{} {}",
+                                    client.user_name(user),
+                                    if paused { "暂停了游戏" } else { "继续了游戏" }
+                                )
+                            }
                         };
                         Message {
                             content,
@@ -2354,6 +2375,15 @@ impl MPPanel {
                     *LAST_MP_FINISH.lock().unwrap() = None;
                     self.need_upload = true;
                     self.entered = false;
+                    // 多人正式游玩：接入“暂停/继续上报服务器”的钩子（GameScene 构造时取走）。
+                    // 观战场景刻意不取用它，保证观战者本地的暂停不会去暂停被观战者。
+                    if let Some(client) = self.client.as_ref() {
+                        let client = Arc::clone(client);
+                        *prpr::scene::PAUSE_NOTIFY.lock().unwrap() = Some(Arc::new(move |paused: bool| {
+                            // 设置/发送失败也不 panic（例如连接已断开）
+                            let _ = client.blocking_send(phira_mp_common::ClientCommand::PauseState { paused });
+                        }));
+                    }
                     // 本地谱面分享：从本地 download/{uuid} 加载
                     if let Some((uuid, _)) = self.local_chart.clone() {
                         self.scene_task = SongScene::global_launch(
