@@ -257,6 +257,14 @@ impl Room {
             RoomResults { results } => {
                 format!("对局结算：{} 位玩家完赛", results.len())
             }
+            PlayerPaused { user, paused } => {
+                let name = self.get_user_name_by_id(*user).await.unwrap_or_else(|| format!("用户#{}", user));
+                if *paused {
+                    format!("暂停：{}", name)
+                } else {
+                    format!("继续：{}", name)
+                }
+            }
         }
     }
     pub fn new(id: RoomId, host: Weak<User>, creator_id: Option<i32>) -> Self {

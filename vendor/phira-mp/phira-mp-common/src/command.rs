@@ -226,6 +226,13 @@ pub enum ClientCommand {
     TransferHost {
         user: i32,
     },
+
+    // ===== 多人同步观战：暂停状态同步（追加在末尾，保持旧命令编号兼容）=====
+    // 玩家（非观战者）自己暂停/继续时上报，服务端据此广播 Message::PlayerPaused。
+    // 观战者本地的暂停不会发送这条命令（观战者暂停只影响自己的画面）。
+    PauseState {
+        paused: bool,
+    },
 }
 
 #[derive(Clone, Debug, BinaryData)]
@@ -305,6 +312,12 @@ pub enum Message {
     // 对局结束：服务端把全员最终成绩排行广播给房间内所有人（追加在末尾，兼容旧版）
     RoomResults {
         results: Vec<RoomResultEntry>,
+    },
+    // 多人同步观战：某个玩家暂停/继续游戏（追加在末尾，兼容旧版）
+    // 观战者据此进入/退出“玩家暂停中”画面；观战者本地的暂停不会产生这条消息。
+    PlayerPaused {
+        user: i32,
+        paused: bool,
     },
 }
 

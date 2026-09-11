@@ -994,6 +994,9 @@ impl SongScene {
     pub fn global_launch_spectate(id: Option<i32>, local_path: &str, source: Arc<prpr::scene::SpectateSource>) -> Result<LocalSceneTask> {
         // 交给 GameScene 构造时取走（见 prpr::scene::PENDING_SPECTATE）
         *prpr::scene::PENDING_SPECTATE.lock().unwrap() = Some(source);
+        // 观战绝不接入“暂停上报服务器”的钩子：观战者本地的暂停只影响自己的画面，
+        // 不能把暂停状态发回房间（否则会去暂停被观战者的游戏）。这里顺手清掉可能残留的钩子。
+        *prpr::scene::PAUSE_NOTIFY.lock().unwrap() = None;
         // client 传 None：观战不发送 touch/judge，也不参与成绩上报
         let res = Self::global_launch(
             id,
