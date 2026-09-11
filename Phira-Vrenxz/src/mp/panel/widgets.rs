@@ -9,6 +9,7 @@
 use macroquad::prelude::*;
 use phira_mp_common::ClientRoomState;
 use prpr::{
+    core::Smooth,
     ext::{semi_black, semi_white, RectExt, SafeTexture},
     ui::{DRectButton, Ui},
 };
@@ -33,6 +34,24 @@ pub fn screen_size() -> (u32, u32) {
 #[inline]
 pub fn visible(p: f32) -> bool {
     p > 1e-4
+}
+
+/// 该浮层此刻是否应当拦截（吞掉）触摸。
+///
+/// 语义（两个 `Smooth` 接口的区别必须分清）：
+/// - `Smooth::transiting(t)`：判定区间是 `start_time..end_time` 且**包含起点**，所以动画
+///   的第一帧、以及 `Smooth::default()`（`start_time = 0., end_time = 1.`）在 `t < 1.`
+///   的开机首秒内都会返回 `true`；
+/// - `Smooth::to()`：动画的**目标值**（收起 = `0.`，展开 = `1.`），与是否正在动画无关。
+///
+/// 因此只用 `transiting` 判断是不够的：默认初始态和「收起过程」都会被误判成“正在
+/// 动画中”，把整个面板的按键全部吞掉。这里要求**朝打开方向**（`to() > 0.`）才拦截，
+/// 既保留“已打开/正在打开的浮层在最上层拦截穿透”的语义，又不会在收起时或开机首秒
+/// 吃掉触摸。所有浮层（manage / user_list / room_list / results / spectate）统一走这里，
+/// 避免每处各写一套。
+#[inline]
+pub fn blocks_touch(p: &Smooth<f32>, t: f32) -> bool {
+    p.transiting(t) && *p.to() > 0.
 }
 
 #[inline]

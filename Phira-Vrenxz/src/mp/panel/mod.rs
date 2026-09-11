@@ -242,8 +242,11 @@ impl MPPanel {
                 return true;
             }
         }
-        // 点面板外关闭
+        // 点面板外关闭：附带收起全部浮层，避免下次打开面板时浮层还停在打开态
+        // （`close_all` 会清空 manage 目标；观战浮层单独收起）
         if touch.position.x + 1. > PANEL_WIDTH {
+            self.overlays.close_all(t);
+            self.spectate.close(t);
             self.side_enter_time = -tm.real_time() as f32;
             return true;
         }
