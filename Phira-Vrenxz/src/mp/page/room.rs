@@ -57,7 +57,7 @@ pub const CHAT_ENABLED: bool = cfg!(feature = "chat");
 /// 顶部细页头的高度（只有一个返回图标，标题画在内容区左上角）。
 const STRIP_H: f32 = 0.14 * SCALE;
 /// 右侧用户列表的行高 / 行距（比整屏列表紧凑：同一列里还要放下聊天框）。
-const USER_ROW_H: f32 = 0.16 * SCALE;
+const USER_ROW_H: f32 = 0.13 * SCALE;
 const USER_ROW_GAP: f32 = 0.015 * SCALE;
 
 /// 功能按钮的种类。
@@ -126,6 +126,30 @@ impl RoomAction {
                 (danger(), WHITE)
             }
             _ => (secondary(), text()),
+        }
+    }
+
+    /// 是不是"当前该做的事"（主色高亮的那一个）。
+    fn is_primary(self, spectating: bool) -> bool {
+        match self {
+            RoomAction::Start | RoomAction::Ready => true,
+            RoomAction::Spectate => spectating,
+            _ => false,
+        }
+    }
+
+    /// 工具带上的图标。
+    fn icon(self) -> theme::ToolIcon {
+        use theme::ToolIcon as I;
+        match self {
+            RoomAction::Start => I::Play,
+            RoomAction::Ready => I::Ready,
+            RoomAction::CancelReady | RoomAction::CancelDownload | RoomAction::CancelLocalShare => I::Cancel,
+            RoomAction::Password => I::Settings,
+            RoomAction::CycleRoom => I::Cycle,
+            RoomAction::LockRoom => I::Lock,
+            RoomAction::Preview => I::Preview,
+            RoomAction::Spectate => I::Spectate,
         }
     }
 }
@@ -429,21 +453,11 @@ impl RoomPage {
         let body_bottom = top - pad * 0.6;
         let body = Rect::new(page_x, body_top, page_w, (body_bottom - body_top).max(0.12));
 
-        // —— 功能按钮：左下角一条**小尺寸**按钮带 ——
-        // 宽度按文字自适应（不再等分铺满整行：那样每个按钮会被拉得很宽，反而显得更大），
-        // 高度、内边距都随 SCALE 一起缩小；一行放不下才换行，每行都从左边界开始填。
+        // —— 功能按钮：左下角一条**方块工具带**（模仿爱笔思画：上图标、下小字）——
+        // 方块尺寸固定（ICON_BTN），宽度只随文字略微变化，因此又矮又短，
+        // 不再出现"把按钮拉宽铺满整行"那种反而更大的效果。
         let labels: Vec<String> = items.iter().map(|it| it.label.clone()).collect();
-        let (bar, bar_rects) = theme::button_bar(
-            ui,
-            &labels,
-            body.x,
-            body.right(),
-            body.bottom(),
-            BAR_BTN_H,
-            BAR_ROW_GAP,
-            BAR_COL_GAP,
-            theme::BarAlign::Left,
-        );
+        let (bar, bar_rects) = theme::tool_bar(ui, &labels, body.x, body.right(), body.bottom(), theme::BarAlign::Left);
         let content_h = (bar.y - BAR_GAP - body.y).max(0.1);
         let left_w = if wide { (body.w * 0.42).max(0.5) } else { body.w };
 
@@ -476,15 +490,24 @@ impl RoomPage {
             self.render_chat(ui, t, chat, &mut ctx, accent);
         }
 
-        // —— 按钮绘制（命中区在这里登记，触摸侧按同一份 action_items 查）——
+        // —— 工具带绘制（命中区在这里登记，触摸侧按同一份 action_items 查）——
         for (i, item) in items.iter().enumerate() {
             let Some(r) = bar_rects.get(i).copied() else { continue };
             if r.w <= 0.01 {
                 continue;
             }
-            let (fill, fg) = item.action.colors(accent, ctx.view.spectating);
-            let size = (r.h * 3.4).clamp(0.26, FS_BUTTON);
-            theme::button(ui, self.actions.get(item.action), t, r, item.label.clone(), size, fill, fg);
+            let icon = theme::tool_icon(item.action.icon());
+            let active = item.action.is_primary(ctx.view.spectating);
+            theme::tool_button(
+                ui,
+                self.actions.get(item.action),
+                t,
+                r,
+                icon.as_ref(),
+                &item.label,
+                active,
+                accent,
+            );
         }
     }
 

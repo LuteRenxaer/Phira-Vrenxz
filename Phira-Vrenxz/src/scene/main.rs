@@ -260,6 +260,29 @@ impl MainScene {
                 TEX_BACKGROUND.with(|it| it.borrow().clone().unwrap())
             }
         };
+        // 多人工具条图标（模仿爱笔思画的方块工具按钮：上图标下小字）。
+        // 装载失败的那个只是让按钮少个图标，不影响点击。
+        let mut mp_tool_icons: [Option<SafeTexture>; 12] = Default::default();
+        for (slot, path) in mp_tool_icons.iter_mut().zip([
+            "icon_old(home)/resume.png", // Play
+            "icons/select.png",         // Ready
+            "icon_old(home)/close.png", // Cancel
+            "icons/settings.png",       // Settings
+            "icons/order.png",          // Cycle
+            "icons/mod.png",            // Lock
+            "icons/search.png",         // Preview
+            "icons/multiplayer.png",    // Spectate
+            "icons/plus.png",           // Create
+            "icons/user.png",           // Join
+            "icons/order.png",          // Refresh
+            "icon_old(home)/close.png", // Disconnect
+        ]) {
+            match load_texture(path).await {
+                Ok(tex) => *slot = Some(SafeTexture::from(tex)),
+                Err(err) => warn!("failed to load multiplayer tool icon {path}: {err}"),
+            }
+        }
+        crate::mp::theme::set_tool_icons(mp_tool_icons);
         // 多人场景专用 BGM（`MpSession::play_bgm` 以 10% 音量播放；失败时就没有 BGM）
         let mp_bgm = match load_file("bgm/mp_bgm.mp3").await {
             Ok(data) => match AudioClip::new(data) {

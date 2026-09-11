@@ -24,7 +24,7 @@ mod serve;
 mod session;
 mod spectate;
 mod state;
-mod theme;
+pub mod theme;
 
 pub use scene::MultiplayerScene;
 pub use session::MpSession;
