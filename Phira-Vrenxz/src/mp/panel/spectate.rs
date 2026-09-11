@@ -49,7 +49,7 @@ use prpr::{
 
 use super::{
     messages::RoomNotice,
-    widgets::{button, color_alpha, danger, overlay_panel, overlay_title, sorted_user_ids, visible, OVERLAY_TRANSIT},
+    widgets::{blocks_touch, button, color_alpha, danger, overlay_panel, overlay_title, sorted_user_ids, visible, OVERLAY_TRANSIT},
 };
 use crate::{
     mp::L10N_LOCAL,
@@ -394,7 +394,9 @@ impl Spectate {
 
     /// 观战浮层触摸。
     pub fn touch(&mut self, touch: &Touch, t: f32) -> SpectateTouch {
-        if self.p.transiting(t) {
+        // 仅当朝打开方向（`to() > 0.`）时才拦触摸：收起过程与 `Smooth::default()`
+        // 的开机初始态不吞触摸（见 `widgets::blocks_touch`）。
+        if blocks_touch(&self.p, t) {
             return SpectateTouch::Consumed;
         }
         if *self.p.to() <= 0.5 {

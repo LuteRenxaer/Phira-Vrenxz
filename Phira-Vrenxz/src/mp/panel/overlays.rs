@@ -16,7 +16,7 @@ use prpr::{
 use super::{
     state::PublicRoom,
     widgets::{
-        button, color_alpha, draw_player_row, draw_player_row_bg, overlay_panel, overlay_title, pill_text, sorted_user_ids, visible,
+        blocks_touch, button, color_alpha, draw_player_row, draw_player_row_bg, overlay_panel, overlay_title, pill_text, sorted_user_ids, visible,
         OVERLAY_TRANSIT,
     },
 };
@@ -161,10 +161,13 @@ impl Overlays {
     // ---------- 触摸 ----------
 
     /// 按“最上层优先”的顺序处理触摸。
+    ///
+    /// 每个浮层「动画中吞触摸」都用 [`blocks_touch`]：只有朝打开方向（`to() > 0.`）
+    /// 才拦截，收起过程与 `Smooth::default()` 的开机初始态不吞触摸。
     pub fn touch(&mut self, touch: &Touch, t: f32, room: Option<&ClientRoomState>) -> OverlayTouch {
         let ended = matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled);
         // 1. 房主操作菜单（最上层）
-        if self.manage.p.transiting(t) {
+        if blocks_touch(&self.manage.p, t) {
             return OverlayTouch::Consumed;
         }
         if *self.manage.p.to() > 0.5 {
@@ -196,7 +199,7 @@ impl Overlays {
             return OverlayTouch::Consumed;
         }
         // 2. 玩家列表浮层
-        if self.user_list.p.transiting(t) {
+        if blocks_touch(&self.user_list.p, t) {
             return OverlayTouch::Consumed;
         }
         if *self.user_list.p.to() > 0.5 {
@@ -210,7 +213,7 @@ impl Overlays {
             return OverlayTouch::Consumed;
         }
         // 3. 公共房间列表浮层
-        if self.room_list.p.transiting(t) {
+        if blocks_touch(&self.room_list.p, t) {
             return OverlayTouch::Consumed;
         }
         if *self.room_list.p.to() > 0.5 {
@@ -228,7 +231,7 @@ impl Overlays {
             return OverlayTouch::Consumed;
         }
         // 4. 结算浮层
-        if self.results.p.transiting(t) {
+        if blocks_touch(&self.results.p, t) {
             return OverlayTouch::Consumed;
         }
         if *self.results.p.to() > 0.5 {
