@@ -436,8 +436,9 @@ impl MpSession {
 
     fn apply_room(&mut self, a: room::Action, t: f32, room: &ClientRoomState) {
         match a {
-            room::Action::Back => self.back(t),
-            room::Action::Leave => {
+            // 房间页只有一个返回入口：离开房间回主页（想退出多人模式就在主页再点一次返回）。
+            // 原来这里还并列着一个"离开房间"文字按钮，跟返回是同一件事，看着就是两个退出按钮。
+            room::Action::Back => {
                 self.state.leave_room();
                 // 离开房间同时结束观战状态（观战者离开即退出观战）
                 self.spectate.cancel();

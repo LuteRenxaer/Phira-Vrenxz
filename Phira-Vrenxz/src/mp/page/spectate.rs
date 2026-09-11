@@ -93,18 +93,8 @@ impl SpectatePage {
                 theme::header(ui, f.header, &mut self.back, &mut DRectButton::new(), t, &mtl!("spectate-title"), None, None);
             }
         }
-        // 无底色的「退出观战」贴在页头右侧
-        let exit_label = mtl!("spectate-exit");
-        let ew = (ui.text(exit_label.as_ref()).size(FS_BUTTON).measure().w + 0.08).clamp(0.2, f.header.w * 0.35);
-        theme::text_button(
-            ui,
-            &mut self.exit,
-            t,
-            Rect::new(f.header.right() - ew, f.header.y + (f.header.h - 0.09) / 2., ew, 0.09),
-            exit_label,
-            FS_BUTTON,
-            danger(),
-        );
+        // 「退出观战」只保留底部操作条里的那一个（页头再摆一个无底色红字，跟房间里
+        // "两个退出按钮"是同一个毛病）。
 
         // —— 概要卡：谱面 / 人数 / 已开局人数 / 最高分 ——
         let summary_h = 0.2f32.min(f.body.h * 0.3 * SCALE);

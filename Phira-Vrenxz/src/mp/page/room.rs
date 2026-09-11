@@ -21,7 +21,21 @@
 //!    用 [`ActionButtons`] 登记命中区，触摸侧对同一份结果查按钮，因此不存在"看得到点不到"。
 //! 2. **用户列表的渲染与触摸共用一份 id 顺序**（[`sorted_user_ids`]），行索引一一对应；
 //!    列表里不显示服务端的回放录制器虚拟用户（它只是个 monitor，不是玩家）。
-//! 3. **退出按钮没有底色**：只画文字（[`theme::text_button`]），命中区照旧登记。
+//! 3. **只有一个退出入口**：左上角的返回图标（点它 = 离开房间、回主页），
+//!    不再另摆一个「离开房间」的文字按钮 —— 两个按钮做同一件事看着就像重复。
+//!
+//! 版面（横屏）：
+//! ```text
+//! ‹                                              ← 细页头：只有返回图标
+//! 房间 #31205                                    ← 左上角：房名
+//! ┌ 谱面卡 ────────────────┐  ┌───────────────┐
+//! │ 已选谱面 #12   3 名玩家│  │ 玩家（3）      │
+//! │ 千本桜      [房主][锁定]│  │ ● 我  房主    │
+//! └────────────────────────┘  ├───────────────┤
+//!                             │ 房间消息       │
+//! [开始游戏][锁定][循环][观战] │ ……  [说点什么] │
+//!   ↑ 左下角：小尺寸、按文字宽度排，不铺满整行  └───────────────┘
+//! ```
 
 use macroquad::prelude::*;
 use phira_mp_common::{ClientRoomState, RoomState};
@@ -40,7 +54,7 @@ use crate::{dir, mp::L10N_LOCAL, scene::Downloading};
 /// 是否编译了聊天功能。
 pub const CHAT_ENABLED: bool = cfg!(feature = "chat");
 
-/// 顶部细页头的高度（只有返回按钮与「离开房间」，标题画在内容区左上角）。
+/// 顶部细页头的高度（只有一个返回图标，标题画在内容区左上角）。
 const STRIP_H: f32 = 0.14 * SCALE;
 /// 右侧用户列表的行高 / 行距（比整屏列表紧凑：同一列里还要放下聊天框）。
 const USER_ROW_H: f32 = 0.16 * SCALE;
@@ -292,8 +306,8 @@ impl ActionButtons {
 
 /// 房间页可执行的动作。
 pub enum Action {
+    /// 返回：离开当前房间（回到主页，而不是直接退出多人模式）
     Back,
-    Leave,
     /// 房主点某玩家 → 进入整屏管理页
     Manage(i32),
     Room(RoomAction),
@@ -330,7 +344,6 @@ pub struct Render<'a> {
 #[derive(Default)]
 pub struct RoomPage {
     back: DRectButton,
-    leave: DRectButton,
     /// 右侧用户列表的滚动区
     user_scroll: Scroll,
     user_rows: Vec<DRectButton>,
@@ -377,7 +390,6 @@ fn info_height(ctx: &Render) -> f32 {
 impl RoomPage {
     pub fn invalidate(&mut self) {
         self.back.invalidate();
-        self.leave.invalidate();
         self.actions.invalidate();
         self.chat_btn.invalidate();
         self.chat_send_btn.invalidate();
@@ -404,21 +416,22 @@ impl RoomPage {
         let page_w = 2. - pad * 2.;
         let wide = theme::is_wide(ui);
 
-        // —— 细页头：返回 + 无底色的「离开房间」 ——
+        // —— 细页头：只有一个返回图标 ——
+        //
+        // 这里原来还有一个"离开房间"的无底色文字按钮，跟返回图标是同一件事的两种说法，
+        // 摆在页头一左一右看着就是"两个退出按钮"，而且无底色的红字本身也难看。
+        // 现在只留左上角的返回图标：点它 = 离开房间，回到主页；想离开多人模式就在主页再点一次。
         let strip = Rect::new(page_x, -top + HEADER_TOP, page_w, STRIP_H);
         theme::back_button(ui, &mut self.back, t, Rect::new(strip.x, strip.y, STRIP_H, STRIP_H));
-        let leave = mtl!("leave-room");
-        let lw = (ui.text(leave.as_ref()).size(FS_BUTTON).measure().w + 0.08).clamp(0.2, page_w * 0.4);
-        let lr = Rect::new(strip.right() - lw, strip.y, lw, STRIP_H);
-        theme::text_button(ui, &mut self.leave, t, lr, leave, FS_BUTTON, danger());
 
         // —— 内容区 ——
         let body_top = strip.bottom() + BODY_GAP;
         let body_bottom = top - pad * 0.6;
         let body = Rect::new(page_x, body_top, page_w, (body_bottom - body_top).max(0.12));
 
-        // —— 功能按钮：一条**等分铺满整页宽度**的按钮带，贴在页面底部 ——
-        // 每个按钮一样宽、整行从左铺到右：既没有"3+2 空一格"的洞，也不会右侧留一大截空白。
+        // —— 功能按钮：左下角一条**小尺寸**按钮带 ——
+        // 宽度按文字自适应（不再等分铺满整行：那样每个按钮会被拉得很宽，反而显得更大），
+        // 高度、内边距都随 SCALE 一起缩小；一行放不下才换行，每行都从左边界开始填。
         let labels: Vec<String> = items.iter().map(|it| it.label.clone()).collect();
         let (bar, bar_rects) = theme::button_bar(
             ui,
@@ -429,7 +442,7 @@ impl RoomPage {
             BAR_BTN_H,
             BAR_ROW_GAP,
             BAR_COL_GAP,
-            theme::BarAlign::Fill,
+            theme::BarAlign::Left,
         );
         let content_h = (bar.y - BAR_GAP - body.y).max(0.1);
         let left_w = if wide { (body.w * 0.42).max(0.5) } else { body.w };
@@ -760,9 +773,6 @@ impl RoomPage {
         }
         if self.back.touch(touch, t) {
             return Some(Action::Back);
-        }
-        if self.leave.touch(touch, t) {
-            return Some(Action::Leave);
         }
         if CHAT_ENABLED {
             if self.chat_btn.touch(touch, t) {

@@ -22,11 +22,11 @@ use crate::{client::UserManager, mp::L10N_LOCAL};
 // ============================ 尺寸系统 ============================
 
 /// **整体缩放**：多人界面所有尺寸（边长、间距、字号）都由它派生，
-/// 想整体调大调小只改这一个数 —— 现在是比本体页面小一档的比例。
+/// 想整体调大调小只改这一个数。
 ///
 /// 直接按"多小"去改各个常量很容易改乱比例：这里保留一套基准值 × `SCALE` 的写法，
 /// 改一处就能等比缩放，界面不会走形。
-pub const SCALE: f32 = 0.82;
+pub const SCALE: f32 = 0.7;
 
 /// 竖屏页面左右边距。
 pub const PAGE_PAD: f32 = 0.06 * SCALE;
@@ -278,30 +278,6 @@ pub fn back_button(ui: &mut Ui, btn: &mut DRectButton, t: f32, br: Rect) {
                     .draw();
             }
         }
-    });
-}
-
-/// 无底色文本按钮（如房间页右上角的「离开房间」）：只画文字，命中区照旧由
-/// `DRectButton` 登记，因此渲染与触摸同源。
-pub fn text_button<'a>(
-    ui: &mut Ui,
-    btn: &mut DRectButton,
-    t: f32,
-    r: Rect,
-    label: impl Into<std::borrow::Cow<'a, str>>,
-    size: f32,
-    color: Color,
-) {
-    let label = label.into();
-    btn.build(ui, t, r, |ui, _| {
-        ui.text(label.as_ref())
-            .pos(r.center().x, r.center().y)
-            .anchor(0.5, 0.5)
-            .no_baseline()
-            .size(size)
-            .color(color)
-            .max_width(r.w)
-            .draw();
     });
 }
 
