@@ -250,7 +250,12 @@ impl Overlays {
     pub fn render_user_list(&mut self, ui: &mut Ui, t: f32, client: &Client, room: &ClientRoomState, icon: &SafeTexture) {
         let p = self.user_list.p.now(t);
         if !visible(p) {
-            self.user_list.p.goto(0., t, OVERLAY_TRANSIT);
+            // 已完全收起：直接返回即可。
+            // 注意：**不要**在这里再 `goto(0., t, ..)`——`goto` 会把 `start_time`
+            // 重置成当前帧时间，而 `Smooth::transiting(t)` 的定义是
+            // `(start_time..end_time).contains(&t)`（含起点），于是每一帧渲染都会
+            // 重新把 start_time 推到「现在」，`transiting(now)` 便恒为真，
+            // `Overlays::touch` 会把所有触摸都判成「动画中」而 Consumed。
             return;
         }
         let accent = ui.accent();
@@ -310,7 +315,7 @@ impl Overlays {
     pub fn render_room_list(&mut self, ui: &mut Ui, t: f32, rooms: Option<&[PublicRoom]>, loading: bool, joined_room: Option<String>, spectating: bool) {
         let p = self.room_list.p.now(t);
         if !visible(p) {
-            self.room_list.p.goto(0., t, OVERLAY_TRANSIT);
+            // 见 `render_user_list` 的说明：收起时不要再 `goto(0.)`。
             return;
         }
         ui.abs_scope(|ui| {
@@ -409,7 +414,7 @@ impl Overlays {
     pub fn render_results(&mut self, ui: &mut Ui, t: f32) {
         let p = self.results.p.now(t);
         if !visible(p) {
-            self.results.p.goto(0., t, OVERLAY_TRANSIT);
+            // 见 `render_user_list` 的说明：收起时不要再 `goto(0.)`。
             return;
         }
         let results = self.result_entries.clone().unwrap_or_default();
@@ -476,7 +481,7 @@ impl Overlays {
     pub fn render_manage(&mut self, ui: &mut Ui, t: f32, client: &Client) {
         let p = self.manage.p.now(t);
         if !visible(p) {
-            self.manage.p.goto(0., t, OVERLAY_TRANSIT);
+            // 见 `render_user_list` 的说明：收起时不要再 `goto(0.)`。
             return;
         }
         // 目标消失 / 自己不再是房主 → 自动关闭

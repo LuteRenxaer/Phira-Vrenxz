@@ -427,7 +427,10 @@ impl Spectate {
     pub fn render(&mut self, ui: &mut Ui, t: f32, client: &Client, room: &ClientRoomState) {
         let p = self.p.now(t);
         if !visible(p) {
-            self.p.goto(0., t, OVERLAY_TRANSIT);
+            // 已完全收起：直接返回即可。
+            // 不要在这里 `goto(0., t, ..)`：那会每帧把 `start_time` 重置为当前帧时间，
+            // 使 `Smooth::transiting(t)`（判定区间含起点）恒为真，
+            // `Spectate::touch` 于是永远返回 Consumed 吞掉所有触摸。
             return;
         }
         let accent = ui.accent();
