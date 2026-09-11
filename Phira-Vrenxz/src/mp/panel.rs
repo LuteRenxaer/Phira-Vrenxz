@@ -355,6 +355,13 @@ pub struct MPPanel {
     spectate_exit_btn: DRectButton,
     // 观战中正在游玩的谱面名（由服务端补发的选谱消息记录）
     spectate_chart_name: Option<String>,
+    // —— 同步观战：把对方的判定事件喂给引擎，按对方视角同步播放 ——
+    // 当前观战对象（玩家 id）
+    spectate_target: Option<i32>,
+    // 后台喂数据任务的停止信号（观战画面结束时置位）
+    spectate_feed_stop: Option<Arc<AtomicBool>>,
+    // 观战浮层里玩家行的命中区（点选要观战的玩家）
+    spectate_rows_hits: Vec<(i32, Rect)>,
 }
 
 /// 观战中的单个玩家实时统计（依据服务端广播的 Judges 事件累计，仅用于观战展示）。
@@ -513,6 +520,9 @@ impl MPPanel {
             spectate_pending: false,
             spectate_exit_btn: DRectButton::new(),
             spectate_chart_name: None,
+            spectate_target: None,
+            spectate_feed_stop: None,
+            spectate_rows_hits: Vec::new(),
         }
     }
 
@@ -871,10 +881,27 @@ impl MPPanel {
         }
     }
 
-    /// 观战者观看当前谱面：下载/加载正在游玩或已选定的谱面，以 autoplay 观看（不结算、不影响房间）。
+    /// 观战者观看对方视角：加载正在游玩的那张谱面，并按对方实时判定同步播放。
+    /// 与预览不同：不使用本地输入、不使用 autoplay，画面/分数/连击都来自对方的事件流。
     fn start_spectate_watch(&mut self) {
         let Some(client) = self.client.clone() else { return };
         let Some(room) = client.blocking_state() else { return };
+        // 观战对象：优先已选定的目标，否则取房间里第一个正在游玩的玩家
+        let target = self.spectate_target.filter(|id| room.users.contains_key(id)).or_else(|| {
+            let mut ids: Vec<i32> = room
+                .users
+                .iter()
+                .filter(|(_, u)| !u.monitor)
+                .map(|(id, _)| *id)
+                .collect();
+            ids.sort_unstable();
+            ids.first().copied()
+        });
+        let Some(target) = target else {
+            show_message(mtl!("spectate-none")).error();
+            return;
+        };
+        self.spectate_target = Some(target);
         // 在线谱：取当前选中/正在游玩的谱面 id
         let (id, path) = match room.state {
             RoomState::SelectChart(Some(id)) => (Some(id), format!("download/{id}")),
@@ -886,7 +913,7 @@ impl MPPanel {
                 }
             },
         };
-        // 本地没有缓存：先下载，完成后 post_download 自动进入观战观看
+        // 本地没有缓存：先下载，完成后 post_download 自动进入观战
         if !self.local_chart_ready(id, None) {
             self.chart_id = id;
             self.spectate_pending = true;
@@ -895,8 +922,68 @@ impl MPPanel {
             }
             return;
         }
-        if let Err(err) = self.launch_preview(path, id) {
+        if let Err(err) = self.launch_spectate_scene(path, id, target) {
             show_error(err.context(mtl!("preview-failed")));
+        }
+    }
+
+    /// 启动同步观战场景，并开一个后台任务把对方的事件流喂给引擎。
+    fn launch_spectate_scene(&mut self, path: String, id: Option<i32>, target: i32) -> Result<()> {
+        let source = prpr::scene::SpectateSource::new();
+        let stop = Arc::new(AtomicBool::new(false));
+        self.scene_task = crate::scene::SongScene::global_launch_spectate(id, &path, Arc::clone(&source))?;
+        if let Some(client) = self.client.clone() {
+            let stop_flag = Arc::clone(&stop);
+            Task::new(async move {
+                Self::spectate_feed_loop(client, target, source, stop_flag).await;
+            });
+        }
+        self.spectate_feed_stop = Some(stop);
+        Ok(())
+    }
+
+    /// 观战数据同步：持续把目标玩家的判定事件与时间参考喂给观战场景，
+    /// 使观战画面的音符命中、分数、连击与音乐进度都与对方一致。
+    async fn spectate_feed_loop(
+        client: Arc<Client>,
+        target: i32,
+        source: Arc<prpr::scene::SpectateSource>,
+        stop: Arc<AtomicBool>,
+    ) {
+        use phira_mp_common::Judgement as MJ;
+        use prpr::judge::{SpectateEvent, SpectateJudgement as SJ};
+        loop {
+            if stop.load(Ordering::Relaxed) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            let live = client.live_player(target);
+            // 判定事件：驱动对方的命中/失误与分数
+            let events: Vec<phira_mp_common::JudgeEvent> = live.judge_events.lock().await.drain(..).collect();
+            if !events.is_empty() {
+                let converted: Vec<SpectateEvent> = events
+                    .iter()
+                    .map(|it| SpectateEvent {
+                        time: it.time as f64,
+                        line_id: it.line_id,
+                        note_id: it.note_id,
+                        judgement: match it.judgement {
+                            MJ::Perfect => SJ::Perfect,
+                            MJ::Good => SJ::Good,
+                            MJ::Bad => SJ::Bad,
+                            MJ::Miss => SJ::Miss,
+                            MJ::HoldPerfect => SJ::HoldPerfect,
+                            MJ::HoldGood => SJ::HoldGood,
+                        },
+                    })
+                    .collect();
+                source.push_events(converted);
+            }
+            // 触控帧：用作时间参考（对方当前谱面时间），保证画面进度同步
+            let frames: Vec<phira_mp_common::TouchFrame> = live.touch_frames.lock().await.drain(..).collect();
+            if let Some(last) = frames.last() {
+                source.set_time_ref(last.time as f64);
+            }
         }
     }
 
@@ -914,13 +1001,17 @@ impl MPPanel {
         let client = self.clone_client();
         if self.spectate_pending {
             self.spectate_pending = false;
-            // 谱面下载完成后进入观战观看（autoplay）
+            // 谱面下载完成后进入同步观战（对方视角）
             let Some(id) = self.chart_id else {
                 show_message(mtl!("spectate-no-chart")).error();
                 return;
             };
+            let Some(target) = self.spectate_target else {
+                show_message(mtl!("spectate-none")).error();
+                return;
+            };
             let path = format!("download/{id}");
-            if let Err(err) = self.launch_preview(path, Some(id)) {
+            if let Err(err) = self.launch_spectate_scene(path, Some(id), target) {
                 show_error(err.context(mtl!("preview-failed")));
             }
             return;
@@ -1733,6 +1824,10 @@ impl MPPanel {
         // 房主开始往往就发生在预览结束的同一瞬间，只看标志会漏掉提示。
         let from_preview = self.preview_watch_stop.take().is_some();
         self.preview_interrupt = None;
+        // 观战画面结束：停止后台喂数据任务
+        if let Some(stop) = self.spectate_feed_stop.take() {
+            stop.store(true, Ordering::Relaxed);
+        }
         if !from_preview {
             return;
         }
@@ -1886,6 +1981,13 @@ impl MPPanel {
             if self.spectate_exit_btn.touch(touch, t) {
                 self.exit_spectate();
                 return true;
+            }
+            // 点玩家行：选择要同步观战的玩家
+            if matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled) {
+                if let Some((id, _)) = self.spectate_rows_hits.iter().find(|(_, r)| r.contains(touch.position)) {
+                    self.spectate_target = Some(*id);
+                    return true;
+                }
             }
             if matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled) {
                 self.spectate_scroll.y_scroller.halt();
@@ -2776,6 +2878,8 @@ impl MPPanel {
                 });
                 // 玩家实时统计
                 let vh = (panel_h - 0.34).max(0.2);
+                self.spectate_rows_hits.clear();
+                let target = self.spectate_target;
                 ui.scope(|ui| {
                     ui.dx(left);
                     ui.dy(panel.y + 0.14);
@@ -2786,7 +2890,8 @@ impl MPPanel {
                         }
                         for (i, (id, name)) in names.iter().enumerate() {
                             let rr = Rect::new(0., i as f32 * (row_h + 0.02), panel_w - 0.08, row_h);
-                            ui.fill_path(&rr.rounded(0.01), semi_black(0.22));
+                            let is_target = Some(*id) == target;
+                            ui.fill_path(&rr.rounded(0.01), if is_target { color_alpha(accent, 0.35) } else { semi_black(0.22) });
                             let st = stats.get(id).copied().unwrap_or_default();
                             ui.text(name)
                                 .pos(rr.x + 0.03, rr.y + rr.h * 0.32)
@@ -2811,6 +2916,8 @@ impl MPPanel {
                                 .max_width(rr.w * 0.53)
                                 .color(semi_white(0.9))
                                 .draw();
+                            // 点这一行 = 选择要同步观战的玩家
+                            self.spectate_rows_hits.push((*id, rr));
                         }
                         (panel_w - 0.08, (n.min(max_rows) as f32) * (row_h + 0.02))
                     });

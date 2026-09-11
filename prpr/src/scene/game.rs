@@ -64,6 +64,64 @@ pub struct SimpleRecord {
     pub full_combo: bool,
 }
 
+/// 观战数据源：由多人客户端把远端玩家的判定事件与时间参考喂进来，
+/// 观战场景据此同步播放对方视角（音符命中、分数、连击与音乐进度）。
+#[derive(Default)]
+pub struct SpectateSource {
+    events: Mutex<Vec<crate::judge::SpectateEvent>>,
+    /// 远端时间参考：(远端谱面时间, 收到时刻的本机秒数)
+    time_ref: Mutex<Option<(f64, f64)>>,
+}
+
+impl SpectateSource {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    /// 推入远端判定事件（时间轴为对方谱面时间）。
+    pub fn push_events(&self, events: impl IntoIterator<Item = crate::judge::SpectateEvent>) {
+        let mut guard = self.events.lock().unwrap();
+        guard.extend(events);
+        // 事件时间也作为时间参考，便于没有触控帧时保持同步
+        if let Some(last) = guard.last() {
+            let t = last.time;
+            drop(guard);
+            self.set_time_ref(t);
+        }
+    }
+
+    /// 更新远端时间参考（对方当前谱面时间）。
+    pub fn set_time_ref(&self, remote_time: f64) {
+        let wall = self.wall_now();
+        let mut guard = self.time_ref.lock().unwrap();
+        // 只前进：避免乱序消息把时间轴拉回去
+        if guard.map_or(true, |(t, _)| remote_time > t) {
+            *guard = Some((remote_time, wall));
+        }
+    }
+
+    /// 估算对方此刻的谱面时间（在两次网络更新之间用本机时钟外推）。
+    pub fn target_time(&self) -> Option<f64> {
+        let guard = self.time_ref.lock().unwrap();
+        let (t, wall) = (*guard)?;
+        Some(t + (self.wall_now() - wall))
+    }
+
+    pub fn take_events(&self) -> Vec<crate::judge::SpectateEvent> {
+        std::mem::take(&mut *self.events.lock().unwrap())
+    }
+
+    fn wall_now(&self) -> f64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|it| it.as_secs_f64())
+            .unwrap_or_default()
+    }
+}
+
+/// 待启动的观战数据源：由客户端在启动观战场景前放入，GameScene 构造时取走。
+pub static PENDING_SPECTATE: Mutex<Option<Arc<SpectateSource>>> = Mutex::new(None);
+
 impl SimpleRecord {
     pub fn update(&mut self, other: &SimpleRecord) -> bool {
         let mut changed = false;
@@ -127,6 +185,9 @@ pub struct GameScene {
     /// 预览被打断的外部信号（如多人模式房主点了开始）：置位后 update() 检测到会立即结束预览并弹回。
     /// 仅预览等受控播放会传入，普通游玩为 None，不受影响。
     interrupt: Option<Arc<AtomicBool>>,
+    /// 观战：为 Some 时本场景不使用本地输入，而是按远端玩家广播的判定事件驱动谱面，
+    /// 并把音乐时间轴同步到对方进度（见 [`SpectateSource`]）。
+    spectate: Option<Arc<SpectateSource>>,
     pub res: Resource,
     pub chart: Chart,
     pub judge: Judge,
@@ -384,6 +445,8 @@ impl GameScene {
             mode,
             preview_mode,
             interrupt,
+            // 观战数据源：客户端在启动观战场景前置入 PENDING_SPECTATE，这里取走
+            spectate: PENDING_SPECTATE.lock().unwrap().take(),
             res,
             chart,
             judge,
@@ -1243,8 +1306,8 @@ impl GameScene {
     }
 
     fn finish_and_show_result(&mut self) -> Result<()> {
-        // 谱面预览：自然播完也不进 EndingScene 结算页、不写记录，直接结束返回（用于多人预览）
-        if self.preview_mode {
+        // 谱面预览/观战：自然播完也不进 EndingScene 结算页、不写记录，直接结束返回
+        if self.preview_mode || self.spectate.is_some() {
             self.should_exit = true;
             return Ok(());
         }
@@ -1394,7 +1457,10 @@ impl Scene for GameScene {
         let time = tm.now();
         let time = match self.state {
             State::Starting => {
-                if time >= Self::BEFORE_TIME {
+                // 观战：先等到对方的第一个时间参考再开始（避免从 0 播再跳到对方进度）
+                let waiting_sync = self.spectate.is_some()
+                    && self.spectate.as_ref().is_some_and(|it| it.target_time().is_none());
+                if time >= Self::BEFORE_TIME && !waiting_sync {
                     self.res.alpha = 1.;
                     self.state = State::BeforeMusic;
                     tm.reset();
@@ -1467,8 +1533,25 @@ impl Scene for GameScene {
         }
         if !tm.paused() && self.pause_rewind.is_none() && self.mode != GameMode::View && !self.skip_done {
             self.gl.quad_gl.viewport(self.res.camera.viewport);
-            self.judge.update(&mut self.res, &mut self.chart, &mut self.bad_notes);
+            if self.spectate.is_some() {
+                // 观战：不使用本地输入，按远端玩家的判定事件驱动（画面与对方同步）
+                let events = self.spectate.as_ref().unwrap().take_events();
+                self.judge.spectate_update(&mut self.res, &mut self.chart, &events);
+            } else {
+                self.judge.update(&mut self.res, &mut self.chart, &mut self.bad_notes);
+            }
             self.gl.quad_gl.viewport(None);
+        }
+        // 观战：把时间轴同步到对方进度（音乐位置驱动时间轴，偏差过大时 seek 对齐）
+        if matches!(self.state, State::Playing) && !tm.paused() {
+            let target = self.spectate.as_ref().and_then(|it| it.target_time());
+            if let Some(target) = target {
+                let drift = target - self.res.time;
+                if drift.abs() > 0.12 {
+                    let pos = (target + offset as f64).max(0.);
+                    self.music.seek_to(pos)?;
+                }
+            }
         }
         if let Some(update) = &mut self.update_fn {
             update(self.res.time, &mut self.res, &mut self.judge);
