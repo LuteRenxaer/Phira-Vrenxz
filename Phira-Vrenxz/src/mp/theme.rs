@@ -13,7 +13,7 @@
 use macroquad::prelude::*;
 use prpr::{
     core::BOLD_FONT,
-    ext::{semi_white, RectExt, SafeTexture},
+    ext::{semi_white, RectExt, SafeTexture, ScaleType},
     ui::{DRectButton, Ui},
 };
 
@@ -77,6 +77,58 @@ pub const R_BTN: f32 = 0.01;
 pub const STROKE_W: f32 = 0.0025 * SCALE;
 /// 宽屏时列表的最大宽度（避免超宽屏上单行过长、正文难读）。
 pub const MAX_LIST_W: f32 = 1.74;
+
+/// 工具条按钮的方块边长（模仿爱笔思画底部工具条：图标在上、小字在下）。
+///
+/// 参考实测：爱笔思画那条工具带在 1904x990 的窗口里高约 54px，图标与文字各占一半；
+/// 这里 0.15 × [`SCALE`] 单位在 973px 宽的窗口下约 51px，同一量级。
+pub const ICON_BTN: f32 = 0.15 * SCALE;
+
+// ============================ 工具条图标 ============================
+
+/// 工具条上要用到的图标（启动时统一加载，见 `scene::main`）。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ToolIcon {
+    /// 开始游戏
+    Play = 0,
+    /// 准备
+    Ready = 1,
+    /// 取消类
+    Cancel = 2,
+    /// 设置密码等
+    Settings = 3,
+    /// 循环模式
+    Cycle = 4,
+    /// 锁定房间
+    Lock = 5,
+    /// 预览谱面
+    Preview = 6,
+    /// 观战
+    Spectate = 7,
+    /// 新建房间
+    Create = 8,
+    /// 加入房间
+    Join = 9,
+    /// 刷新
+    Refresh = 10,
+    /// 断开连接
+    Disconnect = 11,
+}
+
+thread_local! {
+    static TOOL_ICONS: std::cell::RefCell<[Option<SafeTexture>; 12]> =
+        const { std::cell::RefCell::new([const { None }; 12]) };
+}
+
+/// 启动时装载工具条图标（缺哪个就哪个按钮只显示文字，不影响可用性）。
+pub fn set_tool_icons(icons: [Option<SafeTexture>; 12]) {
+    TOOL_ICONS.with(|it| *it.borrow_mut() = icons);
+}
+
+/// 取一个工具条图标。
+pub fn tool_icon(kind: ToolIcon) -> Option<SafeTexture> {
+    TOOL_ICONS.with(|it| it.borrow()[kind as usize].clone())
+}
 
 // ============================ 字号层级 ============================
 //
@@ -617,6 +669,121 @@ pub fn flow_rects(ui: &mut Ui, labels: &[String], avail: f32, row_h: f32, row_ga
         return (0., rects);
     }
     (rows as f32 * row_h + (rows - 1) as f32 * row_gap, rects)
+}
+
+/// 工具条按钮：一个方块，**上面图标、下面一行小字**（模仿爱笔思画的底部工具条）。
+///
+/// 跟 [`button`] 的区别：`button` 是"一排宽条 + 居中文字"，占地方；
+/// 这里的方块只有 [`ICON_BTN`] 见方（图标占上半、小字占下半），
+/// 一条工具带因此又矮又短，视觉重心让给内容（聊天 / 列表）。
+pub fn tool_button(
+    ui: &mut Ui,
+    btn: &mut DRectButton,
+    t: f32,
+    r: Rect,
+    icon: Option<&SafeTexture>,
+    label: &str,
+    active: bool,
+    accent: Color,
+) {
+    let fill = if active { color_alpha(accent, 0.88) } else { secondary() };
+    let fg = if active { WHITE } else { text() };
+    let label_fg = if active { WHITE } else { text_dim() };
+    btn.render_shadow(ui, r, t, |ui, path| {
+        ui.fill_path(&path, fill);
+        ui.stroke_path(
+            &path,
+            STROKE_W,
+            if active { color_alpha(accent, 0.95) } else { stroke() },
+        );
+        let label_h = r.h * 0.36;
+        let icon_box = Rect::new(r.x, r.y + r.h * 0.06, r.w, r.h - label_h - r.h * 0.06);
+        match icon {
+            Some(tex) => {
+                let s = icon_box.h.min(icon_box.w * 0.74);
+                let ir = Rect::new(
+                    icon_box.center().x - s / 2.,
+                    icon_box.center().y - s / 2.,
+                    s,
+                    s,
+                );
+                ui.fill_rect(ir, (**tex, ir, ScaleType::Fit, fg));
+            }
+            None => {
+                // 没有图标：把文字画大一点占住图标区，方块尺寸保持一致
+                ui.text(label)
+                    .pos(icon_box.center().x, icon_box.center().y)
+                    .anchor(0.5, 0.5)
+                    .no_baseline()
+                    .size(FS_SMALL)
+                    .color(fg)
+                    .max_width(r.w - 0.01)
+                    .draw();
+            }
+        }
+        if icon.is_some() {
+            ui.text(label)
+                .pos(r.center().x, r.bottom() - label_h * 0.55)
+                .anchor(0.5, 0.5)
+                .no_baseline()
+                .size(FS_TAG)
+                .color(label_fg)
+                .max_width(r.w - 0.008)
+                .draw();
+        }
+    });
+}
+
+/// 工具带：把 [`tool_button`] 方块排成一行（放不下才换行），整体贴着 `bottom`。
+///
+/// 方块宽度 = max([`ICON_BTN`], 文字宽度 + 内边距)，因此不用把按钮拉宽来凑满一行；
+/// `align` 决定整条带子贴左边界还是右边界（房间页贴左、主页贴右）。
+pub fn tool_bar(ui: &mut Ui, labels: &[String], x: f32, right: f32, bottom: f32, align: BarAlign) -> (Rect, Vec<Rect>) {
+    let avail = (right - x).max(0.1);
+    if labels.is_empty() {
+        return (Rect::new(x, bottom, avail, 0.), Vec::new());
+    }
+    let gap = BAR_COL_GAP;
+    let widths: Vec<f32> = labels
+        .iter()
+        .map(|l| {
+            let w = ui.text(l.as_str()).size(FS_SMALL).measure().w + 0.03 * SCALE;
+            w.max(ICON_BTN)
+        })
+        .collect();
+    let mut rows: Vec<Vec<usize>> = Vec::new();
+    let mut cur: Vec<usize> = Vec::new();
+    let mut used = 0.;
+    for (i, w) in widths.iter().enumerate() {
+        let next = if cur.is_empty() { *w } else { used + gap + *w };
+        if next > avail && !cur.is_empty() {
+            rows.push(std::mem::take(&mut cur));
+            used = *w;
+        } else {
+            used = next;
+        }
+        cur.push(i);
+    }
+    if !cur.is_empty() {
+        rows.push(cur);
+    }
+    let h = ICON_BTN;
+    let total_h = rows.len() as f32 * h + (rows.len() - 1) as f32 * BAR_ROW_GAP;
+    let top = bottom - total_h;
+    let mut rects = vec![Rect::new(x, top, 0., 0.); labels.len()];
+    for (r, row) in rows.iter().enumerate() {
+        let row_w: f32 = row.iter().map(|&i| widths[i]).sum::<f32>() + (row.len() - 1) as f32 * gap;
+        let mut cx = match align {
+            BarAlign::Right => right - row_w,
+            _ => x,
+        };
+        let yy = top + r as f32 * (h + BAR_ROW_GAP);
+        for &i in row {
+            rects[i] = Rect::new(cx, yy, widths[i], h);
+            cx += widths[i] + gap;
+        }
+    }
+    (Rect::new(x, top, avail, total_h), rects)
 }
 
 /// 按钮带的水平对齐方式。

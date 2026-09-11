@@ -113,22 +113,18 @@ impl LobbyPage {
             mtl!("mp-refresh").into_owned(),
             mtl!("disconnect").into_owned(),
         ];
-        let (bar, rects) = theme::button_bar(
-            ui,
-            &labels,
-            f.body.x,
-            f.body.right(),
-            f.body.bottom(),
-            SMALL_BTN_H,
-            BAR_ROW_GAP,
-            BAR_COL_GAP,
-            theme::BarAlign::Right,
-        );
-        let size = (SMALL_BTN_H * 3.4).clamp(0.22, FS_SMALL);
-        theme::button(ui, &mut self.create, t, rects[0], labels[0].clone(), size, primary(accent), WHITE);
-        theme::button(ui, &mut self.join, t, rects[1], labels[1].clone(), size, secondary(), text());
-        theme::button(ui, &mut self.refresh, t, rects[2], labels[2].clone(), size, secondary(), text());
-        theme::button(ui, &mut self.disconnect, t, rects[3], labels[3].clone(), size, danger(), WHITE);
+        let (bar, rects) = theme::tool_bar(ui, &labels, f.body.x, f.body.right(), f.body.bottom(), theme::BarAlign::Right);
+        let icons = [
+            theme::tool_icon(theme::ToolIcon::Create),
+            theme::tool_icon(theme::ToolIcon::Join),
+            theme::tool_icon(theme::ToolIcon::Refresh),
+            theme::tool_icon(theme::ToolIcon::Disconnect),
+        ];
+        let btns = [&mut self.create, &mut self.join, &mut self.refresh, &mut self.disconnect];
+        for (i, btn) in btns.into_iter().enumerate() {
+            let Some(r) = rects.get(i).copied() else { continue };
+            theme::tool_button(ui, btn, t, r, icons[i].as_ref(), &labels[i], i == 0, accent);
+        }
 
         // —— 中央：公共房间列表（列表底部留出按钮带的高度）——
         let list_w = f.body.w.min(theme::MAX_LIST_W);
