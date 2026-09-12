@@ -1,8 +1,47 @@
 use crate::scene::TEX_ICON_BACK;
 use anyhow::Result;
 use futures_util::join;
-use macroquad::texture::load_texture;
+use macroquad::{
+    prelude::{Image, Texture2D},
+    texture::load_texture,
+};
 use prpr::ext::SafeTexture;
+use std::cell::RefCell;
+use tracing::warn;
+
+/// 缺图标时的占位贴图（1×1 全透明）。
+///
+/// 以前 `Icons::new()` 里每个图标都是 `?`，**任何一个图标文件缺失都会让整个游戏起不来**
+/// （报「初始化失败 / Couldn't load file assets/icons/xxx.png」）。资源是可以被裁剪的，
+/// 少一个图标不该等于游戏打不开，所以改成缺哪个警告一句、用占位图顶上。
+fn placeholder() -> SafeTexture {
+    thread_local! {
+        static PH: RefCell<Option<SafeTexture>> = const { RefCell::new(None) };
+    }
+    PH.with(|it| {
+        if let Some(tex) = it.borrow().as_ref() {
+            return tex.clone();
+        }
+        let tex = SafeTexture::from(Texture2D::from_image(&Image {
+            width: 1,
+            height: 1,
+            bytes: vec![0, 0, 0, 0],
+        }));
+        *it.borrow_mut() = Some(tex.clone());
+        tex
+    })
+}
+
+/// 加载单个图标；失败只警告并返回占位图。
+async fn icon(path: &str) -> SafeTexture {
+    match load_texture(path).await {
+        Ok(tex) => SafeTexture::from(tex),
+        Err(err) => {
+            warn!("failed to load icon {path}: {err}; using placeholder");
+            placeholder()
+        }
+    }
+}
 
 pub struct Icons {
     pub icon: SafeTexture,
@@ -44,84 +83,114 @@ pub struct Icons {
 
 impl Icons {
     pub async fn new() -> Result<Self> {
-        // 并行加载所有图标，显著减少加载时间
+        // 并行加载所有图标，显著减少加载时间；单个缺失只退化成占位图（见 `icon`）
         let (
-            icon, play, medal, respack, msg, settings, lang, download, user, info, delete,
-            menu, edit, ldb, close, search, order, filter, r#mod, star, star_outline, heart,
-            heart_outline, cloud_none, cloud_check, plus, select, character, achievements, abstract_tex,
+            icon,
+            play,
+            medal,
+            respack,
+            msg,
+            settings,
+            lang,
+            download,
+            user,
+            info,
+            delete,
+            menu,
+            edit,
+            ldb,
+            close,
+            search,
+            order,
+            filter,
+            r#mod,
+            star,
+            star_outline,
+            heart,
+            heart_outline,
+            cloud_none,
+            cloud_check,
+            plus,
+            select,
+            character,
+            achievements,
+            abstract_tex,
         ) = join!(
-            load_texture("icons/icon.png"),
-            load_texture("icon_old(home)/resume.png"),
-            load_texture("icons/medal.png"),
-            load_texture("icons/respack.png"),
-            load_texture("icons/message.png"),
-            load_texture("icons/settings.png"),
-            load_texture("icons/language.png"),
-            load_texture("icons/download.png"),
-            load_texture("icons/user.png"),
-            load_texture("icons/info.png"),
-            load_texture("icons/delete.png"),
-            load_texture("icons/menu.png"),
-            load_texture("icons/edit.png"),
-            load_texture("icons/leaderboard.png"),
-            load_texture("icon_old(home)/close.png"),
-            load_texture("icons/search.png"),
-            load_texture("icons/order.png"),
-            load_texture("icons/filter.png"),
-            load_texture("icons/mod.png"),
-            load_texture("icons/star.png"),
-            load_texture("icons/star_outline.png"),
-            load_texture("icons/heart.png"),
-            load_texture("icons/heart_outline.png"),
-            load_texture("icons/cloud_none.png"),
-            load_texture("icons/cloud_check.png"),
-            load_texture("icons/plus.png"),
-            load_texture("icons/select.png"),
-            load_texture("icons/skel_icon.png"),
-            load_texture("icons/achievements.png"),
-            load_texture("backgrounds/abstract.jpg"),
+            icon("icons/icon.png"),
+            icon("icon_old(home)/resume.png"),
+            icon("icons/medal.png"),
+            icon("icons/respack.png"),
+            icon("icons/message.png"),
+            icon("icons/settings.png"),
+            icon("icons/language.png"),
+            icon("icons/download.png"),
+            icon("icons/user.png"),
+            icon("icons/info.png"),
+            icon("icons/delete.png"),
+            icon("icons/menu.png"),
+            icon("icons/edit.png"),
+            icon("icons/leaderboard.png"),
+            icon("icon_old(home)/close.png"),
+            icon("icons/search.png"),
+            icon("icons/order.png"),
+            icon("icons/filter.png"),
+            icon("icons/mod.png"),
+            icon("icons/star.png"),
+            icon("icons/star_outline.png"),
+            icon("icons/heart.png"),
+            icon("icons/heart_outline.png"),
+            icon("icons/cloud_none.png"),
+            icon("icons/cloud_check.png"),
+            icon("icons/plus.png"),
+            icon("icons/select.png"),
+            icon("icons/skel_icon.png"),
+            icon("icons/achievements.png"),
+            icon("backgrounds/abstract.jpg"),
         );
 
         // hykb 图标单独加载（条件编译）
         #[cfg(feature = "hykb")]
-        let hykb = load_texture("icons/hykb.png").await?;
+        let hykb = icon("icons/hykb.png").await;
 
         Ok(Self {
-            icon: icon?.into(),
-            play: play?.into(),
-            medal: medal?.into(),
-            respack: respack?.into(),
-            msg: msg?.into(),
-            settings: settings?.into(),
-            lang: lang?.into(),
-            back: TEX_ICON_BACK.with(|it| it.borrow().clone().unwrap()),
-            download: download?.into(),
-            user: user?.into(),
-            info: info?.into(),
-            delete: delete?.into(),
-            menu: menu?.into(),
-            edit: edit?.into(),
-            ldb: ldb?.into(),
-            close: close?.into(),
-            search: search?.into(),
-            order: order?.into(),
-            filter: filter?.into(),
-            r#mod: r#mod?.into(),
-            star: star?.into(),
-            star_outline: star_outline?.into(),
-            heart: heart?.into(),
-            heart_outline: heart_outline?.into(),
-            cloud_none: cloud_none?.into(),
-            cloud_check: cloud_check?.into(),
-            plus: plus?.into(),
-            select: select?.into(),
-            character: character?.into(),
-            achievements: achievements?.into(),
+            icon,
+            play,
+            medal,
+            respack,
+            msg,
+            settings,
+            // 返回图标更早由主场景装载，没装上也别炸
+            back: TEX_ICON_BACK
+                .with(|it| it.borrow().clone())
+                .unwrap_or_else(placeholder),
+            lang,
+            download,
+            user,
+            info,
+            delete,
+            menu,
+            edit,
+            ldb,
+            close,
+            search,
+            order,
+            filter,
+            r#mod,
+            star,
+            star_outline,
+            heart,
+            heart_outline,
+            cloud_none,
+            cloud_check,
+            plus,
+            select,
+            character,
+            achievements,
 
             #[cfg(feature = "hykb")]
-            hykb: hykb.into(),
+            hykb,
 
-            r#abstract: abstract_tex?.into(),
+            r#abstract: abstract_tex,
         })
     }
 }
