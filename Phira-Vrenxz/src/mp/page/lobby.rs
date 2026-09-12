@@ -93,76 +93,66 @@ impl LobbyPage {
 
     pub fn render(&mut self, ui: &mut Ui, t: f32, v: &View) {
         let accent = ui.accent();
-        let f = theme::frame(ui, 0.);
-        let sub = mtl!("mp-server", "addr" => v.address);
-        theme::header(
-            ui,
-            f.header,
-            &mut self.back,
-            &mut DRectButton::new(),
-            t,
-            &mtl!("multiplayer"),
-            Some(&sub),
-            None,
-        );
+        let wide = theme::is_wide(ui);
+        let top = ui.top;
+        let pad = theme::page_pad(ui);
 
-        // —— 右下角按钮：一条靠右的小按钮带（宽度按文字走，不再是 2×2 的小方块阵）——
-        let labels: Vec<String> = vec![
-            mtl!("create-room").into_owned(),
-            mtl!("join-room").into_owned(),
-            mtl!("mp-refresh").into_owned(),
-            mtl!("disconnect").into_owned(),
-        ];
-        let (bar, rects) = theme::tool_bar(ui, &labels, f.body.x, f.body.right(), f.body.bottom(), theme::BarAlign::Right);
-        let icons = [
-            theme::tool_icon(theme::ToolIcon::Create),
-            theme::tool_icon(theme::ToolIcon::Join),
-            theme::tool_icon(theme::ToolIcon::Refresh),
-            theme::tool_icon(theme::ToolIcon::Disconnect),
-        ];
-        let btns = [&mut self.create, &mut self.join, &mut self.refresh, &mut self.disconnect];
-        for (i, btn) in btns.into_iter().enumerate() {
-            let Some(r) = rects.get(i).copied() else { continue };
-            theme::tool_button(ui, btn, t, r, icons[i].as_ref(), &labels[i], i == 0, accent);
-        }
+        // —— 顶部居中大标题「房间列表」——
+        let title = mtl!("room-list-title");
+        let strip_h = 0.14 * SCALE;
+        ui.text(title.as_ref())
+            .pos(0., -top + HEADER_TOP + strip_h * 0.6)
+            .anchor(0.5, 0.5)
+            .size(FS_PAGE_TITLE)
+            .color(text())
+            .draw();
 
-        // —— 中央：公共房间列表（列表底部留出按钮带的高度）——
-        let list_w = f.body.w.min(theme::MAX_LIST_W);
-        let list_x = f.body.x + (f.body.w - list_w) / 2.;
-        let list_h = (bar.y - BAR_GAP - f.body.y).max(0.12);
-        let list = Rect::new(list_x, f.body.y, list_w, list_h);
+        // 标题两侧小工具：刷新 / 加入房间（输 ID）
+        let icon_sz = strip_h * 0.9;
+        let tx = 0.86;
+        let ic_refresh = theme::tool_icon(theme::ToolIcon::Refresh);
+        let ic_join = theme::tool_icon(theme::ToolIcon::Join);
+        theme::tool_button(ui, &mut self.refresh, t, Rect::new(tx - icon_sz, -top + HEADER_TOP, icon_sz, icon_sz), ic_refresh.as_ref(), "", false, accent);
+        theme::tool_button(ui, &mut self.join, t, Rect::new(tx - icon_sz * 2. - 0.03, -top + HEADER_TOP, icon_sz, icon_sz), ic_join.as_ref(), "", false, accent);
+
+        // —— 底部两个大圆角按钮：左下「退出」 右下「创建房间」——
+        let bottom_h = (0.16 * SCALE).clamp(0.13, 0.2);
+        let bottom_w = (0.62 * SCALE).clamp(0.5, 0.85);
+        let bottom_y = top - pad - bottom_h;
+        let back_r = Rect::new(-1. + pad, bottom_y, bottom_w, bottom_h);
+        let create_r = Rect::new(1. - pad - bottom_w, bottom_y, bottom_w, bottom_h);
+        theme::button(ui, &mut self.back, t, back_r, mtl!("leave-room"), (bottom_h * 3.0).clamp(0.24, FS_BUTTON), secondary(), text());
+        theme::button(ui, &mut self.create, t, create_r, mtl!("create-room"), (bottom_h * 3.0).clamp(0.24, FS_BUTTON), primary(accent), WHITE);
+
+        // —— 中央：房间卡片网格（列表底部留出按钮高度）——
+        let list_top = -top + HEADER_TOP + strip_h + BODY_GAP;
+        let list_bottom = bottom_y - BAR_GAP;
+        let list = Rect::new(-1. + pad, list_top, 2. - pad * 2., (list_bottom - list_top).max(0.2));
         let rooms = v.rooms.unwrap_or(&[]);
 
         if rooms.is_empty() {
             let msg = if v.loading { mtl!("room-list-loading") } else { mtl!("room-list-empty") };
             ui.text(msg.as_ref())
-                .pos(list.center().x, list.y + list.h * 0.4)
-                .anchor(0.5, 0.)
+                .pos(list.center().x, list.center().y)
+                .anchor(0.5, 0.5)
                 .size(FS_SECTION)
                 .color(text_muted())
                 .draw();
-            if v.loading {
-                theme::progress_bar(
-                    ui,
-                    Rect::new(list.x, list.y + list.h * 0.4 + 0.08, list.w, 0.012),
-                    None,
-                    t,
-                    accent,
-                );
-            }
             self.ids.clear();
             self.rows.clear();
             self.watches.clear();
-            if v.busy {
-                theme::progress_bar(ui, Rect::new(list.x, list.bottom() - 0.012, list.w, 0.012), None, t, accent);
-            }
             return;
         }
 
-        let row_h = ROW_TALL;
-        let step = row_h + ROW_GAP;
-        let view_h = rooms.len() as f32 * step;
-        let watch_w = 0.27f32.min(list_w * 0.26) * SCALE;
+        // 列数：横屏 3 列，竖屏 1 列
+        let cols = if wide { 3 } else { 1 };
+        let gap = 0.025 * SCALE;
+        let card_h = (if wide { 0.30 } else { 0.26 }) * SCALE;
+        let step = card_h + gap;
+        let col_w = (list.w - gap * (cols - 1) as f32) / cols as f32;
+        let rows_n = (rooms.len() as f32 / cols as f32).ceil() as usize;
+        let view_h = rows_n as f32 * step;
+
         self.ids.clear();
         self.rows.resize_with(rooms.len(), DRectButton::new);
         self.watches.resize_with(rooms.len(), DRectButton::new);
@@ -173,44 +163,43 @@ impl LobbyPage {
             self.scroll.size((list.w, list.h));
             self.scroll.render(ui, |ui| {
                 for (i, room) in rooms.iter().enumerate() {
-                    let rr = Rect::new(0., i as f32 * step, list.w, row_h);
+                    let col = i % cols;
+                    let row = i / cols;
+                    let cx = col as f32 * (col_w + gap);
+                    let cy = row as f32 * step;
+                    let card = Rect::new(cx, cy, col_w, card_h);
+                    let playing = room.state != "waiting" && room.state != "准备中";
+                    let locked = room.locked;
+
                     let watching_here = v.spectating && v.joined == Some(room.id.as_str());
-                    let label = format!(
-                        "#{}  ·  {}  ·  {}",
-                        room.id,
-                        room.state,
-                        mtl!("mp-room-counts", "players" => room.player_count as u64, "spectators" => room.spectator_count as u64)
-                    );
-                    // 行主体（点行直接进房）：右侧给「观战」按钮留出空间
-                    let main_r = Rect::new(rr.x, rr.y, rr.w - watch_w - 0.03, rr.h);
-                    theme::row_button(ui, &mut self.rows[i], t, main_r, watching_here, accent, |ui, r| {
-                        let mut right = r.right() - CARD_PAD;
-                        if room.locked {
-                            let s = mtl!("mp-room-locked");
-                            right = theme::tag_right(ui, right, r.x + r.w * 0.45, r.center().y, &s, tag_bg(), text_dim());
+                    // 整张卡片可点（row_button 自带半透明底 + 命中区）
+                    theme::row_button(ui, &mut self.rows[i], t, card, watching_here, accent, |ui, card| {
+                        // 左上：对勾 / 锁图标 + 房名
+                        let icon_x = card.x + CARD_PAD;
+                        let icon_y = card.y + card_h * 0.26;
+                        if locked {
+                            ui.text("🔒").pos(icon_x, icon_y).size(FS_BODY).color(text_dim()).draw();
+                        } else {
+                            ui.text("✔").pos(icon_x, icon_y).size(FS_BODY).color(WHITE).draw();
                         }
-                        theme::text_left(
-                            ui,
-                            r.x + CARD_PAD,
-                            r.center().y,
-                            FS_BODY,
-                            if room.locked { text_dim() } else { text() },
-                            &label,
-                            right - r.x - CARD_PAD,
-                        );
+                        let name_w = card.w - CARD_PAD * 2. - 0.3;
+                        theme::text_left_bold(ui, icon_x + 0.05 * SCALE, icon_y, FS_BODY, text(), &format!("#{}", room.id), name_w);
+                        // 右上 ID
+                        theme::text_right(ui, card.right() - CARD_PAD, icon_y, FS_SMALL, text_dim(), &format!("ID {}", room.id), 0.3);
+                        // 第二行：房间状态/描述
+                        theme::text_left(ui, card.x + CARD_PAD, card.y + card_h * 0.5, FS_SMALL, text_dim(), &room.state, card.w - CARD_PAD * 2.);
+                        // 底部：左玩家数
+                        let players = mtl!("mp-n-players", "n" => room.player_count as u64);
+                        theme::text_left(ui, card.x + CARD_PAD, card.bottom() - card_h * 0.22, FS_SMALL, text(), &players, card.w * 0.55);
                     });
-                    // 行内「观战」
-                    let wr = Rect::new(rr.right() - watch_w, rr.y + row_h * 0.22, watch_w, row_h * 0.56);
-                    theme::button(
-                        ui,
-                        &mut self.watches[i],
-                        t,
-                        wr,
-                        mtl!("spectate"),
-                        FS_SMALL,
-                        if watching_here { primary(accent) } else { secondary() },
-                        text(),
-                    );
+                    // 右下「加入 / 游戏中」按钮（叠在卡片上，点它优先于卡片）
+                    let btn_w = (0.22 * SCALE).min(card.w * 0.28).max(0.13 * SCALE);
+                    let btn_r = Rect::new(card.right() - CARD_PAD - btn_w, card.bottom() - card_h * 0.30, btn_w, card_h * 0.30);
+                    if playing {
+                        theme::button(ui, &mut self.watches[i], t, btn_r, mtl!("spectate"), FS_SMALL, Color::new(0.4, 0.4, 0.45, 0.6), text());
+                    } else {
+                        theme::button(ui, &mut self.watches[i], t, btn_r, mtl!("join-room"), FS_SMALL, if watching_here { primary(accent) } else { secondary() }, text());
+                    }
                     self.ids.push(room.id.clone());
                 }
                 (list.w, view_h)

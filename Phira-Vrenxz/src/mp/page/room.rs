@@ -60,9 +60,33 @@ const STRIP_H: f32 = 0.14 * SCALE;
 const USER_ROW_H: f32 = 0.13 * SCALE;
 const USER_ROW_GAP: f32 = 0.015 * SCALE;
 /// 左侧模糊背景上的超大房名字号。
-const FS_HERO: f32 = 0.85 * SCALE;
+const FS_HERO: f32 = 1.1;
 /// 右侧栏分区标题（用户列表 / 聊天&日志）字号。
-const FS_SUB: f32 = 0.42 * SCALE;
+const FS_SUB: f32 = 0.55 * SCALE;
+
+// ============ 横屏设计稿常量 ============
+//
+// 稿子画布 472×267（≈16:9），内容区 x 4..475 / y 47..314。
+// 下面所有位置都按 **占页宽/页高的比例** 写：fx = (x-4)/471，fy = (y-47)/267，
+// 游戏里 x = -1 + 2fx、y = -top + 2·top·fy，这样任何窗口比例下版面都和稿子一致。
+/// 左面板占的宽度比例（稿子里左上角到 0.61）。
+const L_PANEL_W: f32 = 0.61;
+/// 面板右边缘的倾斜量 = 高度 × 该值（稿子实测 0.113）。
+const L_SLANT: f32 = 0.113;
+/// 顶部条高度比例（稿子 0.116）。
+const STRIP_F: f32 = 0.116;
+/// 顶栏按钮：文字外扩的内边距 / 最小宽度（按稿子的按钮宽度反推）。
+const STRIP_BTN_PAD: f32 = 0.16;
+const STRIP_BTN_MIN_W: f32 = 0.2;
+/// 右栏内容左边界比例（稿子聊天/输入框都在 0.56 右侧）。
+const R_COL_X: f32 = 0.60;
+/// 用户列表与聊天之间的分隔线高度比例（稿子 0.49）。
+const R_SPLIT: f32 = 0.49;
+/// 输入框上沿比例（稿子 0.85）。
+const R_INPUT_Y: f32 = 0.85;
+/// 左下信息卡：占宽 / 上沿 / 下沿比例（稿子 0..0.40、0.772..0.996）。
+const CARD_W: f32 = 0.40;
+const CARD_TOP: f32 = 0.772;
 
 /// 功能按钮的种类。
 ///
@@ -217,6 +241,24 @@ pub fn is_previewable(room: &ClientRoomState, view: &RoomView) -> bool {
     }
 }
 
+/// 顶栏小方块用的单字标签。
+///
+/// 设计稿顶栏只画了三个按钮（打开谱面库 / 观战 / 预览），其余动作（锁定、循环、
+/// 密码、离开房间、各种取消）作者没画 —— 这里收成同样的斜角小方块贴在顶栏尾部，
+/// 既不动稿子的空区，也不丢功能。
+fn short_label(action: RoomAction) -> String {
+    use RoomAction as A;
+    match action {
+        A::LockRoom => "锁".to_owned(),
+        A::CycleRoom => "循".to_owned(),
+        A::Password => "密".to_owned(),
+        A::LeaveRoom | A::CancelReady | A::CancelDownload | A::CancelLocalShare => "✕".to_owned(),
+        A::Preview => "览".to_owned(),
+        A::Spectate => "观".to_owned(),
+        A::Library => "库".to_owned(),
+        A::Start | A::Ready => "▶".to_owned(),
+    }
+}
 /// 依据房间状态推导功能按钮（渲染与触摸共用同一集合）。
 pub fn action_items(room: &ClientRoomState, view: &RoomView) -> Vec<ActItem> {
     let mut items = Vec::new();
@@ -458,99 +500,304 @@ impl RoomPage {
         let accent = ui.accent();
         let room = ctx.room;
         let items = action_items(room, ctx.view);
-
-        // ————————————— 版面 —————————————
         let top = ui.top;
         let pad = theme::page_pad(ui);
-        let page_x = -1. + pad;
-        let page_w = 2. - pad * 2.;
         let wide = theme::is_wide(ui);
 
-        // —— 顶部通栏：整屏纯黑横条（盖住背景，返回图标压在上面）——
-        let strip = Rect::new(-1., -top, 2., STRIP_H);
-        ui.fill_rect(strip, Color::new(0., 0., 0., 1.));
-        theme::back_button(ui, &mut self.back, t, Rect::new(page_x, strip.y + (STRIP_H - STRIP_H) / 2., STRIP_H, STRIP_H));
-
-        // —— 内容区 ——
-        let body_top = strip.bottom();
-        let body_bottom = top - pad * 0.6;
-        let body = Rect::new(page_x, body_top, page_w, (body_bottom - body_top).max(0.12));
-
-        // —— 功能按钮：左下角一条**方块工具带**（模仿爱笔思画：上图标、下小字）——
-        let labels: Vec<String> = items.iter().map(|it| it.label.clone()).collect();
-        let (bar, bar_rects) = theme::tool_bar(ui, &labels, body.x, body.right(), body.bottom(), theme::BarAlign::Left);
-
-        if wide {
-            // 横屏：左侧 ~66% 模糊背景大字区，右侧 ~34% 纯黑栏
-            let content_h = (bar.y - BAR_GAP - body.y).max(0.1);
-            let right_w = (body.w * 0.34).clamp(0.5, 0.95);
-            let right_x = body.right() - right_w;
-            let hero = Rect::new(body.x, body.y, right_x - SECTION_GAP - body.x, content_h);
-            let side = Rect::new(right_x, body.y - BODY_GAP, right_w, body_bottom - (body.y - BODY_GAP));
-            self.render_hero(ui, t, hero, &mut ctx, accent);
-            self.render_side(ui, t, side, &mut ctx, accent);
-        } else {
-            // 竖屏：房名/谱面卡 → 用户列表 → 聊天框
-            let content_h = (bar.y - BAR_GAP - body.y).max(0.1);
-            let gap = SECTION_GAP;
-            let mut info_h = info_height(&ctx).min(content_h * 0.45);
-            let mut users_h = (content_h * 0.22).clamp(0.18, 1.2);
-            let mut chat_h = content_h - info_h - users_h - gap * 2.;
-            if chat_h < 0.24 {
-                let need = 0.24 - chat_h;
-                let cut = need.min(users_h - 0.18);
-                users_h -= cut;
-                info_h = (info_h - (need - cut)).max(0.2);
-                chat_h = (content_h - info_h - users_h - gap * 2.).max(0.12);
-            }
-            let info = Rect::new(body.x, body.y, body.w, info_h);
-            let users = Rect::new(body.x, info.bottom() + gap, body.w, users_h);
-            let chat = Rect::new(body.x, users.bottom() + gap, body.w, chat_h);
-            self.render_info(ui, t, info, &mut ctx, accent);
-            self.render_users(ui, t, users, &mut ctx, accent);
-            self.render_chat(ui, t, chat, &mut ctx, accent);
+        if !wide {
+            // 竖屏：保留原卡片堆叠布局
+            self.render_portrait(ui, t, ctx, &items);
+            return;
         }
 
-        // —— 工具带绘制（命中区在这里登记，触摸侧按同一份 action_items 查）——
-        for (i, item) in items.iter().enumerate() {
-            let Some(r) = bar_rects.get(i).copied() else { continue };
-            if r.w <= 0.01 {
+        // ============ 横屏：严格按设计稿（画布 472×267）的几何重写 ============
+        //
+        // 稿子坐标 → 比例：fx = (x-3.57)/472.65，fy = (y-47)/266.96；
+        // 游戏里 x = -1 + 2fx、y = -top + 2·top·fy。
+        // 字号也按稿子：size = 稿子 px / 267 * (2·top) / 0.08（稿子里的字号是 em，
+        // 中文字形≈1em，所以这样换算出来的视觉大小和稿子一致）。
+        let px = |f: f32| -1. + 2. * f;
+        let py = |f: f32| -top + 2. * top * f;
+        let hh = 2. * top;
+        let fs = |font_px: f32| font_px / 267. * hh / 0.08;
+
+        // —— 整屏底色：稿子是全屏灰渐变（#5d5d5d → #9d9d9d）——
+        const BG_TOP: Color = Color::new(0.365, 0.365, 0.365, 1.);
+        const BG_BOTTOM: Color = Color::new(0.616, 0.616, 0.616, 1.);
+        theme::slant_panel_grad(ui, -1., -top, 2., hh, 0., BG_TOP, BG_BOTTOM);
+
+        // —— 左面板：灰→白竖向渐变 + 右边缘倾斜（稿子 0.61 → 0.546）——
+        const PANEL_TOP_C: Color = Color::new(0.533, 0.533, 0.533, 1.);
+        const PANEL_BOTTOM_C: Color = Color::new(1., 1., 1., 1.);
+        let panel_l = -1.;
+        let panel_w = px(L_PANEL_W) - panel_l;
+        let panel_top = -top;
+        let panel_bottom = py(1.);
+        theme::slant_panel_grad(ui, panel_l, panel_top, panel_w, panel_bottom - panel_top, L_SLANT, PANEL_TOP_C, PANEL_BOTTOM_C);
+
+        // —— 左面板顶部黑条（稿子 0..0.118，只盖左面板）——
+        let strip_bottom = py(STRIP_F);
+        theme::slant_panel(ui, panel_l, panel_top, panel_w, strip_bottom - panel_top, L_SLANT, Color::new(0., 0., 0., 0.72));
+
+        // —— 顶栏：返回图标 + 三个斜角按钮（打开谱面库 / 观战 / 预览，稿子顺序）——
+        // 稿子按钮 y 0.020..0.101、高约页高 8%，宽度按文字；形状是"上边右移"的平行四边形。
+        let btn_top = py(0.020);
+        let btn_h = py(0.101) - btn_top;
+        let back_s = btn_h;
+        theme::back_button(ui, &mut self.back, t, Rect::new(px(0.012), btn_top, back_s, back_s));
+        let mut bx = px(0.049);
+        for item in &items {
+            if !matches!(item.action, RoomAction::Library | RoomAction::Spectate | RoomAction::Preview) {
                 continue;
             }
-            let icon = theme::tool_icon(item.action.icon());
-            let active = item.action.is_primary(ctx.view.spectating);
-            theme::tool_button(
-                ui,
-                self.actions.get(item.action),
-                t,
-                r,
-                icon.as_ref(),
-                &item.label,
-                active,
-                accent,
-            );
+            let tw = ui.text(&item.label).size(fs(11.4)).measure().w;
+            let w = (tw + 0.06).max(0.16);
+            let r = Rect::new(bx, btn_top, w, btn_h);
+            Self::skew_btn(ui, t, self.actions.get(item.action), r, &item.label, fs(11.4), Color::new(0.702, 0.702, 0.702, 1.), WHITE);
+            bx += w + 0.012;
         }
-    }
 
-    /// 横屏左侧：模糊背景上的大字房名 + 谱面名（不画卡片，直接透出 mp_bg）。
-    fn render_hero(&mut self, ui: &mut Ui, _t: f32, r: Rect, ctx: &mut Render, _accent: Color) {
-        let room = ctx.room;
-        let pad_l = 0.06 * SCALE;
+        // —— 房名（稿子 fy 0.175，em 19.3px）+ 谱面:XXX（fy 0.22，em 8.65px）——
         let title = match ctx.room_id {
             Some(id) => mtl!("mp-room-tag", "id" => id.to_owned()),
             None => mtl!("multiplayer").into_owned(),
         };
-        // 超大房名（左上角）
-        let title_y = r.y + FS_HERO * 0.62;
-        theme::text_left_bold(ui, r.x + pad_l, title_y, FS_HERO, text(), title.as_str(), r.w - pad_l * 2.);
-        // 谱面: xxx（标题下方一行小字）
         let (state_text, chart_name) = chart_parts(room, ctx.view);
+        let text_x = px(0.011);
+        let text_w = panel_w - (text_x - panel_l) - 0.14;
+        theme::text_left_bold(ui, text_x, py(0.175), fs(19.3), Color::new(0.06, 0.06, 0.08, 1.), title.as_str(), text_w);
         let sub = match &chart_name {
             Some(n) if !n.is_empty() => format!("{}: {}", mtl!("mp-chart-label"), n),
-            _ => state_text,
+            _ => state_text.clone(),
         };
-        theme::text_left(ui, r.x + pad_l, title_y + FS_HERO * 0.62, FS_SUB, text_dim(), &sub, r.w - pad_l * 2.);
+        theme::text_left(ui, text_x, py(0.22), fs(8.65), Color::new(0.25, 0.25, 0.28, 1.), &sub, text_w);
+
+        // —— 房间设置等其余动作：稿子左面板中间是空的，这里收成顶栏尾部的一排小方块 ——
+        // （不占版面、也不破坏稿子的空区）
+        let mut sx = bx + 0.01;
+        let sq = btn_h * 0.86;
+        for item in &items {
+            match item.action {
+                RoomAction::Library | RoomAction::Spectate | RoomAction::Preview
+                | RoomAction::Start | RoomAction::Ready => {}
+                _ => {
+                    if sx + sq > panel_l + panel_w - 0.05 {
+                        break;
+                    }
+                    let r = Rect::new(sx, btn_top + (btn_h - sq) * 0.5, sq, sq);
+                    Self::skew_btn(ui, t, self.actions.get(item.action), r, &short_label(item.action), fs(11.4), Color::new(0.702, 0.702, 0.702, 1.), WHITE);
+                    sx += sq + 0.008;
+                }
+            }
+        }
+
+        // —— 进度 / 同步状态：放在房名下方（稿子空区），不遮挡任何稿件元素 ——
+        let mut cy2 = py(0.28);
+        if let Some(dl) = ctx.download.as_deref_mut() {
+            let dr = Rect::new(text_x, cy2, panel_w * 0.62, 0.13);
+            theme::card_rect(ui, dr, card());
+            dl.render_inline(ui, dr, t);
+        } else if ctx.syncing {
+            theme::text_left(ui, text_x, cy2 + 0.02, fs(8.65), Color::new(0.25, 0.25, 0.28, 1.), &mtl!("mp-syncing-chart"), text_w);
+            theme::progress_bar(ui, Rect::new(text_x, cy2 + 0.06, panel_w * 0.5, 0.012), None, t, accent);
+        } else if ctx.busy {
+            theme::progress_bar(ui, Rect::new(text_x, cy2, panel_w * 0.5, 0.012), None, t, accent);
+        }
+
+        // —— 左下信息卡（稿子 x 0..0.40、y 0.772..0.996，白底 + 斜右边）——
+        let card = Rect::new(panel_l, py(CARD_TOP), 2. * CARD_W, py(0.996) - py(CARD_TOP));
+        theme::slant_panel_grad_h(ui, card.x, card.y, card.w, card.h, L_SLANT * 0.5, Color::new(0.56, 0.56, 0.56, 1.), Color::new(1., 1., 1., 1.));
+        // 卡的左/上/下三边描一道黑边（稿子 stroke #000 0.5）
+        let edge = Color::new(0., 0., 0., 0.75);
+        ui.fill_rect(Rect::new(card.x, card.y, card.w, 0.0018), edge);
+        ui.fill_rect(Rect::new(card.x, card.bottom() - 0.0018, card.w - card.h * L_SLANT * 0.5, 0.0018), edge);
+        ui.fill_rect(Rect::new(card.x, card.y, 0.0018, card.h), edge);
+
+        // 本地最好成绩（在线谱面按 id 在本地谱面库里查）
+        let (rec, level) = match ctx.view.chart_id {
+            Some(id) => {
+                let data = crate::get_data();
+                match data.charts.iter().find(|c| c.info.id == Some(id)) {
+                    Some(c) => (c.record.as_ref().map(|r| (r.score, r.accuracy)), Some(c.info.level.clone())),
+                    None => (None, None),
+                }
+            }
+            None => (None, None),
+        };
+        // 封面位（稿子 fy 0.823..0.945、宽约页宽 5.7%）：没有封面图就用等级色块占位
+        let cov = Rect::new(px(0.023), py(0.823), 2. * 0.057, py(0.945) - py(0.823));
+        ui.fill_path(&cov.rounded(R_ROW), Color::new(0.62, 0.64, 0.70, 1.));
+        if let Some(lv) = &level {
+            ui.text(lv)
+                .pos(cov.center().x, cov.center().y)
+                .anchor(0.5, 0.5)
+                .no_baseline()
+                .size(fs(8.65))
+                .color(WHITE)
+                .max_width(cov.w - 0.01)
+                .draw();
+        }
+        // 等级小牌（稿子 x 0.096..0.141、y 0.790..0.847）
+        let badge = Rect::new(px(0.096), py(0.790), 2. * 0.045, py(0.847) - py(0.790));
+        theme::slant_panel(ui, badge.x, badge.y, badge.w, badge.h, 0.2, Color::new(0.62, 0.64, 0.70, 1.));
+        if let Some(lv) = &level {
+            ui.text(lv)
+                .pos(badge.center().x, badge.center().y)
+                .anchor(0.5, 0.5)
+                .no_baseline()
+                .size(fs(7.5))
+                .color(WHITE)
+                .max_width(badge.w)
+                .draw();
+        }
+        // 谱面 ID（稿子 "#7891"，灰） / 最好成绩（稿子大黑数字） / 准确率
+        let id_text = match ctx.view.chart_id {
+            Some(id) => format!("#{id}"),
+            None => mtl!("mp-state-local").into_owned(),
+        };
+        theme::text_left(ui, px(0.149), py(0.838), fs(16.), Color::new(0.42, 0.42, 0.42, 1.), &id_text, card.right() - px(0.149) - 0.03);
+        let big = match rec {
+            Some((score, _)) => format!("{score:07}"),
+            None => chart_name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| state_text.clone()),
+        };
+        theme::text_left_bold(ui, px(0.083), py(0.923), fs(24.8), Color::new(0.04, 0.04, 0.06, 1.), &big, card.right() - px(0.083) - 0.02);
+        if let Some((_, acc)) = rec {
+            theme::text_left(ui, px(0.083), py(0.970), fs(9.1), Color::new(0.1, 0.1, 0.12, 1.), &format!("{:.2}%", acc * 100.), card.right() - px(0.083) - 0.02);
+        }
+
+        // —— 主要动作：稿子在卡右侧画了个黑色 ▶（外黑内白），点它 = 开始 / 准备 ——
+        let main_action = items.iter().find(|it| matches!(it.action, RoomAction::Start | RoomAction::Ready | RoomAction::CancelReady));
+        if let Some(item) = main_action {
+            let tri = Rect::new(px(0.440), py(0.830), 2. * 0.065, py(0.950) - py(0.830));
+            let btn = self.actions.get(item.action);
+            btn.build(ui, t, tri, |ui, _| {
+                prpr::ext::draw_parallelogram(tri, None, Color::new(0., 0., 0., 0.), false);
+                theme::triangle_right(ui, tri, Color::new(0.02, 0.02, 0.03, 1.), 0.62, Some(WHITE));
+                if item.action != RoomAction::Start {
+                    theme::text_left(ui, tri.right() + 0.02, tri.center().y, fs(14.3), Color::new(0.05, 0.05, 0.07, 1.), &item.label, 0.4);
+                }
+            });
+        }
+
+        // —— 右栏标题：用户列表（稿子 x 0.615、fy 0.079，黑字直接压在底图上）+ 人数 ——
+        theme::text_left_bold(ui, px(0.615), py(0.079), fs(19.3), Color::new(0.05, 0.05, 0.07, 1.), &mtl!("user-list"), 0.5);
+        let count = mtl!("mp-n-players", "n" => user_count(room) as u64);
+        theme::text_right(ui, px(0.997), py(0.079), fs(11.4), Color::new(0.15, 0.15, 0.18, 1.), &count, 0.4);
+
+        // —— 用户列表（稿子头像 fy 0.151、名字 fy 0.176）到 fy 0.489 的细线 ——
+        let right_x = px(0.567);
+        let right_w = px(0.997) - right_x;
+        let split_y = py(0.489);
+        let users = Rect::new(right_x, py(0.115), right_w, (split_y - py(0.115) - 0.01).max(0.12));
+        self.render_users_list(ui, t, users, &mut ctx, accent);
+        theme::h_line(ui, right_x, split_y, right_w);
+
+        // —— 聊天区（fy 0.489..0.847，稿子里聊天字是白的 → 这里给一块深色底保证可读）——
+        let thick_y = py(0.847);
+        let chat_r = Rect::new(right_x, split_y + 0.012, right_w, (thick_y - split_y - 0.024).max(0.06));
+        ui.fill_path(&chat_r.rounded(R_CARD), Color::new(0., 0., 0., 0.28));
+        ui.scope(|ui| {
+            ui.dx(chat_r.x + 0.012);
+            ui.dy(chat_r.y + 0.01);
+            ctx.messages.render(ui, Rect::new(0., 0., chat_r.w - 0.024, chat_r.h - 0.02));
+        });
+        // 稿子那条加粗的线（2.5px）在输入框上方
+        ui.fill_rect(Rect::new(right_x, thick_y, right_w, 0.0094 * hh / 1.125 * 1.2), Color::new(0., 0., 0., 0.85));
+
+        // —— 输入行：白底输入框（稿子 x 0.559..0.883）+ 深灰「发送」斜角按钮（0.891..1.0）——
+        let input_y = py(0.85);
+        let input_h = py(0.996) - input_y;
+        let input_r = Rect::new(right_x, input_y, px(0.883) - right_x, input_h);
+        ui.fill_path(&input_r.rounded(R_BTN), Color::new(1., 1., 1., 1.));
+        if CHAT_ENABLED {
+            self.chat_btn.render_input(ui, input_r.feather(-0.014), t, ctx.chat_text, mtl!("chat-placeholder"), fs(17.));
+        }
+        let send_r = Rect::new(px(0.891), input_y, px(1.) - px(0.891), input_h);
+        Self::skew_btn(ui, t, &mut self.chat_send_btn, send_r, &mtl!("chat-send"), fs(14.3), Color::new(0.404, 0.404, 0.404, 1.), Color::new(0., 0., 0., 1.));
+
+        // —— 内联确认条（房主要开始游戏了 / 准备·暂不）——
+        if ctx.prompt {
+            let h = 0.22 * SCALE;
+            let cr = Rect::new(text_x, py(0.58), panel_w * 0.7, h);
+            theme::card_rect(ui, cr, tag_accent(accent));
+            theme::text_left(ui, cr.x + CARD_PAD, cr.y + 0.05 * SCALE, fs(11.4), text(), &mtl!("preview-interrupted-content"), cr.w - CARD_PAD * 2.);
+            let bh = h * 0.42;
+            let bw = 0.22 * SCALE;
+            let by = cr.bottom() - bh - 0.015;
+            let rr = Rect::new(cr.right() - CARD_PAD - bw, by, bw, bh);
+            let ll = Rect::new(rr.x - 0.03 - bw, by, bw, bh);
+            theme::button(ui, &mut self.prompt_later, t, ll, mtl!("preview-not-now"), fs(11.4), secondary(), text());
+            theme::button(ui, &mut self.prompt_ready, t, rr, mtl!("preview-ready"), fs(11.4), primary(accent), WHITE);
+        }
     }
+
+    /// 竖屏：保留原卡片堆叠布局。
+    fn render_portrait(&mut self, ui: &mut Ui, t: f32, mut ctx: Render, items: &[ActItem]) {
+        let accent = ui.accent();
+        let top = ui.top;
+        let pad = theme::page_pad(ui);
+        let page_x = -1. + pad;
+        let page_w = 2. - pad * 2.;
+        theme::back_button(ui, &mut self.back, t, Rect::new(page_x, -top + HEADER_TOP, STRIP_H, STRIP_H));
+        let body_top = -top + HEADER_TOP + STRIP_H + BODY_GAP;
+        let body_bottom = top - pad * 0.6;
+        let body = Rect::new(page_x, body_top, page_w, (body_bottom - body_top).max(0.12));
+        let labels: Vec<String> = items.iter().map(|it| it.label.clone()).collect();
+        let (bar, bar_rects) = theme::tool_bar(ui, &labels, body.x, body.right(), body.bottom(), theme::BarAlign::Left);
+        let content_h = (bar.y - BAR_GAP - body.y).max(0.1);
+        let gap = SECTION_GAP;
+        let mut info_h = info_height(&ctx).min(content_h * 0.45);
+        let mut users_h = (content_h * 0.22).clamp(0.18, 1.2);
+        let mut chat_h = content_h - info_h - users_h - gap * 2.;
+        if chat_h < 0.24 {
+            let need = 0.24 - chat_h;
+            let cut = need.min(users_h - 0.18);
+            users_h -= cut;
+            info_h = (info_h - (need - cut)).max(0.2);
+            chat_h = (content_h - info_h - users_h - gap * 2.).max(0.12);
+        }
+        let info = Rect::new(body.x, body.y, body.w, info_h);
+        let users = Rect::new(body.x, info.bottom() + gap, body.w, users_h);
+        let chat = Rect::new(body.x, users.bottom() + gap, body.w, chat_h);
+        self.render_info(ui, t, info, &mut ctx, accent);
+        self.render_users(ui, t, users, &mut ctx, accent);
+        self.render_chat(ui, t, chat, &mut ctx, accent);
+        for (i, item) in items.iter().enumerate() {
+            let Some(r) = bar_rects.get(i).copied() else { continue };
+            if r.w <= 0.01 { continue; }
+            let icon = theme::tool_icon(item.action.icon());
+            let active = item.action.is_primary(ctx.view.spectating);
+            theme::tool_button(ui, self.actions.get(item.action), t, r, icon.as_ref(), &item.label, active, accent);
+        }
+    }
+
+    /// 设计稿里按钮的倾斜量（上边右移 = 高 × 该值，稿子实测约 0.27）。
+    const SKEW_SLOPE: f32 = 0.27;
+
+    /// 斜角平行四边形按钮（设计稿样式）：平四边形底 + 居中文本，命中区照旧登记。
+    fn skew_btn(
+        ui: &mut Ui,
+        t: f32,
+        btn: &mut DRectButton,
+        r: Rect,
+        label: &str,
+        size: f32,
+        fill: Color,
+        fg: Color,
+    ) {
+        btn.render_shadow(ui, r, t, |ui, _path| {
+            theme::skew_panel(ui, r.x, r.y, r.w, r.h, Self::SKEW_SLOPE, fill, fill);
+            ui.text(label)
+                .pos(r.center().x, r.center().y)
+                .anchor(0.5, 0.5)
+                .no_baseline()
+                .size(size)
+                .color(fg)
+                .max_width(r.w)
+                .draw();
+        });
+    }
+
 
     /// 左栏信息块：房名（左上角）→ 谱面卡 → 进度行 → 确认条。
     fn render_info(&mut self, ui: &mut Ui, t: f32, r: Rect, ctx: &mut Render, accent: Color) {
@@ -707,77 +954,10 @@ impl RoomPage {
         }
     }
 
-    /// 右栏（横屏）：纯黑背景，上「用户列表」下「聊天&日志」。
-    fn render_side(&mut self, ui: &mut Ui, t: f32, r: Rect, ctx: &mut Render, accent: Color) {
-        // —— 纯黑栏背景（盖住模糊背景）——
-        ui.fill_rect(r, Color::new(0., 0., 0., 1.));
-        let pad_x = 0.05 * SCALE;
-        let inner = Rect::new(r.x + pad_x, r.y + 0.03 * SCALE, r.w - pad_x * 2., r.h - 0.06 * SCALE);
 
-        // —— 上半：用户列表 ——
-        let users_title_h = FS_SUB * 1.1;
-        let users_title = mtl!("user-list");
-        theme::text_left_bold(ui, inner.x, inner.y + users_title_h * 0.55, FS_SUB, text(), &users_title, inner.w);
-        let users_top = inner.y + users_title_h + 0.03 * SCALE;
-        // 下半：聊天&日志（标题 + 浅灰大块 + 输入行）
-        let input_h = if CHAT_ENABLED { (0.13 * SCALE).clamp(0.11, 0.15) } else { 0. };
-        // 浅灰聊天块占下半大部分
-        let chat_block_h = (inner.h * 0.52).clamp(0.3, 1.0);
-        let chat_block_bottom = inner.bottom() - input_h - 0.02 * SCALE;
-        let chat_block_top = chat_block_bottom - chat_block_h;
-        let users_h = (chat_block_top - 0.18 * SCALE - users_top).max(0.1);
 
-        // 用户列表区（黑栏上直接画行，无卡片底）
-        let users = Rect::new(inner.x, users_top, inner.w, users_h);
-        self.render_users_dark(ui, t, users, ctx, accent);
-
-        // 聊天&日志标题
-        let chat_title = mtl!("mp-chat-caption");
-        theme::text_left_bold(ui, inner.x, chat_block_top - 0.05 * SCALE, FS_SUB, text(), &chat_title, inner.w);
-
-        // 浅灰聊天日志块
-        let block = Rect::new(inner.x, chat_block_top, inner.w, chat_block_h);
-        ui.fill_rect(block, Color::new(0.85, 0.85, 0.85, 1.));
-        ui.scope(|ui| {
-            ui.dx(block.x + PANEL_INSET);
-            ui.dy(block.y + PANEL_INSET);
-            ctx.messages.render(
-                ui,
-                Rect::new(0., 0., (block.w - PANEL_INSET * 2.).max(0.05), (block.h - PANEL_INSET * 2.).max(0.04)),
-            );
-        });
-
-        // 底部输入行：输入框 + 右侧「发送」
-        if CHAT_ENABLED {
-            let iy = inner.bottom() - input_h;
-            let send_w = (0.22 * SCALE).min(inner.w * 0.3).max(0.12 * SCALE);
-            let br = Rect::new(inner.x, iy, (inner.w - send_w - 0.02 * SCALE).max(0.14), input_h);
-            let path = br.rounded(R_BTN);
-            ui.fill_path(&path, Color::new(0.12, 0.12, 0.12, 1.));
-            self.chat_btn.render_input(
-                ui,
-                br.feather(-0.01 * SCALE),
-                t,
-                ctx.chat_text,
-                mtl!("chat-placeholder"),
-                (input_h * 3.2).clamp(0.24, FS_BODY),
-            );
-            let sb = Rect::new(br.right() + 0.02 * SCALE, iy, send_w, input_h);
-            theme::button(
-                ui,
-                &mut self.chat_send_btn,
-                t,
-                sb,
-                mtl!("chat-send"),
-                (input_h * 3.4).clamp(0.24, FS_BUTTON),
-                Color::new(0.18, 0.18, 0.18, 1.),
-                WHITE,
-            );
-        }
-    }
-
-    /// 纯黑栏上的用户列表（无 caption、无卡片底，行自身带浅色玻璃底）。
-    fn render_users_dark(&mut self, ui: &mut Ui, t: f32, r: Rect, ctx: &mut Render, accent: Color) {
+    /// 玩家列表行绘制（深紫面板上的圆角行）。
+    fn render_users_list(&mut self, ui: &mut Ui, t: f32, r: Rect, ctx: &mut Render, accent: Color) {
         let room = ctx.room;
         let ids = sorted_user_ids(room, ctx.me);
         let inner = r.feather(-PANEL_INSET);
