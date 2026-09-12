@@ -42,6 +42,13 @@ thread_local! {
     /// 一次性「进入多人场景」请求（主菜单按钮 / 谱面库选谱 / 深链接）。
     /// 由主场景在 `next_scene` 里消费成 `NextScene::Overlay(MultiplayerScene)`。
     static MP_ENTER_REQUEST: Cell<bool> = const { Cell::new(false) };
+
+    /// 一次性「回到主菜单后打开谱面库」请求。
+    ///
+    /// 谱面库是主场景里的一个页面（`LibraryPage`），多人场景推不动它，
+    /// 所以房间页点「谱面库」时的流程是：退出多人场景（房间与会话保留）→ 主场景收到这个请求
+    /// → 直接把谱面库页面压上去。选完谱面后谱面库那边会再发一次进入多人场景的请求。
+    static MP_OPEN_LIBRARY: Cell<bool> = const { Cell::new(false) };
 }
 
 /// 请求进入多人场景（主菜单点击多人按钮、谱面库中选谱、深链接）。
@@ -52,6 +59,16 @@ pub fn request_enter() {
 /// 取出「进入多人场景」请求（一次性消费）。
 pub fn take_enter_request() -> bool {
     MP_ENTER_REQUEST.with(|it| it.replace(false))
+}
+
+/// 请求主场景打开谱面库页面（房间页的「谱面库」按钮用；见 [`MP_OPEN_LIBRARY`]）。
+pub fn request_open_library() {
+    MP_OPEN_LIBRARY.with(|it| it.set(true));
+}
+
+/// 取出「打开谱面库」请求（一次性消费）。
+pub fn take_open_library_request() -> bool {
+    MP_OPEN_LIBRARY.with(|it| it.replace(false))
 }
 
 /// 会话是否已创建（未创建时无法进入多人场景）。

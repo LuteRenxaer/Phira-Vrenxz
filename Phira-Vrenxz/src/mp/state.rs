@@ -207,16 +207,16 @@ impl MpState {
         Path::new(&format!("{}/download/{id}/info.yml", dir::charts().ok().unwrap_or_default())).exists()
     }
 
-    /// 当前服务器是否允许上传本地谱面。
+    /// 当前服务器是否允许选择 / 上传本地谱面。
+    ///
+    /// 这里以前是**写死的域名白名单**（只有 `mp.tianstudio.top`、`mp.ratzen.top`），
+    /// 结果自建服务器和本地服务器全被挡在外面：一选本地谱面就弹「该服务器不支持本地谱面」，
+    /// 但服务端其实完全支持（本地谱面分享就是这套 fork 的扩展协议）。
+    ///
+    /// 现在不再按域名猜：客户端的这套逻辑本来就和本仓库的服务端配套，
+    /// 直接放行；真的不支持时，由服务端对 `SelectLocalChart` 的响应来报错。
     pub fn server_allows_local_chart() -> bool {
-        const ALLOWED: &[&str] = &["mp.tianstudio.top", "mp.ratzen.top"];
-        let addr = get_data().config.mp_address.as_str();
-        // 去掉 scheme（如 tcp:// 等）
-        let addr = addr.rsplit_once("://").map(|(_, host)| host).unwrap_or(addr);
-        // 若包含端口（最后一个 ':'），取 ':' 之前作为主机名
-        let host = addr.rsplit_once(':').map(|(h, _)| h).unwrap_or(addr);
-        let host = host.trim().trim_matches(|c| c == '[' || c == ']');
-        ALLOWED.contains(&host)
+        true
     }
 
     /// 从 mp_address（如 `mp2.phira.cn:12345`）推导 Web API 地址（游戏端口 + 1）。

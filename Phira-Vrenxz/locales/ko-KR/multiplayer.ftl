@@ -86,3 +86,5 @@ msg-room-cycle = { $cycle ->
 }
 spectate-best = 최고 { $score }
 spectate-syncing = 동기화 중
+mp-library = 채보
+mp-chart-label = 채보

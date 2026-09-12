@@ -74,3 +74,5 @@ msg-room-cycle =
     }
 spectate-best = Хамгийн сайн { $score }
 spectate-syncing = Синк хийгдсэн
+mp-library = Чартууд
+mp-chart-label = Чарт

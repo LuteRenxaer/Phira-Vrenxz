@@ -86,3 +86,5 @@ msg-room-cycle = { $cycle ->
 }
 spectate-best = Melhor { $score }
 spectate-syncing = Sincronizado
+mp-library = Charts
+mp-chart-label = Chart

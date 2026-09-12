@@ -74,3 +74,5 @@ msg-room-cycle =
     }
 spectate-best = Лучший { $score }
 spectate-syncing = Синхронизация
+mp-library = Карты
+mp-chart-label = Карта

@@ -113,15 +113,19 @@ pub enum ToolIcon {
     Refresh = 10,
     /// 断开连接
     Disconnect = 11,
+    /// 谱面库
+    Library = 12,
+    /// 离开房间
+    LeaveRoom = 13,
 }
 
 thread_local! {
-    static TOOL_ICONS: std::cell::RefCell<[Option<SafeTexture>; 12]> =
-        const { std::cell::RefCell::new([const { None }; 12]) };
+    static TOOL_ICONS: std::cell::RefCell<[Option<SafeTexture>; 16]> =
+        const { std::cell::RefCell::new([const { None }; 16]) };
 }
 
 /// 启动时装载工具条图标（缺哪个就哪个按钮只显示文字，不影响可用性）。
-pub fn set_tool_icons(icons: [Option<SafeTexture>; 12]) {
+pub fn set_tool_icons(icons: [Option<SafeTexture>; 16]) {
     TOOL_ICONS.with(|it| *it.borrow_mut() = icons);
 }
 

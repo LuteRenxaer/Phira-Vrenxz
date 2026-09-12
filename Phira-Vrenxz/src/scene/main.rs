@@ -4,7 +4,8 @@ use crate::{
     data::LocalChart,
     dir, get_data, get_data_mut,
     mp::{MpSession, MultiplayerScene, MP_SESSION},
-    page::{ExportInfo, HomePage, NextPage, Page, ResPackItem, SharedState},
+    icons::Icons,
+    page::{ExportInfo, HomePage, LibraryPage, NextPage, Page, ResPackItem, SharedState},
     save_data,
     scene::{confirm_dialog, import_chart_to, parse_warnings_to_string, TEX_BACKGROUND, TEX_ICON_BACK},
 };
@@ -97,6 +98,10 @@ pub struct MainScene {
     pages: Vec<Box<dyn Page>>,
 
     import_task: Option<Task<Result<(LocalChart, ParseWarnings)>>>,
+
+    /// 谱面库页面用的图标集：房间页的「谱面库」按钮会把谱面库直接推到主场景上，
+    /// 那时需要一份 `Arc<Icons>`（首页自己那份在 `HomePage` 里拿不到）。
+    lib_icons: Option<Arc<Icons>>,
 
     mp_btn: RectButton,
     mp_icon: SafeTexture,
@@ -262,7 +267,7 @@ impl MainScene {
         };
         // 多人工具条图标（模仿爱笔思画的方块工具按钮：上图标下小字）。
         // 装载失败的那个只是让按钮少个图标，不影响点击。
-        let mut mp_tool_icons: [Option<SafeTexture>; 12] = Default::default();
+        let mut mp_tool_icons: [Option<SafeTexture>; 16] = Default::default();
         for (slot, path) in mp_tool_icons.iter_mut().zip([
             "icon_old(home)/resume.png", // Play
             "icons/select.png",         // Ready
@@ -276,6 +281,8 @@ impl MainScene {
             "icons/user.png",           // Join
             "icons/order.png",          // Refresh
             "icon_old(home)/close.png", // Disconnect
+            "icons/menu.png",           // Library
+            "icons/back.png",           // LeaveRoom
         ]) {
             match load_texture(path).await {
                 Ok(tex) => *slot = Some(SafeTexture::from(tex)),
@@ -315,6 +322,14 @@ impl MainScene {
             pages: Vec::new(),
 
             import_task: None,
+
+            lib_icons: match Icons::new().await {
+                Ok(icons) => Some(Arc::new(icons)),
+                Err(err) => {
+                    warn!("failed to load icons for chart library: {err:#}");
+                    None
+                }
+            },
 
             mp_btn: RectButton::new(),
             mp_icon: SafeTexture::from(load_texture("icons/multiplayer.png").await?).with_mipmap(),
@@ -466,7 +481,29 @@ impl Scene for MainScene {
         }
         self.pages.last_mut().unwrap().update(s)?;
         if !s.fader.transiting() {
-            match self.pages.last_mut().unwrap().next_page() {
+            // 房间页的「谱面库」按钮：退出多人场景时留下的一次性请求 —— 直接把谱面库
+            // 页面压上来（只在主菜单首页时处理，避免在别的页面上乱插一层）。
+            let requested_library = crate::mp::take_open_library_request();
+            let injected = if requested_library && self.pages.len() == 1 {
+                match &self.lib_icons {
+                    Some(icons) => match LibraryPage::new(Arc::clone(icons), s.icons.clone()) {
+                        Ok(page) => Some(Box::new(page) as Box<dyn Page>),
+                        Err(err) => {
+                            warn!("failed to open chart library: {err:#}");
+                            None
+                        }
+                    },
+                    None => None,
+                }
+            } else {
+                None
+            };
+            let next = match injected {
+                // 房间页点了「谱面库」：直接把谱面库当作 Overlay 压上来（走原来那条分支）
+                Some(page) => NextPage::Overlay(page),
+                None => self.pages.last_mut().unwrap().next_page(),
+            };
+            match next {
                 NextPage::Overlay(mut sub) => {
                     if self.pages.len() == 1 {
                         if let Some(bgm) = &mut self.bgm {

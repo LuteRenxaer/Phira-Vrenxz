@@ -436,14 +436,11 @@ impl MpSession {
 
     fn apply_room(&mut self, a: room::Action, t: f32, room: &ClientRoomState) {
         match a {
-            // 房间页只有一个返回入口：离开房间回主页（想退出多人模式就在主页再点一次返回）。
-            // 原来这里还并列着一个"离开房间"文字按钮，跟返回是同一件事，看着就是两个退出按钮。
-            room::Action::Back => {
-                self.state.leave_room();
-                // 离开房间同时结束观战状态（观战者离开即退出观战）
-                self.spectate.cancel();
-                self.goto(Page::Lobby, t);
-            }
+            // 返回 = 退出多人场景回主菜单，**房间与会话保留**。
+            // 这是"去谱面库选谱"的必经路径（谱面库是主场景里的页面），
+            // 所以这里不能顺手把房间退掉 —— 之前改成"返回=离开房间"，
+            // 结果进了房间就再也没法走到谱面库，谱面也就永远选不了。
+            room::Action::Back => self.back(t),
             room::Action::Manage(id) => self.goto(Page::Manage(id), t),
             room::Action::ChatInput => request_input("chat", InputBox::new().default_text(&self.state.chat_text)),
             room::Action::ChatSend => {
@@ -491,6 +488,18 @@ impl MpSession {
             A::CancelDownload => self.state.cancel_download_ready(),
             A::Preview => self.start_preview(),
             A::Spectate => self.goto(Page::Spectate, t),
+            // 去谱面库：退出多人场景（房间保留），并让主场景直接把谱面库页面压上来。
+            // 选完谱面后谱面库会自己发一次"进入多人场景"的请求，回来就是房间页。
+            A::Library => {
+                crate::mp::request_open_library();
+                self.exit_scene(t);
+            }
+            A::LeaveRoom => {
+                self.state.leave_room();
+                // 离开房间同时结束观战状态（观战者离开即退出观战）
+                self.spectate.cancel();
+                self.goto(Page::Lobby, t);
+            }
         }
     }
 
