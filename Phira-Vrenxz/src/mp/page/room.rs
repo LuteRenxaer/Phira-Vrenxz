@@ -59,6 +59,10 @@ const STRIP_H: f32 = 0.14 * SCALE;
 /// 右侧用户列表的行高 / 行距（比整屏列表紧凑：同一列里还要放下聊天框）。
 const USER_ROW_H: f32 = 0.13 * SCALE;
 const USER_ROW_GAP: f32 = 0.015 * SCALE;
+/// 左侧模糊背景上的超大房名字号。
+const FS_HERO: f32 = 0.85 * SCALE;
+/// 右侧栏分区标题（用户列表 / 聊天&日志）字号。
+const FS_SUB: f32 = 0.42 * SCALE;
 
 /// 功能按钮的种类。
 ///
@@ -86,10 +90,14 @@ pub enum RoomAction {
     Preview,
     /// 打开观战页
     Spectate,
+    /// 房主：去谱面库选谱（退出多人场景但**保留房间与会话**，选完自动回来）
+    Library,
+    /// 离开房间（回主页，座位让出来）
+    LeaveRoom,
 }
 
 impl RoomAction {
-    pub const ALL: [RoomAction; 10] = [
+    pub const ALL: [RoomAction; 12] = [
         RoomAction::Start,
         RoomAction::LockRoom,
         RoomAction::CycleRoom,
@@ -100,6 +108,8 @@ impl RoomAction {
         RoomAction::CancelDownload,
         RoomAction::Preview,
         RoomAction::Spectate,
+        RoomAction::Library,
+        RoomAction::LeaveRoom,
     ];
 
     fn index(self) -> usize {
@@ -114,6 +124,8 @@ impl RoomAction {
             RoomAction::CancelDownload => 7,
             RoomAction::Preview => 8,
             RoomAction::Spectate => 9,
+            RoomAction::Library => 10,
+            RoomAction::LeaveRoom => 11,
         }
     }
 
@@ -150,6 +162,8 @@ impl RoomAction {
             RoomAction::LockRoom => I::Lock,
             RoomAction::Preview => I::Preview,
             RoomAction::Spectate => I::Spectate,
+            RoomAction::Library => I::Library,
+            RoomAction::LeaveRoom => I::LeaveRoom,
         }
     }
 }
@@ -224,6 +238,13 @@ pub fn action_items(room: &ClientRoomState, view: &RoomView) -> Vec<ActItem> {
                 });
                 push_room_settings(&mut items, room);
             }
+            // 「谱面库」：选谱阶段才有意义（在线谱 / 本地谱都是在这儿选）
+            if is_host {
+                items.push(ActItem {
+                    action: RoomAction::Library,
+                    label: mtl!("mp-library").into_owned(),
+                });
+            }
         }
         RoomState::LocalChart => {
             if is_host {
@@ -280,6 +301,11 @@ pub fn action_items(room: &ClientRoomState, view: &RoomView) -> Vec<ActItem> {
         } else {
             mtl!("spectate").into_owned()
         },
+    });
+    // 离开房间：放在最后（最右边），跟"开始游戏"那种主动作分开
+    items.push(ActItem {
+        action: RoomAction::LeaveRoom,
+        label: mtl!("leave-room").into_owned(),
     });
     items
 }
@@ -440,42 +466,37 @@ impl RoomPage {
         let page_w = 2. - pad * 2.;
         let wide = theme::is_wide(ui);
 
-        // —— 细页头：只有一个返回图标 ——
-        //
-        // 这里原来还有一个"离开房间"的无底色文字按钮，跟返回图标是同一件事的两种说法，
-        // 摆在页头一左一右看着就是"两个退出按钮"，而且无底色的红字本身也难看。
-        // 现在只留左上角的返回图标：点它 = 离开房间，回到主页；想离开多人模式就在主页再点一次。
-        let strip = Rect::new(page_x, -top + HEADER_TOP, page_w, STRIP_H);
-        theme::back_button(ui, &mut self.back, t, Rect::new(strip.x, strip.y, STRIP_H, STRIP_H));
+        // —— 顶部通栏：整屏纯黑横条（盖住背景，返回图标压在上面）——
+        let strip = Rect::new(-1., -top, 2., STRIP_H);
+        ui.fill_rect(strip, Color::new(0., 0., 0., 1.));
+        theme::back_button(ui, &mut self.back, t, Rect::new(page_x, strip.y + (STRIP_H - STRIP_H) / 2., STRIP_H, STRIP_H));
 
         // —— 内容区 ——
-        let body_top = strip.bottom() + BODY_GAP;
+        let body_top = strip.bottom();
         let body_bottom = top - pad * 0.6;
         let body = Rect::new(page_x, body_top, page_w, (body_bottom - body_top).max(0.12));
 
         // —— 功能按钮：左下角一条**方块工具带**（模仿爱笔思画：上图标、下小字）——
-        // 方块尺寸固定（ICON_BTN），宽度只随文字略微变化，因此又矮又短，
-        // 不再出现"把按钮拉宽铺满整行"那种反而更大的效果。
         let labels: Vec<String> = items.iter().map(|it| it.label.clone()).collect();
         let (bar, bar_rects) = theme::tool_bar(ui, &labels, body.x, body.right(), body.bottom(), theme::BarAlign::Left);
-        let content_h = (bar.y - BAR_GAP - body.y).max(0.1);
-        let left_w = if wide { (body.w * 0.42).max(0.5) } else { body.w };
 
         if wide {
-            // 横屏：左栏 = 房名/谱面卡，右栏 = 用户列表 + 聊天框
-            let info = Rect::new(body.x, body.y, left_w, content_h);
-            let rx = info.right() + SECTION_GAP;
-            let right = Rect::new(rx, body.y, (body.right() - rx).max(0.5), content_h);
-            self.render_info(ui, t, info, &mut ctx, accent);
-            self.render_side(ui, t, right, &mut ctx, accent);
+            // 横屏：左侧 ~66% 模糊背景大字区，右侧 ~34% 纯黑栏
+            let content_h = (bar.y - BAR_GAP - body.y).max(0.1);
+            let right_w = (body.w * 0.34).clamp(0.5, 0.95);
+            let right_x = body.right() - right_w;
+            let hero = Rect::new(body.x, body.y, right_x - SECTION_GAP - body.x, content_h);
+            let side = Rect::new(right_x, body.y - BODY_GAP, right_w, body_bottom - (body.y - BODY_GAP));
+            self.render_hero(ui, t, hero, &mut ctx, accent);
+            self.render_side(ui, t, side, &mut ctx, accent);
         } else {
             // 竖屏：房名/谱面卡 → 用户列表 → 聊天框
+            let content_h = (bar.y - BAR_GAP - body.y).max(0.1);
             let gap = SECTION_GAP;
             let mut info_h = info_height(&ctx).min(content_h * 0.45);
             let mut users_h = (content_h * 0.22).clamp(0.18, 1.2);
             let mut chat_h = content_h - info_h - users_h - gap * 2.;
             if chat_h < 0.24 {
-                // 竖向实在不够：优先保聊天框，其次压用户列表，最后压信息块
                 let need = 0.24 - chat_h;
                 let cut = need.min(users_h - 0.18);
                 users_h -= cut;
@@ -509,6 +530,26 @@ impl RoomPage {
                 accent,
             );
         }
+    }
+
+    /// 横屏左侧：模糊背景上的大字房名 + 谱面名（不画卡片，直接透出 mp_bg）。
+    fn render_hero(&mut self, ui: &mut Ui, _t: f32, r: Rect, ctx: &mut Render, _accent: Color) {
+        let room = ctx.room;
+        let pad_l = 0.06 * SCALE;
+        let title = match ctx.room_id {
+            Some(id) => mtl!("mp-room-tag", "id" => id.to_owned()),
+            None => mtl!("multiplayer").into_owned(),
+        };
+        // 超大房名（左上角）
+        let title_y = r.y + FS_HERO * 0.62;
+        theme::text_left_bold(ui, r.x + pad_l, title_y, FS_HERO, text(), title.as_str(), r.w - pad_l * 2.);
+        // 谱面: xxx（标题下方一行小字）
+        let (state_text, chart_name) = chart_parts(room, ctx.view);
+        let sub = match &chart_name {
+            Some(n) if !n.is_empty() => format!("{}: {}", mtl!("mp-chart-label"), n),
+            _ => state_text,
+        };
+        theme::text_left(ui, r.x + pad_l, title_y + FS_HERO * 0.62, FS_SUB, text_dim(), &sub, r.w - pad_l * 2.);
     }
 
     /// 左栏信息块：房名（左上角）→ 谱面卡 → 进度行 → 确认条。
@@ -666,18 +707,120 @@ impl RoomPage {
         }
     }
 
-    /// 右栏：用户列表（上）+ 聊天框（下）。
+    /// 右栏（横屏）：纯黑背景，上「用户列表」下「聊天&日志」。
     fn render_side(&mut self, ui: &mut Ui, t: f32, r: Rect, ctx: &mut Render, accent: Color) {
-        let users_h = (r.h * 0.46).clamp(0.17 * SCALE, (r.h - 0.37 * SCALE).max(0.17 * SCALE));
-        let users = Rect::new(r.x, r.y, r.w, users_h);
-        let chat = Rect::new(
-            r.x,
-            users.bottom() + SECTION_GAP,
-            r.w,
-            (r.bottom() - users.bottom() - SECTION_GAP).max(0.12 * SCALE),
-        );
-        self.render_users(ui, t, users, ctx, accent);
-        self.render_chat(ui, t, chat, ctx, accent);
+        // —— 纯黑栏背景（盖住模糊背景）——
+        ui.fill_rect(r, Color::new(0., 0., 0., 1.));
+        let pad_x = 0.05 * SCALE;
+        let inner = Rect::new(r.x + pad_x, r.y + 0.03 * SCALE, r.w - pad_x * 2., r.h - 0.06 * SCALE);
+
+        // —— 上半：用户列表 ——
+        let users_title_h = FS_SUB * 1.1;
+        let users_title = mtl!("user-list");
+        theme::text_left_bold(ui, inner.x, inner.y + users_title_h * 0.55, FS_SUB, text(), &users_title, inner.w);
+        let users_top = inner.y + users_title_h + 0.03 * SCALE;
+        // 下半：聊天&日志（标题 + 浅灰大块 + 输入行）
+        let input_h = if CHAT_ENABLED { (0.13 * SCALE).clamp(0.11, 0.15) } else { 0. };
+        // 浅灰聊天块占下半大部分
+        let chat_block_h = (inner.h * 0.52).clamp(0.3, 1.0);
+        let chat_block_bottom = inner.bottom() - input_h - 0.02 * SCALE;
+        let chat_block_top = chat_block_bottom - chat_block_h;
+        let users_h = (chat_block_top - 0.18 * SCALE - users_top).max(0.1);
+
+        // 用户列表区（黑栏上直接画行，无卡片底）
+        let users = Rect::new(inner.x, users_top, inner.w, users_h);
+        self.render_users_dark(ui, t, users, ctx, accent);
+
+        // 聊天&日志标题
+        let chat_title = mtl!("mp-chat-caption");
+        theme::text_left_bold(ui, inner.x, chat_block_top - 0.05 * SCALE, FS_SUB, text(), &chat_title, inner.w);
+
+        // 浅灰聊天日志块
+        let block = Rect::new(inner.x, chat_block_top, inner.w, chat_block_h);
+        ui.fill_rect(block, Color::new(0.85, 0.85, 0.85, 1.));
+        ui.scope(|ui| {
+            ui.dx(block.x + PANEL_INSET);
+            ui.dy(block.y + PANEL_INSET);
+            ctx.messages.render(
+                ui,
+                Rect::new(0., 0., (block.w - PANEL_INSET * 2.).max(0.05), (block.h - PANEL_INSET * 2.).max(0.04)),
+            );
+        });
+
+        // 底部输入行：输入框 + 右侧「发送」
+        if CHAT_ENABLED {
+            let iy = inner.bottom() - input_h;
+            let send_w = (0.22 * SCALE).min(inner.w * 0.3).max(0.12 * SCALE);
+            let br = Rect::new(inner.x, iy, (inner.w - send_w - 0.02 * SCALE).max(0.14), input_h);
+            let path = br.rounded(R_BTN);
+            ui.fill_path(&path, Color::new(0.12, 0.12, 0.12, 1.));
+            self.chat_btn.render_input(
+                ui,
+                br.feather(-0.01 * SCALE),
+                t,
+                ctx.chat_text,
+                mtl!("chat-placeholder"),
+                (input_h * 3.2).clamp(0.24, FS_BODY),
+            );
+            let sb = Rect::new(br.right() + 0.02 * SCALE, iy, send_w, input_h);
+            theme::button(
+                ui,
+                &mut self.chat_send_btn,
+                t,
+                sb,
+                mtl!("chat-send"),
+                (input_h * 3.4).clamp(0.24, FS_BUTTON),
+                Color::new(0.18, 0.18, 0.18, 1.),
+                WHITE,
+            );
+        }
+    }
+
+    /// 纯黑栏上的用户列表（无 caption、无卡片底，行自身带浅色玻璃底）。
+    fn render_users_dark(&mut self, ui: &mut Ui, t: f32, r: Rect, ctx: &mut Render, accent: Color) {
+        let room = ctx.room;
+        let ids = sorted_user_ids(room, ctx.me);
+        let inner = r.feather(-PANEL_INSET);
+        let step = USER_ROW_H + USER_ROW_GAP;
+        let manageable = manage_allowed(room);
+        let (icon, me, me_ready) = (ctx.icon, ctx.me, ctx.me_ready);
+        self.user_ids.clear();
+        self.user_rows.resize_with(ids.len(), DRectButton::new);
+        ui.scope(|ui| {
+            ui.dx(inner.x);
+            ui.dy(inner.y);
+            self.user_scroll.size((inner.w, inner.h));
+            self.user_scroll.render(ui, |ui| {
+                for (i, &id) in ids.iter().enumerate() {
+                    self.user_ids.push(id);
+                    let Some(user) = room.users.get(&id) else { continue };
+                    let is_me = Some(id) == me;
+                    let rr = Rect::new(0., i as f32 * step, inner.w, USER_ROW_H);
+                    theme::row_button(ui, &mut self.user_rows[i], t, rr, is_me, accent, |ui, rr| {
+                        theme::player_row_content(
+                            ui,
+                            rr,
+                            t,
+                            icon,
+                            user.id,
+                            &user.name,
+                            is_me,
+                            is_me && room.is_host,
+                            user.monitor,
+                            is_me && me_ready,
+                            accent,
+                        );
+                        if manageable && !is_me {
+                            theme::text_chevron(ui, rr.right() - CARD_PAD * 0.4, rr.center().y);
+                        }
+                    });
+                }
+                (inner.w, ids.len() as f32 * step)
+            });
+        });
+        for i in ids.len()..self.user_rows.len() {
+            self.user_rows[i].invalidate();
+        }
     }
 
     /// 用户列表：头像 + 名字 + 徽标，房主可点行进入管理页。
