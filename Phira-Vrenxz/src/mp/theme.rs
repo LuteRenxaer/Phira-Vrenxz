@@ -249,6 +249,167 @@ pub fn tag_accent(accent: Color) -> Color {
     color_alpha(accent, 0.32)
 }
 
+// —— 设计稿（横屏线框）里左面板是**浅色**的、上面写深色字；
+// 右栏直接压在 mp_bg 上，所以仍用浅色文字。下面这组给浅色面板用。——
+
+/// 浅色面板底色。
+#[inline]
+pub fn panel_light() -> Color {
+    Color::new(0.87, 0.87, 0.90, 0.97)
+}
+
+/// 浅色面板上的主文字。
+#[inline]
+pub fn on_light() -> Color {
+    Color::new(0.09, 0.09, 0.12, 1.)
+}
+
+/// 浅色面板上的次要文字。
+#[inline]
+pub fn on_light_dim() -> Color {
+    Color::new(0.34, 0.34, 0.40, 1.)
+}
+
+/// 任意四边形 + 四个顶点颜色（左到右，垂直插值）。
+///
+/// **这是所有"斜边/渐变"形状的底层**：直接往 quad_gl 塞两个三角形，
+/// 因此边是真正的直线、渐变是顶点插值出来的 —— 不会像用横条拼那样出现
+/// 阶梯边和色带。和引擎 `ext::draw_parallelogram_ex` 是同一套做法。
+///
+/// 顶点顺序：0 = 左上，1 = 右上，2 = 左下，3 = 右下。
+pub fn quad(pts: [Vec2; 4], colors: [Color; 4]) {
+    let gl = unsafe { get_internal_gl() }.quad_gl;
+    let v = [
+        Vertex::new(pts[0].x, pts[0].y, 0., 0., 0., colors[0]),
+        Vertex::new(pts[1].x, pts[1].y, 0., 0., 0., colors[1]),
+        Vertex::new(pts[2].x, pts[2].y, 0., 0., 0., colors[2]),
+        Vertex::new(pts[3].x, pts[3].y, 0., 0., 0., colors[3]),
+    ];
+    gl.texture(None);
+    gl.draw_mode(DrawMode::Triangles);
+    gl.geometry(&v, &[0, 2, 3, 0, 1, 3]);
+}
+
+/// 颜色线性插值。
+#[inline]
+pub fn lerp_color(a: Color, b: Color, t: f32) -> Color {
+    let t = t.clamp(0., 1.);
+    Color::new(
+        a.r + (b.r - a.r) * t,
+        a.g + (b.g - a.g) * t,
+        a.b + (b.b - a.b) * t,
+        a.a + (b.a - a.a) * t,
+    )
+}
+
+/// 斜边面片：右边缘**向左倾斜**的平行四边形（设计稿左面板/信息卡），倾斜量 = 高度 × `slant`。
+///
+/// `top`/`bottom` 给两个颜色就是竖向渐变（设计稿面板是 #888→#fff）。
+pub fn slant_panel_grad(ui: &mut Ui, x: f32, y: f32, w: f32, h: f32, slant: f32, top: Color, bottom: Color) {
+    let _ = ui;
+    if w <= 0.01 || h <= 0.001 {
+        return;
+    }
+    let lean = h * slant;
+    quad(
+        [
+            Vec2::new(x, y),
+            Vec2::new(x + w, y),
+            Vec2::new(x, y + h),
+            Vec2::new(x + w - lean, y + h),
+        ],
+        [top, top, bottom, bottom],
+    );
+}
+
+/// 同 [`slant_panel_grad`]，但两张颜色是**左右**渐变（设计稿信息卡是 #888→#fff 横向）。
+pub fn slant_panel_grad_h(ui: &mut Ui, x: f32, y: f32, w: f32, h: f32, slant: f32, left: Color, right: Color) {
+    let _ = ui;
+    if w <= 0.01 || h <= 0.001 {
+        return;
+    }
+    let lean = h * slant;
+    quad(
+        [
+            Vec2::new(x, y),
+            Vec2::new(x + w, y),
+            Vec2::new(x, y + h),
+            Vec2::new(x + w - lean, y + h),
+        ],
+        [left, right, left, right],
+    );
+}
+
+/// 单色斜边面片。
+pub fn slant_panel(ui: &mut Ui, x: f32, y: f32, w: f32, h: f32, slant: f32, fill: Color) {
+    slant_panel_grad(ui, x, y, w, h, slant, fill, fill);
+}
+
+/// 斜边面片的**描边**（一条同样斜度的细带，用来勾边）。
+pub fn slant_edge(ui: &mut Ui, x: f32, y: f32, w: f32, h: f32, slant: f32, thickness: f32, color: Color) {
+    let _ = ui;
+    let lean = h * slant;
+    quad(
+        [
+            Vec2::new(x, y),
+            Vec2::new(x + thickness, y),
+            Vec2::new(x + w - lean, y + h),
+            Vec2::new(x + w - lean + thickness, y + h),
+        ],
+        [color, color, color, color],
+    );
+}
+
+/// 平行四边形块（设计稿里的按钮）：**上边整体右移**，两条侧边都斜，
+/// 倾斜量 = 高度 × `slope`（稿子按钮实测约 0.27）。
+pub fn skew_panel(ui: &mut Ui, x: f32, y: f32, w: f32, h: f32, slope: f32, top: Color, bottom: Color) {
+    let _ = ui;
+    if w <= 0.01 || h <= 0.001 {
+        return;
+    }
+    let lean = h * slope;
+    quad(
+        [
+            Vec2::new(x + lean, y),
+            Vec2::new(x + w, y),
+            Vec2::new(x, y + h),
+            Vec2::new(x + w - lean, y + h),
+        ],
+        [top, top, bottom, bottom],
+    );
+}
+
+/// 向右的实心三角（设计稿左下那个 ▶）：`inner` 为内部浅色三角的缩放比，`None` 就纯色。
+pub fn triangle_right(ui: &mut Ui, r: Rect, fill: Color, inner: f32, inner_fill: Option<Color>) {
+    let _ = ui;
+    if r.w <= 0.01 || r.h <= 0.001 {
+        return;
+    }
+    quad(
+        [
+            Vec2::new(r.x, r.y),
+            Vec2::new(r.x, r.y), // 右上与左上同点 → 退化成三角形
+            Vec2::new(r.x, r.bottom()),
+            Vec2::new(r.right(), r.center().y),
+        ],
+        [fill, fill, fill, fill],
+    );
+    if let Some(c) = inner_fill {
+        let iw = r.w * inner;
+        let ih = r.h * inner;
+        let ir = Rect::new(r.x + r.w - iw, r.y + (r.h - ih) * 0.5, iw, ih);
+        quad(
+            [
+                Vec2::new(ir.x, ir.y),
+                Vec2::new(ir.x, ir.y),
+                Vec2::new(ir.x, ir.bottom()),
+                Vec2::new(ir.right(), ir.center().y),
+            ],
+            [c, c, c, c],
+        );
+    }
+}
+
 /// 选中行 / 自己所在行的底色。
 ///
 /// 深色底上"选中"要比普通行**更亮**（普通行 `semi_white(0.05)`），
