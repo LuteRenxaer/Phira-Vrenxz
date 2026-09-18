@@ -5,8 +5,7 @@ use super::{
 };
 use super::message::MessagePage;
 use crate::{
-    anim::Anim,
-    client::{recv_raw, Character, Client, LoginParams, User, UserManager},
+    client::{recv_raw, Client, LoginParams, User, UserManager},
     dir, get_data, get_data_mut,
     icons::Icons,
     login::Login,
@@ -25,9 +24,8 @@ use prpr::{
     info::ChartInfo,
     scene::{show_error, NextScene},
     task::Task,
-    ui::{clip_rounded_rect, ClipType, DRectButton, Dialog, FontArc, RectButton, Scroll, Ui},
+    ui::{clip_rounded_rect, DRectButton, Dialog, FontArc, Ui},
 };
-use prpr_l10n::LANG_IDENTS;
 use reqwest::StatusCode;
 use serde::Deserialize;
 use std::{
@@ -84,21 +82,6 @@ pub struct HomePage {
 
     btn_play_3d: ThreeD,
 
-    character: Character,
-    char_appear_p: Anim<f32>,
-    char_last_illu: Option<String>,
-    char_last_user_id: Option<i32>,
-    char_fetch_task: Option<Task<Result<Character>>>,
-    char_illu: Option<SafeTexture>,
-    char_illu_task: Option<Task<Result<DynamicImage>>>,
-
-    char_screen_p: Anim<f32>,
-    char_btn: RectButton,
-    char_text_start: f32,
-    char_cached_size: f32,
-    char_scroll: Scroll,
-    char_edit_btn: RectButton,
-
     #[cfg(feature = "hykb")]
     beian_btn: RectButton,
 }
@@ -129,7 +112,7 @@ impl HomePage {
         };
 
         let icons = Arc::new(Icons::new().await?);
-        let mut res = Self {
+        let res = Self {
             icons: Arc::clone(&icons),
 
             btn_play: DRectButton::new().with_delta(-0.01),
@@ -199,55 +182,11 @@ impl HomePage {
                 it.sync();
             }),
 
-            character: get_data().character.clone().unwrap_or_default(),
-            char_appear_p: Anim::new(0.),
-            char_last_illu: None,
-            char_last_user_id: None,
-            char_fetch_task: None,
-            char_illu: None,
-            char_illu_task: None,
-            char_screen_p: Anim::new(0.),
-            char_btn: RectButton::new(),
-            char_text_start: 0.,
-            char_cached_size: 0.,
-            char_scroll: Scroll::new().use_clip(ClipType::Clip),
-            char_edit_btn: RectButton::new(),
-
             #[cfg(feature = "hykb")]
             beian_btn: RectButton::new(),
         };
-        res.load_char_illu();
 
         Ok(res)
-    }
-
-    fn load_char_illu(&mut self) {
-        let key = if self.character.illust == "@" {
-            format!("@{}", self.character.id)
-        } else {
-            self.character.illust.clone()
-        };
-        if self.char_last_illu.as_ref() == Some(&key) {
-            return;
-        }
-        self.char_last_illu = Some(key);
-
-        self.char_appear_p.set(0.);
-
-        #[cfg(closed)]
-        if self.character.illust == "@" {
-            let id = self.character.id.clone();
-            self.char_illu_task =
-                Some(Task::new(
-                    async move { Ok(image::load_from_memory(&crate::inner::resolve_data(load_file(&format!("res/{id}.char")).await?))?) },
-                ));
-        } else {
-            let file = crate::page::File {
-                url: self.character.illust.clone(),
-            };
-            self.char_illu_task =
-                Some(Task::new(async move { Ok(image::load_from_memory(&crate::inner::resolve_data(file.fetch().await?.to_vec()))?) }));
-        }
     }
 
     fn fetch_has_new(&mut self) {
@@ -278,7 +217,7 @@ impl HomePage {
         1. - (1. - p).powi(3)
     }
 
-    fn render_not_char(&mut self, ui: &mut Ui, s: &mut SharedState) {
+    fn render_home(&mut self, ui: &mut Ui, s: &mut SharedState) {
         let t = s.t;
         let rt = s.rt;
 
@@ -438,60 +377,50 @@ impl Page for HomePage {
             return Ok(true);
         }
         let t = s.t;
-        let rt = s.rt;
         if self.login.touch(touch, s.t) {
             return Ok(true);
         }
-        if self.char_screen_p.now(rt) < 1e-2 {
-            self.btn_play_3d.touch(touch, t);
-            if self.btn_play.touch(touch, t) {
-                self.next_page = Some(NextPage::Overlay(Box::new(LibraryPage::new(Arc::clone(&self.icons), s.icons.clone())?)));
-                return Ok(true);
-            }
-            if self.btn_respack.touch(touch, t) {
-                self.next_page = Some(NextPage::Overlay(Box::new(ResPackPage::new(Arc::clone(&self.icons))?)));
-                return Ok(true);
-            }
-            if self.btn_settings.touch(touch, t) {
-                self.next_page = Some(NextPage::Overlay(Box::new(SettingsPage::new(self.icons.icon.clone(), self.icons.lang.clone()))));
-                return Ok(true);
-            }
-            if self.btn_message.touch(touch, t) {
-                self.next_page = Some(NextPage::Overlay(Box::new(MessagePage::new(
-                    Arc::clone(&self.icons),
-                    s.icons.clone(),
-                ))));
-                return Ok(true);
-            }
-            if self.btn_achievements.touch(touch, t) {
-                self.next_page = Some(NextPage::Overlay(Box::new(AchievementPage::new()?)));
-                return Ok(true);
-            }
+        self.btn_play_3d.touch(touch, t);
+        if self.btn_play.touch(touch, t) {
+            self.next_page = Some(NextPage::Overlay(Box::new(LibraryPage::new(Arc::clone(&self.icons), s.icons.clone())?)));
+            return Ok(true);
+        }
+        if self.btn_respack.touch(touch, t) {
+            self.next_page = Some(NextPage::Overlay(Box::new(ResPackPage::new(Arc::clone(&self.icons))?)));
+            return Ok(true);
+        }
+        if self.btn_settings.touch(touch, t) {
+            self.next_page = Some(NextPage::Overlay(Box::new(SettingsPage::new(self.icons.icon.clone(), self.icons.lang.clone()))));
+            return Ok(true);
+        }
+        if self.btn_message.touch(touch, t) {
+            self.next_page = Some(NextPage::Overlay(Box::new(MessagePage::new(
+                Arc::clone(&self.icons),
+                s.icons.clone(),
+            ))));
+            return Ok(true);
+        }
+        if self.btn_achievements.touch(touch, t) {
+            self.next_page = Some(NextPage::Overlay(Box::new(AchievementPage::new()?)));
+            return Ok(true);
+        }
+    if self.btn_user.touch(touch, t) {
+        if let Some(me) = &get_data().me {
+            self.need_back = true;
+            self.sf.goto(t, ProfileScene::new(me.id, self.icons.user.clone(), s.icons.clone()));
         } else {
-            if self.char_scroll.touch(touch, t) {
-                return Ok(true);
-            }
-            if self.char_edit_btn.touch(touch) {
-                let _ = open_url("https://phira.moe/settings/account");
-            }
+            self.login.enter(t);
         }
-        if self.btn_user.touch(touch, t) {
-            if let Some(me) = &get_data().me {
-                self.need_back = true;
-                self.sf.goto(t, ProfileScene::new(me.id, self.icons.user.clone(), s.icons.clone()));
-            } else {
-                self.login.enter(t);
-            }
-            return Ok(true);
-        }
-        #[cfg(feature = "hykb")]
-        if self.beian_btn.touch(touch) {
-            let _ = open_url("https://beian.miit.gov.cn/#/home");
-            return Ok(true);
-        }
-
-        Ok(false)
+        return Ok(true);
     }
+    #[cfg(feature = "hykb")]
+    if self.beian_btn.touch(touch) {
+        let _ = open_url("https://beian.miit.gov.cn/#/home");
+        return Ok(true);
+    }
+
+    Ok(false)
+}
 
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         let t = s.t;
@@ -501,18 +430,6 @@ impl Page for HomePage {
         }
         self.login.update(t)?;
 
-        let current_user = Some(get_data().me.as_ref().map_or(-1, |it| it.id));
-        self.char_scroll.update(t);
-        if self.char_last_user_id != current_user {
-            let locale = get_data().language.clone().unwrap_or(LANG_IDENTS[0].to_string());
-            self.char_last_user_id = current_user;
-            if get_data().config.offline_mode || get_data().me.is_none() || get_data().tokens.is_none() {
-                self.char_fetch_task = None;
-            } else {
-                self.char_fetch_task =
-                    Some(Task::new(async move { Ok(recv_raw(Client::get("/me/char").query(&[("locale", locale)])).await?.json().await?) }));
-            }
-        }
         if let Some(task) = &mut self.update_task {
             if let Some(res) = task.take() {
                 match res {
@@ -640,39 +557,6 @@ impl Page for HomePage {
                 self.check_bold_font_update_task = None;
             }
         }
-        if let Some(task) = &mut self.char_illu_task {
-            if let Some(res) = task.take() {
-                match res {
-                    Err(err) => {
-                        warn!(?err, "fail to load char illu");
-                    }
-                    Ok(image) => {
-                        self.char_appear_p.goto(1., t, 0.5);
-                        let tex: SafeTexture = image.into();
-                        self.char_illu = Some(tex.with_mipmap());
-                    }
-                }
-                self.char_illu_task = None;
-            }
-        }
-        if let Some(task) = &mut self.char_fetch_task {
-            if let Some(res) = task.take() {
-                match res {
-                    Err(err) => {
-                        warn!(?err, "fail to load char");
-                    }
-                    Ok(char) => {
-                        info!(?char, "char loaded");
-                        self.character = char;
-                        get_data_mut().character = Some(self.character.clone());
-                        let _ = save_data();
-                        self.char_cached_size = 0.;
-                        self.load_char_illu();
-                    }
-                }
-                self.char_fetch_task = None;
-            }
-        }
         if JUST_LOADED_TOS.fetch_and(false, Ordering::Relaxed) {
             check_read_tos_and_policy(true, true);
         }
@@ -690,7 +574,7 @@ impl Page for HomePage {
             s.fader.distance = 0.;
         }
 
-        self.render_not_char(ui, s);
+        self.render_home(ui, s);
 
         let p_user = self.appear(rtime, 0.0, 0.26);
         let (dx_user, dy_user) = (0.18 * (1. - p_user), -0.05 * (1. - p_user));

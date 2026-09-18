@@ -88,21 +88,6 @@ impl MpState {
         }));
     }
 
-    /// 以观战者身份（monitor）加入房间：只读旁观，不占玩家位、不参与就绪。
-    /// 返回 false 表示房间号非法（已提示）。
-    pub fn join_room_as_spectator(&mut self, room_id: &str) -> bool {
-        let Ok(id) = room_id.to_owned().try_into() else {
-            show_message(mtl!("join-room-invalid-id")).error();
-            return false;
-        };
-        let client = self.connected();
-        self.join_room_task = Some(Task::new(async move {
-            client.join_room(id, true).await?;
-            client.room_state().await.ok_or_else(|| anyhow!("expected room state"))
-        }));
-        true
-    }
-
     pub fn leave_room(&mut self) {
         let client = self.connected();
         self.task = Some(Task::new(async move { client.leave_room().await }));
@@ -464,13 +449,12 @@ impl MpState {
         use std::sync::atomic::Ordering as O;
         self.game_start_consumed = true;
         crate::scene::RECORD_ID.store(-1, O::Relaxed);
-        // 开局清空上一局结算记录，避免残留导致误判“完成”
+        // 开局清空上一局的成绩记录，避免残留导致误判“完成”
         *LAST_MP_FINISH.lock().unwrap() = None;
         self.need_upload = true;
         self.entered = false;
         // 多人正式游玩：接入“暂停/继续上报服务器”的钩子（GameScene 构造时取走）。
-        // 观战场景刻意不取用它（见 SongScene::global_launch_spectate），
-        // 保证观战者本地的暂停不会去暂停被观战者。
+        // 本地暂停因此能同步给房间里的其他人。
         if let Some(client) = self.client.clone() {
             *prpr::scene::PAUSE_NOTIFY.lock().unwrap() = Some(Arc::new(move |paused: bool| {
                 // 设置/发送失败也不 panic（例如连接已断开）
@@ -479,7 +463,7 @@ impl MpState {
         }
     }
 
-    /// 从游玩场景回来：以真实成绩上报完成，未产生有效结算则按放弃处理。
+    /// 从游玩场景回来：以真实成绩上报完成，没有有效成绩则按放弃处理。
     pub fn report_finish(&mut self) {
         if !self.need_upload {
             return;
@@ -487,7 +471,7 @@ impl MpState {
         self.need_upload = false;
         let Some(client) = self.client() else { return };
         // 谱面自然打完（引擎在 record 有效时才写入 LAST_MP_FINISH）→ 上报真实成绩；
-        // 中途退出/跳过/失败未产生有效结算 → 仍按放弃(abort)处理。
+        // 中途退出/跳过/失败不会产生有效成绩 → 仍按放弃(abort)处理。
         if let Some(stats) = LAST_MP_FINISH.lock().unwrap().take() {
             self.task = Some(Task::new(async move {
                 client

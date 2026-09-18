@@ -16,6 +16,7 @@ mod icons;
 mod images;
 mod lanzou;
 mod login;
+mod migrate;
 mod mp;
 mod page;
 mod popup;
@@ -44,7 +45,7 @@ use prpr::{
 use prpr_l10n::set_prefered_locale;
 #[cfg(not(feature = "hykb"))]
 use prpr_l10n::{GLOBAL, LANGS};
-use scene::{LoginScene, StartupLoadingScene, StudioLogoScene};
+use scene::{LoginScene, SetupScene, StartupLoadingScene, StudioLogoScene};
 use std::{
     any::Any,
     collections::VecDeque,
@@ -138,6 +139,11 @@ pub(crate) fn writable_data_dir() -> Option<String> {
 }
 
 pub fn save_data() -> Result<()> {
+    // 旧版本数据刚同步进 data/ 时（见 crate::migrate）：本次运行内存里还是「上一份」数据，
+    // 写回去就把同步结果盖掉了 —— 同步完成后唯一的出路是重启，重启前一律不落盘。
+    if migrate::migrated() {
+        return Ok(());
+    }
     std::fs::write(format!("{}/data.json", dir::root()?), serde_json::to_string(get_data())?)?;
     Ok(())
 }
@@ -309,8 +315,12 @@ async fn the_main() -> Result<()> {
     let mut painter = TextPainter::new(font.clone(), None);
 
     let first_scene: Box<dyn prpr::scene::Scene> = {
+        // 三选一：有启动画面就走启动页（它点完把玩家交给首启向导）；关掉启动画面时，
+        // 首次启动仍然直接进向导 —— 「第一次该问的几件事」不该因为关了一个显示开关就被跳过。
         let inner: Box<dyn prpr::scene::Scene> = if get_data().show_startup_screen {
             Box::new(LoginScene::new(font))
+        } else if !get_data().initial_setup_done {
+            Box::new(SetupScene::new(font))
         } else {
             Box::new(StartupLoadingScene::new(font))
         };

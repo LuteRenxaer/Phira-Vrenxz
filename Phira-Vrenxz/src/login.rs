@@ -181,16 +181,18 @@ enum LoginField {
 impl Login {
     const TIME: f32 = 0.7;
 
-    pub fn new(icons: Arc<Icons>) -> Self {
-        #[cfg(not(feature = "hykb"))]
-        let _ = icons;
+    /// 面板构造的公共部分。
+    ///
+    /// 图标只有 HYKB 构建用得上（登录方式选择面板上那颗好游快爆图标），非 HYKB 构建下
+    /// `icons` 字段根本不存在，所以这里收 `Option`：首启向导跑在主页之前，手上没有主页
+    /// 那份图标集，为了一个用不到图标的登录面板去加载整套贴图（含一张大背景图）不值得。
+    fn create(_icons: Option<Arc<Icons>>) -> Self {
         Self {
             #[cfg(feature = "hykb")]
-            icons,
+            icons: _icons.expect("HYKB 构建的登录面板必须有图标"),
 
             fader: Fader::new().with_distance(-0.4).with_time(0.5),
             show: false,
-
             #[cfg(feature = "hykb")]
             forced: false,
 
@@ -252,6 +254,23 @@ impl Login {
             #[cfg(feature = "hykb")]
             t_hykb_name: String::new(),
         }
+    }
+
+
+    /// 主页那种用法：居中弹窗，自己负责整屏遮罩与「点外面关掉」。
+    pub fn new(icons: Arc<Icons>) -> Self {
+        Self::create(Some(icons))
+    }
+
+    /// 不带图标构造（仅非 HYKB 构建，理由见 [`Self::create`]）：首启向导用。
+    #[cfg(not(feature = "hykb"))]
+    pub fn new_bare() -> Self {
+        Self::create(None)
+    }
+
+    /// 面板当前的矩形：引擎给的居中弹窗矩形。
+    fn dialog_rect(&self) -> Rect {
+        Ui::dialog_rect()
     }
 
     #[inline]
@@ -355,6 +374,47 @@ impl Login {
         self.show_picker(t);
         #[cfg(not(feature = "hykb"))]
         self.show_form(t);
+    }
+
+    /// 首启向导用：把调用方自己那两个输入框里的邮箱 / 密码交给登录逻辑。
+    ///
+    /// 与面板里那颗「登录」按钮走的是同一条路（TOS 检查 → `Client::login` → `Client::get_me`
+    /// → 错误提示 / 成功后写回 `data.me` 并落盘），只是输入与外观由调用方负责 ——
+    /// 向导要把这两个字段排进自己的版面，不该把整块登录卡片搬进去。
+    pub fn submit_email_login(&mut self, email: String, password: String) {
+        self.t_email = email;
+        self.t_pwd = password;
+        if !check_read_tos_and_policy(true, true) {
+            // 用户还没同意过条款：先把同意流程走完，同意后由 update 里的
+            // JUST_ACCEPTED_TOS 分支接着提交（与面板里那颗按钮的处理完全一致）。
+            self.after_accept_tos = Some(NextAction::Login);
+            return;
+        }
+        self.start_login();
+    }
+
+    /// 首启向导用：把向导自己那几个输入框里的邮箱 / 用户名 / 密码交给注册逻辑。
+    ///
+    /// 与面板里那颗「注册」按钮同一条路（TOS 检查 → 校验 → `Client::register`）；
+    /// 校验不过时的那句提示也由 `register()` 里的既有词条给出，这里只负责把
+    /// `show_message(..).error()` 弹出来。
+    pub fn submit_email_register(&mut self, email: String, name: String, password: String) {
+        self.t_reg_email = email;
+        self.t_reg_name = name;
+        self.t_reg_pwd = password;
+        if !check_read_tos_and_policy(true, true) {
+            // 与登录一样：先把条款同意流程走完，同意后由 update 接着注册
+            self.after_accept_tos = Some(NextAction::Register);
+            return;
+        }
+        if let Some(error) = self.register() {
+            show_message(error).error();
+        }
+    }
+
+    /// 是否有登录 / 注册请求在途（首启向导用它避免重复提交）。
+    pub fn busy(&self) -> bool {
+        self.task.is_some()
     }
 
     /// Whether any part of the login flow is currently on screen or in flight
@@ -607,7 +667,8 @@ impl Login {
             return true;
         }
         if self.show {
-            if !Ui::dialog_rect().contains(touch.position) && touch.phase == TouchPhase::Started {
+            // 点面板外的空白 = 关掉（首启向导不再内嵌这块面板，只有主页那种居中弹窗用它）
+            if !self.dialog_rect().contains(touch.position) && touch.phase == TouchPhase::Started {
 
 
 
@@ -956,9 +1017,11 @@ impl Login {
             let d_reg_email = self.field_display(LoginField::RegEmail, false);
             let d_reg_name = self.field_display(LoginField::RegName, false);
             let d_reg_pwd = self.field_display(LoginField::RegPwd, true);
+            // 先算好面板矩形再进闭包：`for_sub` 借走了 `self.fader`，闭包里再借 `self` 会冲突。
+            let wr_base = self.dialog_rect();
             self.fader.for_sub(|f| {
                 f.render(ui, t, |ui| {
-                    let mut wr = Ui::dialog_rect();
+                    let mut wr = wr_base;
                     wr.y -= 0.03;
                     wr.h += 0.06;
                     rounded_rect_shadow(

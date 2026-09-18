@@ -51,15 +51,6 @@ preview-started-title = 房主已經開始遊戲了
 preview-started-content = 你還在預覽譜面時房主開始了這一局。本局結束後可以繼續一起遊玩。
 preview-started-ok = 知道了
 # 觀戰
-spectate = 觀戰
-spectate-title = 觀戰中
-spectate-none = 暫無玩家在遊玩
-spectate-waiting = 等待中…
-spectate-watch = 同步觀戰
-spectate-exit = 退出觀戰
-spectate-no-chart = 目前沒有可觀看的譜面
-spectate-joined = 已進入觀戰
-spectate-chart = 正在遊玩：{ $chart }
 lock-room =
     { $current ->
         [true] 解鎖房間
@@ -111,9 +102,7 @@ msg-send-chart = `{ $user }` 開始分享譜面
 msg-download-ready = `{ $user }` 譜面下載完成
 msg-player-paused = `{ $user }` 暫停了遊戲
 msg-player-resumed = `{ $user }` 繼續了遊戲
-msg-room-results = 本局結算：{ $n } 位玩家完成，點擊查看排名
-results-title = 對局結算
-results-aborted = 中途放棄
+msg-room-results = 本局結算：{ $n } 位玩家完成
 msg-room-lock =
     { $lock ->
         [true] 房間已鎖定
@@ -137,7 +126,6 @@ mp-lobby-not-room = 尚未進入房間
 mp-room-tag = 房間 #{ $id }
 mp-player-count = 玩家（{ $n }）
 mp-you = 我
-mp-watching = 觀戰
 mp-ready-tag = 已就緒
 mp-host = 房主
 mp-state-choose = 選擇譜面中…
@@ -155,15 +143,9 @@ mp-manage-title = 管理 { $name }
 mp-manage-transfer = 設為房主
 mp-manage-kick = 移出房間
 mp-manage-cancel = 取消
-room-list-tap-hint = 點擊房間列加入 · 右側「觀戰」圍觀對局
 mp-room-locked = 🔒 需要密碼
-mp-room-counts = { $players } 名玩家 / { $spectators } 名觀戰
-mp-spectate-hint = 點擊玩家列選擇同步觀戰的目標
 
 # Phira-Vrenxz 本地譜面（補齊與簡中/繁英一致）
 mp-server-no-local-chart = 此伺服器不支援本地譜面
 mp-syncing-chart = 正在同步譜面...
 mp-sync-failed = 譜面同步失敗: { $err }
-spectate-best = 最高分 { $score }
-spectate-syncing = 同步中
-mp-library = 譜面庫

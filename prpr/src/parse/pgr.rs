@@ -223,6 +223,7 @@ fn parse_notes(r: f64, mut pgr: Vec<PgrNote>, _speed: &mut AnimFloat, height: &m
                 color: WHITE,
                 fx_color: None,
                 judge_area: 1.,
+            protected: false,
             })
         })
         .collect()

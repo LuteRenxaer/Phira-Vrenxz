@@ -35,21 +35,18 @@ pub const STATE_FILE: &str = "extensions_state.json";
 // ========== 数据结构 ==========
 
 /// 扩展包类型
-/// 注：仅保留关卡类型用于新装的扩展包；`Models`/`Both` 仅为兼容旧数据保留。
+///
+/// 现在只有「关卡」一种。旧数据里如果写着已经废弃的类型值，那份 manifest 会解析失败、被跳过。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExtensionType {
     /// 仅包含关卡
     Levels,
-    /// 仅包含 Spine 模型（旧数据兼容，不再产生）
-    Models,
-    /// 同时包含模型和关卡（旧数据兼容，不再产生）
-    Both,
 }
 
 impl Default for ExtensionType {
     fn default() -> Self {
-        ExtensionType::Both
+        ExtensionType::Levels
     }
 }
 

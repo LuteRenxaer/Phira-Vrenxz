@@ -2,7 +2,7 @@
 //! 状态、对局流程标记都集中在这里。本模块**不做任何绘制**，只负责“状态 +
 //! 生命周期”，协议调用见 [`super::actions`]。
 //!
-//! 会话对象（[`super::MpSession`]）在场景进出、进游玩/预览/观战子场景时一直存活，
+//! 会话对象（[`super::MpSession`]）在场景进出、进游玩/预览子场景时一直存活，
 //! 因此房间与连接状态不会因为它们之间的切换而丢失。
 
 use std::{
@@ -24,15 +24,13 @@ pub struct PublicRoom {
     pub player_count: usize,
     pub state: String,
     pub locked: bool,
-    #[serde(rename = "spectator_count", default)]
-    pub spectator_count: usize,
 }
 
 /// “先下载谱面、下载完再做某件事”的去向。
 ///
-/// 旧实现用 `download_next` / `preview_pending` / `spectate_pending` 三个
-/// bool 表达同一件事，且优先级散落在 `post_download` 的 if 链里；这里统一成
-/// 一个枚举，同一时刻只可能有一个去向。
+/// 旧实现用 `download_next` / `preview_pending` 两个 bool 表达同一件事，
+/// 且优先级散落在 `post_download` 的 if 链里；这里统一成一个枚举，
+/// 同一时刻只可能有一个去向。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DownloadIntent {
     /// 下载完成后点“就绪”
@@ -41,8 +39,6 @@ pub enum DownloadIntent {
     RequestStart,
     /// 下载完成后以 autoplay 预览
     Preview,
-    /// 下载完成后进入同步观战
-    Spectate,
 }
 
 /// 谱面下载流程的内部状态（渲染需要的 `Downloading` 也放在这里）。
@@ -54,7 +50,7 @@ pub struct ChartDownload {
     pub ui: Option<Downloading>,
     /// 下载完成后的去向
     pub intent: Option<DownloadIntent>,
-    /// 本次下载的谱面 id（预览/观战的目标谱面可能不同于房间当前选谱）
+    /// 本次下载的谱面 id（预览的目标谱面可能不同于房间当前选谱）
     pub chart_id: i32,
 }
 
@@ -276,7 +272,7 @@ pub fn is_recorder(id: i32, name: &str) -> bool {
 }
 
 /// 以「自己优先、其余按 id 升序」排出的用户 id 列表（不含回放录制器）。
-/// 玩家列表/观战列表的渲染与触摸都必须用它，保证行索引一一对应。
+/// 玩家列表的渲染与触摸都必须用它，保证行索引一一对应。
 pub fn sorted_user_ids(room: &ClientRoomState, me: Option<i32>) -> Vec<i32> {
     let mut ids: Vec<i32> = room
         .users
@@ -302,10 +298,3 @@ pub fn user_count(room: &ClientRoomState) -> usize {
         .count()
 }
 
-/// 只包含真正玩家（非 monitor 观战者）的 id 列表，顺序同 [`sorted_user_ids`]。
-pub fn player_ids(room: &ClientRoomState, me: Option<i32>) -> Vec<i32> {
-    sorted_user_ids(room, me)
-        .into_iter()
-        .filter(|id| room.users.get(id).is_some_and(|u| !u.monitor))
-        .collect()
-}

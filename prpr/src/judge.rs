@@ -24,6 +24,8 @@ pub const UP_TOLERANCE: f64 = 0.05;
 pub const DIST_FACTOR: f64 = 0.2;
 
 const EARLY_OFFSET: f64 = 0.07;
+/// flick / drag 的判定时机窗口，对齐 phire 的 `LIMIT_GOOD`（0.18，双向对称）。
+const FLICK_DRAG_WINDOW: f64 = 0.18;
 
 #[derive(Debug, Clone)]
 pub enum HitSound {
@@ -149,28 +151,6 @@ pub enum Judgement {
     Good,
     Bad,
     Miss,
-}
-
-/// 观战：来自远端玩家的单条判定（由多人服务端实时广播）。
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum SpectateJudgement {
-    Perfect,
-    Good,
-    Bad,
-    Miss,
-    /// 长条按住的判定（对应本地 `Err(true)`）
-    HoldPerfect,
-    /// 长条按住的判定（对应本地 `Err(false)`）
-    HoldGood,
-}
-
-/// 观战：远端玩家的一次判定事件（时间轴为该玩家的谱面时间）。
-#[derive(Debug, Copy, Clone)]
-pub struct SpectateEvent {
-    pub time: f64,
-    pub line_id: i32,
-    pub note_id: i32,
-    pub judgement: SpectateJudgement,
 }
 
 #[cfg(not(closed))]
@@ -623,6 +603,9 @@ impl Judge {
         } else {
             X_DIFF_MAX
         };
+        // flick / drag 的判定窗口：对齐 phire 的 LIMIT_GOOD = 0.18（比我们的 LIMIT_GOOD 宽 0.02），
+        // 这里按同样差值加到当前 limit_good 上，FNF 等自定义窗口也能跟着缩放
+        let flick_drag_window = limit_good + (FLICK_DRAG_WINDOW - LIMIT_GOOD);
 
         let time_of = |touch: &Touch| {
             if touch.time.is_infinite() {
@@ -633,7 +616,7 @@ impl Judge {
         };
         let mut judgements = Vec::new();
 
-        for (id, touch) in touches.iter().enumerate() {
+        for (touch_id, touch) in touches.iter().enumerate() {
             let click = touch.phase == TouchPhase::Started;
             let flick =
                 matches!(touch.phase, TouchPhase::Moved | TouchPhase::Stationary) && self.trackers.get_mut(&touch.id).is_some_and(|it| it.flicked);
@@ -643,7 +626,7 @@ impl Judge {
             let t = time_of(touch);
             let mut closest = (None, x_diff_max, limit_bad, limit_bad + (x_diff_max / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR);
             for (line_id, ((line, pos), (idx, st))) in chart.lines.iter_mut().zip(pos.iter()).zip(self.notes.iter_mut()).enumerate() {
-                let pos = match pos[id] {
+                let pos = match pos[touch_id] {
                     Some(p) => p,
                     None => continue,
                 };
@@ -655,11 +638,19 @@ impl Judge {
                     if !click && matches!(note.kind, NoteKind::Click | NoteKind::Hold { .. }) {
                         continue;
                     }
-                    let dt = (note.time - t) / spd;
-                    if dt >= closest.3 {
+                    let dt_raw = (note.time - t) / spd;
+                    if dt_raw >= closest.3 {
                         break;
                     }
-                    let dt = if dt < 0. { (dt + EARLY_OFFSET).min(0.).abs() } else { dt };
+                    // 晚按保护：[-EARLY_OFFSET, 0) 的晚按当作 0（等价于 phire 的 LATE_OFFSET 技巧）。
+                    // 这里**保留符号**：正 = 按早了、负 = 按晚了 —— 后面判断"这一下点击要不要
+                    // 放弃、改成保护附近的 drag/flick"要用到符号（phire 也是这么干的）。
+                    let dt_signed = if dt_raw < 0. {
+                        (dt_raw + EARLY_OFFSET).min(0.)
+                    } else {
+                        dt_raw
+                    };
+                    let dt = dt_signed.abs();
                     let x = &mut note.object.translation.0;
                     x.set_time(t);
                     let dist = if full_screen_judge {
@@ -670,38 +661,77 @@ impl Judge {
                     if dist > x_diff_max {
                         continue;
                     }
-                    if dt
-                        > if matches!(note.kind, NoteKind::Click) {
-                            limit_bad - limit_perfect * (dist - 0.9).max(0.)
-                        } else {
-                            limit_good
+                    // 判定时机：flick / drag 对齐 phire —— 用未经晚按修正的 dt 做双向对称窗口（0.18），
+                    // click 用 limit_bad 减去距离惩罚，其余（hold）沿用 limit_good
+                    let flick_or_drag = matches!(note.kind, NoteKind::Flick | NoteKind::Drag);
+                    let dt = if flick_or_drag {
+                        let dt = dt_raw.abs();
+                        if dt > flick_drag_window {
+                            continue;
                         }
-                    {
-                        continue;
-                    }
-                    let dt = if matches!(note.kind, NoteKind::Flick | NoteKind::Drag) {
-                        dt + limit_good
+                        dt
                     } else {
+                        if dt
+                            > if matches!(note.kind, NoteKind::Click) {
+                                limit_bad - limit_perfect * (dist - 0.9).max(0.)
+                            } else {
+                                limit_good
+                            }
+                        {
+                            continue;
+                        }
                         dt
                     };
-                    let key = dt + (dist / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR;
+                    // 优先级：flick / drag 取 phire 的 Low Priority（|dt| + LIMIT_BAD），排在同刻 click 之后
+                    let key = (if flick_or_drag { dt + limit_bad } else { dt })
+                        + (dist / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR;
                     if key < closest.3 {
-                        closest = (Some((line_id, *id)), dist, dt, key);
+                        // 记下带符号的 dt：flick / drag 分支后面不用它，点击分支要用符号判断早晚
+                        closest = (Some((line_id, *id)), dist, if flick_or_drag { dt } else { dt_signed }, key);
                     }
                 }
             }
             if let (Some((line_id, id)), _, dt, _) = closest {
-                let line = &mut chart.lines[line_id];
-                if matches!(line.notes[id as usize].kind, NoteKind::Drag) {
+                let lines = &mut chart.lines;
+                if matches!(lines[line_id].notes[id as usize].kind, NoteKind::Drag) {
                     debug!("reject by drag");
                     continue;
                 }
                 if click {
-
-                    let note = &mut line.notes[id as usize];
+                    // 晚按保护（对齐 phire）：按下的时间比 perfect 窗口更晚时，若版面附近还有
+                    // drag / flick，就把它们标记成「已保护」并让这一下点击作废。
+                    // 为什么需要：flick 谱里"手指按下"的那一下本身也是一次 click，
+                    // 没有这段保护的话，它会顺手把旁边的 drag / flick 当成点击去吃判定。
+                    if dt > limit_perfect {
+                        let mut any = false;
+                        for (line_idx, line) in lines.iter_mut().enumerate() {
+                            let Some(p) = pos[line_idx][touch_id] else { continue };
+                            for note in line.notes.iter_mut() {
+                                if !matches!(note.kind, NoteKind::Drag | NoteKind::Flick) || note.protected || note.fake {
+                                    continue;
+                                }
+                                let x = &mut note.object.translation.0;
+                                x.set_time(t);
+                                // 只有"还没到 / 刚过一点点"的 drag / flick 值得保护
+                                if !(-limit_good..=limit_bad).contains(&(t - note.time)) {
+                                    continue;
+                                }
+                                if (x.now() - p.x).abs() as f64 / note.judge_area as f64 > x_diff_max {
+                                    continue;
+                                }
+                                note.protected = true;
+                                any = true;
+                            }
+                        }
+                        if any {
+                            continue;
+                        }
+                    }
+                    let note = &mut lines[line_id].notes[id as usize];
                     if matches!(note.kind, NoteKind::Flick) {
                         continue;
                     }
+                    let dt = dt.abs();
                     if dt <= limit_good || matches!(note.kind, NoteKind::Hold { .. }) {
                         match note.kind {
                             NoteKind::Click => {
@@ -716,16 +746,16 @@ impl Judge {
                             _ => unreachable!(),
                         };
                     } else {
-
+                        // prevent extra judgements：留到 PreJudge，后面还能再判一次
+                        let note = &mut lines[line_id].notes[id as usize];
                         if matches!(note.judge, JudgeStatus::NotJudged) {
-
-                            line.notes[id as usize].judge = JudgeStatus::PreJudge;
+                            note.judge = JudgeStatus::PreJudge;
                             judgements.push((Judgement::Bad, line_id, id, None));
                         }
                     }
                 } else {
-
-                    line.notes[id as usize].judge = JudgeStatus::PreJudge;
+                    // 真划出去的那一下：先把音符挂成 PreJudge，下面那段会把它落成 Perfect
+                    lines[line_id].notes[id as usize].judge = JudgeStatus::PreJudge;
                     if let Some(tracker) = self.trackers.get_mut(&touch.id) {
                         tracker.flicked = false;
                     }
@@ -825,7 +855,11 @@ impl Judge {
                 if -dt > limit_bad {
                     break;
                 }
-                if !matches!(note.kind, NoteKind::Drag | NoteKind::Flick) {
+                // 会被"手指在附近"自动预判的只有 drag；flick 必须真的划出去 ——
+                // 例外是键盘玩法（有键按着）时 phire 也让它自动预判。
+                // 条件少了后半句的话，flick 会被这一遍预判，紧接着下面那段把它直接落成 Perfect，
+                // 等于"手指放上去就白送一个 Perfect"，这就是 flick 判定不对的根源。
+                if !matches!(note.kind, NoteKind::Drag) && (self.key_down_count == 0 || !matches!(note.kind, NoteKind::Flick)) {
                     continue;
                 }
                 let dt = dt.abs();
@@ -1010,90 +1044,6 @@ impl Judge {
             });
             if !matches!(chart.lines[line_id].notes[id as usize].kind, NoteKind::Hold { .. }) {
                 note_hitsound.play(res);
-            }
-        }
-    }
-
-    /// 观战：不使用本地输入，而是按远端玩家实时广播的判定事件驱动谱面。
-    /// 事件时间轴与远端一致，因此观战画面与对方游玩同步（音符命中/失误、分数与连击都由这里产生）。
-    pub fn spectate_update(&mut self, res: &mut Resource, chart: &mut Chart, events: &[SpectateEvent]) {
-        use SpectateJudgement as SJ;
-        for ev in events {
-            let line_id = ev.line_id;
-            let note_id = ev.note_id;
-            if line_id < 0 || note_id < 0 {
-                continue;
-            }
-            let (line_id, note_id) = (line_id as usize, note_id as usize);
-            if line_id >= chart.lines.len() {
-                continue;
-            }
-            let line = &mut chart.lines[line_id];
-            if note_id >= line.notes.len() {
-                continue;
-            }
-            let note = &mut line.notes[note_id];
-            let is_hold = matches!(note.kind, NoteKind::Hold { .. });
-            let t = ev.time;
-            match ev.judgement {
-                // 长条起步：只标记为按住状态，等收到的收尾判定再计分（避免重复计分）
-                SJ::Perfect | SJ::Good if is_hold => {
-                    if matches!(note.judge, JudgeStatus::NotJudged | JudgeStatus::PreJudge) {
-                        let ok = matches!(ev.judgement, SJ::Perfect);
-                        note.judge = JudgeStatus::Hold(ok, t, 0., false, f64::INFINITY);
-                        self.judgements.borrow_mut().push((t, line_id as _, note_id as _, Err(ok)));
-                        note.hitsound.play(res);
-                    }
-                }
-                other => {
-                    // 已完成判定的音符忽略重复事件
-                    if !matches!(note.judge, JudgeStatus::NotJudged | JudgeStatus::PreJudge | JudgeStatus::Hold(..)) {
-                        continue;
-                    }
-                    let (what, hold_ok) = match other {
-                        SJ::Perfect => (Judgement::Perfect, None),
-                        SJ::Good => (Judgement::Good, None),
-                        SJ::Bad => (Judgement::Bad, None),
-                        SJ::Miss => (Judgement::Miss, None),
-                        SJ::HoldPerfect => (Judgement::Perfect, Some(true)),
-                        SJ::HoldGood => (Judgement::Good, Some(false)),
-                    };
-                    note.judge = JudgeStatus::Judged;
-                    if let Some(ok) = hold_ok {
-                        self.judgements.borrow_mut().push((t, line_id as _, note_id as _, Err(ok)));
-                    }
-                    self.commit(t, what, line_id as _, note_id as _, 0.);
-                    // 视觉：与自动演奏一致的命中特效与音效
-                    let (note_transform, note_hitsound) = {
-                        let line = &mut chart.lines[line_id];
-                        let note = &mut line.notes[note_id];
-                        let nt = if is_hold { t } else { note.time };
-                        line.object.set_time(nt);
-                        note.object.set_time(nt);
-                        (note.object.now(res), note.hitsound.clone())
-                    };
-                    let line = &chart.lines[line_id];
-                    res.with_model(line.now_transform(res, &chart.lines) * note_transform, |res| {
-                        let color = match what {
-                            Judgement::Perfect => res.res_pack.info.fx_perfect(),
-                            Judgement::Good => res.res_pack.info.fx_good(),
-                            _ => res.res_pack.info.fx_good(),
-                        };
-                        res.emit_at_origin(line.notes[note_id].rotation(line), color);
-                    });
-                    if !is_hold {
-                        note_hitsound.play(res);
-                    }
-                }
-            }
-        }
-        // 推进每行的“待判定”游标，跳过已经判定的音符（渲染依赖该游标）
-        for (line, (idx, st)) in chart.lines.iter_mut().zip(self.notes.iter_mut()) {
-            while idx
-                .get(*st)
-                .is_some_and(|id| !matches!(line.notes[*id as usize].judge, JudgeStatus::NotJudged))
-            {
-                *st += 1;
             }
         }
     }

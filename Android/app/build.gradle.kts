@@ -24,8 +24,19 @@ android {
         }
     }
 
+    // 签名：工程里没有配置 release keystore（仓库根目录那个 phirLie-release.keystore 没有配套口令），
+    // 而此前发出去的 release 包用的就是 debug 证书（两者签名指纹相同），所以这里继续用 debug 签名 ——
+    // 这样新包能覆盖安装旧包。等有了正式 keystore（含 storePassword / keyAlias / keyPassword），
+    // 换成 signingConfigs.create("release") 即可，其余不用动。
+    signingConfigs {
+        getByName("debug") {
+            // Android Studio / gradle 默认的 debug keystore：~/.android/debug.keystore
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("debug")
             optimization {
                 enable = false
             }

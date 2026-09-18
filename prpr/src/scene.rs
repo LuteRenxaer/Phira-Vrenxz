@@ -10,7 +10,7 @@ mod crash;
 pub use crash::{CrashCode, CrashScene};
 
 mod game;
-pub use game::{GameMode, GameScene, SimpleRecord, SpectatePauseUi, SpectateSource, PAUSE_NOTIFY, PENDING_SPECTATE};
+pub use game::{GameMode, GameScene, SimpleRecord, LAUNCH_FLASH, PAUSE_NOTIFY};
 
 mod loading;
 pub use loading::{BasicPlayer, FinishedStats, LoadingScene, SaveFn, UpdateFn, UploadFn};

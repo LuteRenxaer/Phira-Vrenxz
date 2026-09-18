@@ -155,7 +155,6 @@ custom-ui-scale = UI Scale
 custom-show-score = Show Score
 custom-show-combo = Show Combo
 custom-show-acc = Show Accuracy
-custom-show-character = Show Character
 custom-accent-color = Accent Color
 custom-edit = Edit
 custom-section-ui-position = UI Position

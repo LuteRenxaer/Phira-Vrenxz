@@ -602,6 +602,7 @@ async fn parse_notes(
             color: note.tint.map_or(WHITE, |[r, g, b]| Color::from_rgba(r, g, b, 255)),
             fx_color: note.tint_hit_effects.map(|[r, g, b]| Color::from_rgba(r, g, b, 255)),
             judge_area: note.judge_area.unwrap_or(1.0),
+            protected: false,
 
             above: note.above == 1,
             multiple_hint: false,

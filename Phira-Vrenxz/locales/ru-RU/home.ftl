@@ -16,4 +16,3 @@ update-desc =
 update-ignore = Не сейчас
 update-go = Обновить
 
-change-char = Изменить персонажа

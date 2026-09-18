@@ -1,7 +1,13 @@
 
-use super::StartupLoadingScene;
+//! 启动页：黑屏 → 画面淡入 → 「点击继续」→ 交给首启向导或加载页。
+//!
+//! 语言选择原来挂在这一页的第二个阶段（LanguageSelect），现在整段搬进了首启向导
+//! （`scene::SetupScene` 的第一步）：那一套要接着问登录、音量、其他设置，
+//! 摆在同一块靠右的面板里才连得起来。
+
+use super::{SetupScene, StartupLoadingScene};
 use crate::blue_archive_tips::random_tip;
-use crate::{get_data, get_data_mut, save_data, sync_data};
+use crate::get_data;
 prpr_l10n::tl_file!("login");
 use prpr::{
     config::Config,
@@ -9,9 +15,8 @@ use prpr::{
     scene::{NextScene, Scene},
     task::Task,
     time::TimeManager,
-    ui::{button_hit, FontArc, RectButton, Ui, PREFER_REDUCED_MOTION},
+    ui::{button_hit, FontArc, Ui, PREFER_REDUCED_MOTION},
 };
-use prpr_l10n::{LANG_IDENTS, LANG_NAMES};
 use anyhow::Result;
 use macroquad::prelude::*;
 use sasa::{AudioClip, AudioManager, Music, MusicParams};
@@ -28,16 +33,11 @@ const SHOW_TIME: f32 = 0.8;
 const FADE_IN_TIME: f32 = 0.35;
 /// 切换前画面淡出时长
 const FADE_OUT_TIME: f32 = 0.4;
-/// 语言选择面板弹出动画时长
-const LANG_ANIM_TIME: f32 = 0.22;
-/// 进入语言选择后忽略点击的冷却时长(避免上一阶段的点击误触)
-const LANG_COOLDOWN: f32 = 0.3;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Black,
     Show,
-    LanguageSelect,
     FadeOut,
 }
 
@@ -53,10 +53,6 @@ pub struct LoginScene {
     enter_time: f32,
     tip: String,
     phase: Phase,
-    lang_selected: Option<usize>,
-    lang_btns: Vec<RectButton>,
-    lang_enter_time: f32,
-    lang_cooldown_until: f32,
     fade_out_time: f32,
     pending_scene: Option<NextScene>,
 }
@@ -130,14 +126,6 @@ impl LoginScene {
             enter_time: f32::NAN,
             tip,
             phase: Phase::Black,
-            lang_selected: get_data()
-                .language
-                .as_ref()
-                .and_then(|it| it.parse::<prpr_l10n::LanguageIdentifier>().ok())
-                .and_then(|ident| LANG_IDENTS.iter().position(|it| *it == ident)),
-            lang_btns: LANG_NAMES.iter().map(|_| RectButton::new()).collect(),
-            lang_enter_time: f32::NAN,
-            lang_cooldown_until: f32::NEG_INFINITY,
             fade_out_time: f32::NAN,
             pending_scene: None,
         }
@@ -166,33 +154,14 @@ impl Scene for LoginScene {
                 // 点击继续提示出现后才响应
                 if now - self.enter_time >= BLACK_TIME + SHOW_TIME && touch.phase == TouchPhase::Ended {
                     button_hit();
-                    if get_data().has_chosen_language {
-                        let scene = StartupLoadingScene::new(self.fallback.clone());
-                        self.start_fade_out(now, Box::new(scene));
+                    // 首次启动：先去向导把语言 / 登录 / 音量这些问完；走完向导（或者早就
+                    // 走过、被迁移标记过的老玩家）直接进加载页。
+                    let scene: Box<dyn prpr::scene::Scene> = if get_data().initial_setup_done {
+                        Box::new(StartupLoadingScene::new(self.fallback.clone()))
                     } else {
-                        self.phase = Phase::LanguageSelect;
-                        self.lang_enter_time = now;
-                        self.lang_cooldown_until = now + LANG_COOLDOWN;
-                    }
-                }
-                Ok(true)
-            }
-            Phase::LanguageSelect => {
-                if now < self.lang_cooldown_until {
-                    return Ok(true);
-                }
-                for (i, btn) in self.lang_btns.iter_mut().enumerate() {
-                    if btn.touch(touch) {
-                        button_hit();
-                        let data = get_data_mut();
-                        data.language = Some(LANG_IDENTS[i].to_string());
-                        data.has_chosen_language = true;
-                        sync_data();
-                        let _ = save_data();
-                        let scene = StartupLoadingScene::new(self.fallback.clone());
-                        self.start_fade_out(now, Box::new(scene));
-                        return Ok(true);
-                    }
+                        Box::new(SetupScene::new(self.fallback.clone()))
+                    };
+                    self.start_fade_out(now, scene);
                 }
                 Ok(true)
             }
@@ -270,9 +239,8 @@ impl Scene for LoginScene {
         // 高斯模糊背景
         ui.fill_rect(full, (*self.background, full, ScaleType::CropCenter));
 
-        // 遮罩(语言选择更暗)
-        let dim = if self.phase == Phase::LanguageSelect { 0.55 } else { 0.3 };
-        ui.fill_rect(full, semi_black(dim));
+        // 遮罩
+        ui.fill_rect(full, semi_black(0.3));
 
         // UI 使用带比例的 camera
         set_camera(&ui.camera());
@@ -284,52 +252,48 @@ impl Scene for LoginScene {
             (show_elapsed / FADE_IN_TIME).clamp(0., 1.)
         };
 
-        if self.phase == Phase::LanguageSelect {
-            self.render_language_select(ui, t, top);
-        } else {
-            ui.alpha(fade_in, |ui| {
-                ui.text("Phira-Vrenxz")
-                    .pos(0., -0.10)
-                    .anchor(0.5, 0.5)
-                    .no_baseline()
-                    .size(1.4)
-                    .color(WHITE)
-                    .draw();
+        ui.alpha(fade_in, |ui| {
+            ui.text("Phira-Vrenxz")
+                .pos(0., -0.10)
+                .anchor(0.5, 0.5)
+                .no_baseline()
+                .size(1.4)
+                .color(WHITE)
+                .draw();
 
-                ui.text(format!("v{}", env!("CARGO_PKG_VERSION")))
-                    .pos(0., top - 0.05)
-                    .anchor(0.5, 1.)
-                    .size(0.4)
-                    .color(semi_white(0.6))
-                    .draw();
+            ui.text(format!("v{}", env!("CARGO_PKG_VERSION")))
+                .pos(0., top - 0.05)
+                .anchor(0.5, 1.)
+                .size(0.4)
+                .color(semi_white(0.6))
+                .draw();
 
-                // 点击继续提示(淡入)
-                let hint_p = if PREFER_REDUCED_MOTION.load(Ordering::Relaxed) {
-                    1.
-                } else {
-                    ((show_elapsed - SHOW_TIME) / 0.3).clamp(0., 1.)
-                };
-                if hint_p > 0. {
-                    let blink = ((t * 2.0).sin() * 0.5 + 0.5) * 0.5 + 0.5;
-                    ui.alpha(hint_p, |ui| {
-                        ui.text(tl!("startup-tap-to-continue"))
-                            .pos(0., 0.20)
-                            .anchor(0.5, 0.)
-                            .size(0.5)
-                            .color(semi_white(blink))
-                            .draw();
-                    });
-                }
+            // 点击继续提示(淡入)
+            let hint_p = if PREFER_REDUCED_MOTION.load(Ordering::Relaxed) {
+                1.
+            } else {
+                ((show_elapsed - SHOW_TIME) / 0.3).clamp(0., 1.)
+            };
+            if hint_p > 0. {
+                let blink = ((t * 2.0).sin() * 0.5 + 0.5) * 0.5 + 0.5;
+                ui.alpha(hint_p, |ui| {
+                    ui.text(tl!("startup-tap-to-continue"))
+                        .pos(0., 0.20)
+                        .anchor(0.5, 0.)
+                        .size(0.5)
+                        .color(semi_white(blink))
+                        .draw();
+                });
+            }
 
-                ui.text(tl!("startup-tip", "tip" => &self.tip))
-                    .pos(-0.95, top - 0.05)
-                    .anchor(0., 1.)
-                    .max_width(1.6)
-                    .size(0.38)
-                    .color(semi_white(0.75))
-                    .draw();
-            });
-        }
+            ui.text(tl!("startup-tip", "tip" => &self.tip))
+                .pos(-0.95, top - 0.05)
+                .anchor(0., 1.)
+                .max_width(1.6)
+                .size(0.38)
+                .color(semi_white(0.75))
+                .draw();
+        });
 
         if self.phase == Phase::Show && show_elapsed >= 0. && show_elapsed < FLASH_TIME {
             let half = FLASH_TIME * 0.5;
@@ -362,49 +326,3 @@ impl Scene for LoginScene {
     }
 }
 
-impl LoginScene {
-    fn render_language_select(&mut self, ui: &mut Ui, t: f32, _top: f32) {
-        let p = if PREFER_REDUCED_MOTION.load(Ordering::Relaxed) {
-            1.
-        } else {
-            ((t - self.lang_enter_time) / LANG_ANIM_TIME).clamp(0., 1.)
-        };
-        let ease = 1. - (1. - p).powi(3);
-        let scale = 0.94 + 0.06 * ease;
-
-        let panel_w = 0.7;
-        let row_h = 0.056;
-        let panel_h = 0.16 + LANG_NAMES.len() as f32 * row_h + 0.06;
-        let ww = panel_w * scale;
-        let wh = panel_h * scale;
-        let panel = Rect::new(-ww / 2., -wh / 2., ww, wh);
-
-        ui.alpha(ease, |ui| {
-            ui.text(tl!("startup-select-language"))
-                .pos(panel.x, panel.y + 0.04)
-                .anchor(0., 0.)
-                .size(0.6 * scale)
-                .color(WHITE)
-                .draw();
-
-            let mut y = panel.y + 0.15;
-            for (i, name) in LANG_NAMES.iter().enumerate() {
-                let r = Rect::new(panel.x + 0.04, y, panel.w - 0.08, row_h);
-                self.lang_btns[i].set(ui, r);
-                let selected = self.lang_selected == Some(i);
-                if selected {
-                    ui.fill_rect(r, semi_white(0.2));
-                }
-                let color = if selected { Color::new(1., 0.85, 0.3, 1.) } else { semi_white(0.9) };
-                ui.text(*name)
-                    .pos(r.center().x, r.center().y)
-                    .anchor(0.5, 0.5)
-                    .no_baseline()
-                    .size(0.4 * scale)
-                    .color(color)
-                    .draw();
-                y += row_h;
-            }
-        });
-    }
-}

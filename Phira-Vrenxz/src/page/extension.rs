@@ -146,12 +146,8 @@ impl ExtensionPage {
         }
     }
 
-    fn type_label(t: ExtensionType) -> &'static str {
-        match t {
-            ExtensionType::Models => "模型",
-            ExtensionType::Levels => "关卡",
-            ExtensionType::Both => "模型+关卡",
-        }
+    fn type_label(_t: ExtensionType) -> &'static str {
+        "关卡"
     }
 
     fn format_size(bytes: u64) -> String {
@@ -321,11 +317,7 @@ impl Page for ExtensionPage {
 
                     // 类型标签
                     let type_text = Self::type_label(item.info.manifest.ext_type);
-                    let type_color = match item.info.manifest.ext_type {
-                        ExtensionType::Models => Color::new(0.3, 0.7, 1.0, 0.8),
-                        ExtensionType::Levels => Color::new(1.0, 0.7, 0.3, 0.8),
-                        ExtensionType::Both => Color::new(0.5, 1.0, 0.5, 0.8),
-                    };
+                    let type_color = Color::new(1.0, 0.7, 0.3, 0.8);
                     ui.text(type_text)
                         .pos(card_r.x + 0.02, card_r.bottom() - 0.018)
                         .anchor(0., 1.)
@@ -489,11 +481,7 @@ impl Page for ExtensionPage {
 
                 // 类型标签
                 let type_text = Self::type_label(info.manifest.ext_type);
-                let type_color = match info.manifest.ext_type {
-                    ExtensionType::Models => Color::new(0.3, 0.7, 1.0, 0.9),
-                    ExtensionType::Levels => Color::new(1.0, 0.7, 0.3, 0.9),
-                    ExtensionType::Both => Color::new(0.5, 1.0, 0.5, 0.9),
-                };
+                let type_color = Color::new(1.0, 0.7, 0.3, 0.9);
                 let type_w = 0.12;
                 let type_r = Rect::new(detail_r.x + pad, detail_r.y + 0.11, type_w, 0.04);
                 ui.fill_path(&type_r.rounded(0.008), type_color);

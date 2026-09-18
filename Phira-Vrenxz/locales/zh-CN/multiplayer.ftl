@@ -58,15 +58,6 @@ preview-started-title = 房主已经开始游戏了
 preview-started-content = 你还在预览谱面时房主开始了这一局。本局结束后可以继续一起游玩。
 preview-started-ok = 知道了
 # 观战
-spectate = 观战
-spectate-title = 观战中
-spectate-none = 暂无玩家在游玩
-spectate-waiting = 等待中…
-spectate-watch = 同步观战
-spectate-exit = 退出观战
-spectate-no-chart = 当前没有可观看的谱面
-spectate-joined = 已进入观战
-spectate-chart = 正在游玩：{ $chart }
 
 lock-room = { $current ->
   [true] 解锁房间
@@ -124,9 +115,7 @@ msg-send-chart = `{ $user }` 开始分享谱面
 msg-download-ready = `{ $user }` 谱面下载完成
 msg-player-paused = `{ $user }` 暂停了游戏
 msg-player-resumed = `{ $user }` 继续了游戏
-msg-room-results = 本局结算：{ $n } 位玩家完成，点击查看排名
-results-title = 对局结算
-results-aborted = 中途放弃
+msg-room-results = 本局结算：{ $n } 位玩家完成
 msg-room-lock = { $lock ->
   [true] 房间已锁定
   *[other] 房间已解锁
@@ -153,7 +142,6 @@ mp-lobby-not-room = 尚未进入房间
 mp-room-tag = 房间 #{ $id }
 mp-player-count = 玩家（{ $n }）
 mp-you = 我
-mp-watching = 观战
 mp-ready-tag = 已就绪
 mp-host = 房主
 mp-state-choose = 选择谱面中…
@@ -171,10 +159,4 @@ mp-manage-title = 管理 { $name }
 mp-manage-transfer = 设为房主
 mp-manage-kick = 移出房间
 mp-manage-cancel = 取消
-room-list-tap-hint = 点击房间行加入 · 右侧「观战」围观对局
 mp-room-locked = 🔒 需密码
-mp-room-counts = { $players } 名玩家 / { $spectators } 名观战
-mp-spectate-hint = 点击玩家行选择同步观战的目标
-spectate-best = 最高分 { $score }
-spectate-syncing = 同步中
-mp-library = 谱面库

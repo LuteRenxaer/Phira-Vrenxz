@@ -1,5 +1,5 @@
 use crate::{
-    client::{Character, Chart, LocalCollection, Ptr, User},
+    client::{Chart, LocalCollection, Ptr, User},
     dir,
 };
 use anyhow::{Context, Result};
@@ -121,7 +121,6 @@ pub struct Data {
     pub read_tos_and_policy: bool,
     pub terms_modified: Option<String>,
     pub ignored_version: Option<semver::Version>,
-    pub character: Option<Character>,
 
     pub enable_anys: bool,
     #[serde(default = "default_anys_gateway")]
@@ -149,6 +148,19 @@ pub struct Data {
     /// 玩家是否已主动选择过初始语言。选择过一次后,启动页不再弹出语言选择。
     #[serde(default)]
     pub has_chosen_language: bool,
+
+    /// 首启向导（语言 / 登录 / 音量 / 其他设置 / 最后确认）是否已经走完。
+    /// 走完之后启动页不再拦截，直接进主页（见 scene::SetupScene）。
+    /// 老数据里没有这个字段，`Data::init` 会用 `has_chosen_language` 兜底迁移 ——
+    /// 否则这次更新会把所有老玩家都拉去走一遍首次启动流程。
+    #[serde(default)]
+    pub initial_setup_done: bool,
+
+    /// 首次进游戏时是否游玩新手教程（首启向导最后一步的选择）。
+    /// 目前只落盘保存：教程入口仍然只有设置页那一颗按钮，还没有进游戏自动开教程的流程，
+    /// 这个字段就是给那条流程预留的依据。
+    #[serde(default = "default_true")]
+    pub play_tutorial: bool,
 
     #[serde(default, rename = "collections")]
     collections_legacy: Vec<LocalCollection>,
@@ -189,7 +201,6 @@ impl Default for Data {
             read_tos_and_policy: false,
             terms_modified: None,
             ignored_version: None,
-            character: None,
             enable_anys: false,
             anys_gateway: default_anys_gateway(),
             prefer_reduced_motion: false,
@@ -198,6 +209,8 @@ impl Default for Data {
             show_startup_screen: true,
             custom_startup_bgm_path: None,
             has_chosen_language: false,
+            initial_setup_done: false,
+            play_tutorial: true,
             collections_legacy: Vec::new(),
             collection_uuids: Vec::new(),
             import_scan_retry: HashMap::new(),
@@ -358,6 +371,11 @@ impl Data {
 
                 *res_pack_path = "chart.zip".to_owned();
             }
+        }
+        // 老数据迁移：以前的初始设置只有启动页那一次语言选择，选过语言的玩家显然已经
+        // 设置过了，直接当作向导走完 —— 否则这次更新会把所有老玩家都拉去重走一遍首启流程。
+        if self.has_chosen_language {
+            self.initial_setup_done = true;
         }
         if self.read_tos_and_policy {
             debug!("migrating from old version");

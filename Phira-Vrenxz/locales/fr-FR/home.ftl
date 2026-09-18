@@ -16,4 +16,3 @@ update-desc =
 update-ignore = Ignorer cette mise à jour
 update-go = Mettre à jour
 
-change-char = Changer le Personnage (Page Web)

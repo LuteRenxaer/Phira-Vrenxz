@@ -23,5 +23,3 @@ tos-accept = Kabul Et
 
 open-in-web = Tarayıcıda Aç
 
-main-character-name = Alp
-main-character-intro = Hehe

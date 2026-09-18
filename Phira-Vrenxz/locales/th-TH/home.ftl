@@ -11,4 +11,3 @@ update-desc =
     คำอธิบาย：{ $desc }
 update-ignore = ไม่สนใจ
 update-go = ดู
-change-char = เปลี่ยนตัวละคร (เปลี่ยนบน Website)

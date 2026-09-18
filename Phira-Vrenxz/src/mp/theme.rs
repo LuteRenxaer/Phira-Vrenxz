@@ -12,7 +12,6 @@
 
 use macroquad::prelude::*;
 use prpr::{
-    core::BOLD_FONT,
     ext::{semi_white, RectExt, SafeTexture, ScaleType},
     ui::{DRectButton, Ui},
 };
@@ -54,8 +53,6 @@ pub const BAR_BTN_MIN_W: f32 = 0.25 * SCALE;
 pub const BAR_BTN_MAX_W: f32 = 0.78 * SCALE;
 /// 带第二行信息的列表行高。
 pub const ROW_TALL: f32 = 0.1625 * SCALE;
-/// 列表行之间的间距。
-pub const ROW_GAP: f32 = 0.019 * SCALE;
 /// 区块之间的间距。
 pub const SECTION_GAP: f32 = 0.0375 * SCALE;
 /// 区块内边距。
@@ -75,9 +72,6 @@ pub const R_ROW: f32 = 0.008;
 pub const R_BTN: f32 = 0.01;
 /// 描边宽度（UI 单位；973px 宽的窗口下约 1px）。
 pub const STROKE_W: f32 = 0.0025 * SCALE;
-/// 宽屏时列表的最大宽度（避免超宽屏上单行过长、正文难读）。
-pub const MAX_LIST_W: f32 = 1.74;
-
 /// 工具条按钮的方块边长（模仿爱笔思画底部工具条：图标在上、小字在下）。
 ///
 /// 参考实测：爱笔思画那条工具带在 1904x990 的窗口里高约 54px，图标与文字各占一半；
@@ -103,20 +97,18 @@ pub enum ToolIcon {
     Lock = 5,
     /// 预览谱面
     Preview = 6,
-    /// 观战
-    Spectate = 7,
     /// 新建房间
-    Create = 8,
+    Create = 7,
     /// 加入房间
-    Join = 9,
+    Join = 8,
     /// 刷新
-    Refresh = 10,
+    Refresh = 9,
     /// 断开连接
-    Disconnect = 11,
+    Disconnect = 10,
     /// 谱面库
-    Library = 12,
+    Library = 11,
     /// 离开房间
-    LeaveRoom = 13,
+    LeaveRoom = 12,
 }
 
 thread_local! {
@@ -379,6 +371,16 @@ pub fn skew_panel(ui: &mut Ui, x: f32, y: f32, w: f32, h: f32, slope: f32, top: 
     );
 }
 
+/// 平行四边形面板底：形状落在 `r` 里（同 [`skew_panel`]），返回**内容区**。
+///
+/// 斜边是「上边右移、下边左移」，贴着 `r` 左/右边缘的内容在上边和下边都会
+/// 顶出斜边，所以内容要按斜移量左右各内缩一份 —— 这里顺手算好返回。
+pub fn parallelogram(ui: &mut Ui, r: Rect, slope: f32, top: Color, bottom: Color) -> Rect {
+    skew_panel(ui, r.x, r.y, r.w, r.h, slope, top, bottom);
+    let lean = r.h * slope;
+    Rect::new(r.x + lean, r.y, (r.w - lean * 2.).max(0.02), r.h)
+}
+
 /// 向右的实心三角（设计稿左下那个 ▶）：`inner` 为内部浅色三角的缩放比，`None` 就纯色。
 pub fn triangle_right(ui: &mut Ui, r: Rect, fill: Color, inner: f32, inner_fill: Option<Color>) {
     let _ = ui;
@@ -536,7 +538,7 @@ pub fn header(
         .max_width((right_edge - tx).max(0.05))
         .size(FS_PAGE_TITLE)
         .color(text())
-        .draw_using(&BOLD_FONT);
+        .draw();
     if let Some(sub) = sub {
         let sx = tx + tr.w + 0.03;
         if sx < right_edge - 0.06 {
@@ -566,7 +568,8 @@ pub fn button<'a>(
     fg: Color,
 ) {
     let label = label.into();
-    btn.render_shadow(ui, r, t, |ui, path| {
+    // 不带阴影：多人页是浅色玻璃面板，圆角底下再压一团黑影子只会显脏
+    btn.build(ui, t, r, |ui, path| {
         ui.fill_path(&path, fill);
         ui.stroke_path(&path, STROKE_W, stroke());
         ui.text(label.as_ref())
@@ -656,19 +659,13 @@ pub fn text_left(ui: &mut Ui, x: f32, cy: f32, size: f32, color: Color, s: &str,
         .draw();
 }
 
-/// 单行文本（粗体，用于房名 / 谱面名这类需要压住画面的标题）。
+/// 单行文本（强调用：房名 / 谱面名 / 成绩这些要压住画面的标题）。
+///
+/// **字体必须和页面其它文字一致**：ui.text(..).draw() 用的就是 assets/fonts/font.ttf
+/// （见 lib.rs 里给 Ui 装的那个 TextPainter）。以前这里走 BOLD_FONT（fonts/bold.ttf），
+/// 同一页里两种字形混着显示，一眼就能看出不对。
 pub fn text_left_bold(ui: &mut Ui, x: f32, cy: f32, size: f32, color: Color, s: &str, max_w: f32) {
-    if max_w <= 0.02 {
-        return;
-    }
-    ui.text(s)
-        .pos(x, cy)
-        .anchor(0., 0.5)
-        .no_baseline()
-        .max_width(max_w)
-        .size(size)
-        .color(color)
-        .draw_using(&BOLD_FONT);
+    text_left(ui, x, cy, size, color, s, max_w);
 }
 
 /// 一行徽标（从左往右排，返回结束时的 x）。放不下的徽标会被跳过。
@@ -744,14 +741,6 @@ pub fn row_button(ui: &mut Ui, btn: &mut DRectButton, t: f32, r: Rect, selected:
     });
 }
 
-/// 不可点击的列表行底色。
-pub fn row_static(ui: &mut Ui, r: Rect, selected: bool, accent: Color) {
-    let fill = if selected { row_selected(accent) } else { row() };
-    let path = r.rounded(R_ROW);
-    ui.fill_path(&path, fill);
-    ui.stroke_path(&path, STROKE_W, if selected { color_alpha(accent, 0.7) } else { divider() });
-}
-
 /// 玩家行内容：头像 + 名字 + 右侧状态徽标。
 /// 本函数只画内容，底色由调用方提供（保证可点击行与展示行视觉一致）。
 #[allow(clippy::too_many_arguments)]
@@ -764,7 +753,6 @@ pub fn player_row_content(
     name: &str,
     is_me: bool,
     host: bool,
-    watching: bool,
     me_ready: bool,
     accent: Color,
 ) {
@@ -774,10 +762,6 @@ pub fn player_row_content(
     ui.avatar(cx, cy, avr, t, UserManager::opt_avatar(id, icon));
 
     let mut tags_right = r.right() - CARD_PAD;
-    if watching {
-        let s = mtl!("mp-watching");
-        tags_right = tag_right(ui, tags_right, r.x + r.w * 0.4, cy, &s, tag_bg(), text_dim());
-    }
     if is_me && me_ready {
         let s = mtl!("mp-ready-tag");
         tags_right = tag_right(ui, tags_right, r.x + r.w * 0.4, cy, &s, tag_accent(accent), WHITE);
@@ -854,7 +838,8 @@ pub fn tool_button(
     let fill = if active { color_alpha(accent, 0.88) } else { secondary() };
     let fg = if active { WHITE } else { text() };
     let label_fg = if active { WHITE } else { text_dim() };
-    btn.render_shadow(ui, r, t, |ui, path| {
+    // 同上：工具条方块一律不带阴影
+    btn.build(ui, t, r, |ui, path| {
         ui.fill_path(&path, fill);
         ui.stroke_path(
             &path,

@@ -55,7 +55,7 @@ impl ManagePage {
             ROW_TALL * 1.6,
         );
         theme::card_rect(ui, card_r, card());
-        theme::player_row_content(ui, card_r, t, v.icon, v.id, v.name, false, false, false, false, accent);
+        theme::player_row_content(ui, card_r, t, v.icon, v.id, v.name, false, false, false, accent);
 
         // 底部操作条：设为房主 / 移出房间
         let bw = (f.bar.w.min(1.2) - BAR_COL_GAP) / 2.;

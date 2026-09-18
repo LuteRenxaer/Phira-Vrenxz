@@ -60,8 +60,6 @@ startup-init-failed = 初始化失败
 
 # Phira-Vrenxz startup
 startup-chart-resource = 谱面资源
-startup-character-model = 角色模型
-startup-character-voice = 角色语音
 startup-expansion-package = 扩展资源包
 startup-preparing-extract = 准备解压资源...
 startup-extracting = 正在解压{ $desc }...

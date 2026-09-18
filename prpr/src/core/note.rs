@@ -39,6 +39,10 @@ pub struct Note {
     pub color: Color,
     pub fx_color: Option<Color>,
     pub judge_area: f32,
+    /// 晚按保护标记：一帧里"按得比 perfect 窗口更晚、附近又有 drag / flick"时，
+    /// 这些 drag / flick 会被打上这个标记，然后这一下点击作废（见 judge）。
+    /// 与 phire 的 `Note::protected` 同一用途，跨帧保留、每次 reset 清掉。
+    pub protected: bool,
 
     /// From the other side of the line
     pub above: bool,

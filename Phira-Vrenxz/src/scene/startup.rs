@@ -41,9 +41,40 @@ fn level_package_available(assets_dir: &std::path::Path) -> bool {
     }
 }
 
-/// 检查所有资源包是否已就绪
+/// 本体资源包解压出来的顶层目录。缺任何一个都说明没解压完整。
+///
+/// 为什么不能只看一个：以前这里只检查 `achievements_icon` 在不在，于是只要那一个目录
+/// 存在（工具/玩家只解了一半、或者换包之后残留），就会被当成"已经解压过了" ——
+/// rank / respack / sfx 这些永远补不上，本体包里换掉的贴图也就永远看不到。
+const ONTOLOGY_GROUPS: &[&str] = &["achievements_icon", "icon_old(home)", "mod", "rank", "respack", "sfx", "Tutorial"];
+
+/// 检查所有资源包是否已就绪（谱面包能打开 + 本体包的各组都在）
 fn all_packages_complete(assets_dir: &std::path::Path) -> bool {
-    level_package_available(assets_dir) && assets_dir.join("achievements_icon").exists()
+    level_package_available(assets_dir) && ONTOLOGY_GROUPS.iter().all(|group| assets_dir.join(group).exists())
+}
+
+/// 内置资源包的指纹（包名 + 字节数 + 修改时间）。
+///
+/// 解压是一次性的：只在**没有标记文件**时才解压。开发期换掉本体包里的贴图、或者更新 APK
+/// 带来新的资源包之后，老的解压产物会让新贴图永远看不到（Android 侧还有一层：Java 那边
+/// "文件已存在就不抄"）。所以标记文件里记下当时那一包的指纹，指纹对不上就重新解压。
+fn extract_stamp(assets_dir: &std::path::Path) -> String {
+    ASSET_PACKAGES
+        .iter()
+        .map(|(name, _)| match std::fs::metadata(assets_dir.join(name)) {
+            Ok(meta) => {
+                let secs = meta
+                    .modified()
+                    .ok()
+                    .and_then(|it| it.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|it| it.as_secs())
+                    .unwrap_or(0);
+                format!("{name}:{}:{secs}", meta.len())
+            }
+            Err(_) => format!("{name}:missing"),
+        })
+        .collect::<Vec<_>>()
+        .join(";")
 }
 
 /// 解压进度共享状态
@@ -73,10 +104,15 @@ impl StartupLoadingScene {
     pub fn new(fallback: FontArc) -> Self {
         let tip = random_tip();
 
-        // 检查是否需要解压（标记文件不存在且本体资源不完整）
+        // 检查是否需要解压：
+        // - 标记文件在、但里面记的指纹和现在的包对不上 → 包换过了，重新解压；
+        // - 标记文件不在 → 老逻辑（本体包的资源不完整才解压）。
         let assets_dir = super::assets_root();
         let marker = assets_dir.join(".extracted_builtin");
-        let need_extract = !marker.exists() && !all_packages_complete(&assets_dir);
+        let need_extract = match std::fs::read_to_string(&marker) {
+            Ok(stamp) => stamp.trim() != extract_stamp(&assets_dir),
+            Err(_) => !all_packages_complete(&assets_dir),
+        };
 
         let (extract_progress, extract_handle) = if need_extract {
             let progress = Arc::new(Mutex::new(ExtractProgress {
@@ -156,10 +192,11 @@ fn extract_builtin_assets(progress: &Arc<Mutex<ExtractProgress>>) {
         }
     }
 
-    // 只有所有包都解压成功才写标记文件
+    // 只有所有包都解压成功才写标记文件；写的是"解压的是哪一包"的指纹，
+    // 下次启动包一变就会重新解压（见 extract_stamp）。
     if all_ok {
         let marker = assets_dir.join(".extracted_builtin");
-        let _ = std::fs::write(&marker, "extracted");
+        let _ = std::fs::write(&marker, extract_stamp(&assets_dir));
     }
 
     let mut p = progress.lock().unwrap();

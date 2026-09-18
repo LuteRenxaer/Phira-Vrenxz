@@ -2,7 +2,7 @@
 //!
 //! 预览只在“回到多人场景”时才有意义，因此这里只保存三件事：
 //! - **打断信号**：后台轮询房间状态，一旦房主开始（离开选谱阶段）就置位，
-//!   `GameScene` 检测到后立即结束预览（不结算）；
+//!   `GameScene` 检测到后立即结束预览（不计成绩）；
 //! - **停止信号**：预览场景结束回到多人场景后置位，结束后台轮询；
 //! - **待确认标记**：回到房间页时若房主已在等准备而自己尚未就绪，则置位，
 //!   由房间页渲染一条**内联提示条**（「准备 / 暂不」两个按钮）——
@@ -97,17 +97,13 @@ impl Preview {
     }
 
     /// 预览场景结束回到多人场景：清理运行态并给出后续动作。
-    pub fn on_return(&mut self, room: Option<&RoomState>, is_ready: bool, spectating: bool) -> PreviewReturn {
+    pub fn on_return(&mut self, room: Option<&RoomState>, is_ready: bool) -> PreviewReturn {
         // 判据是“是否从预览画面返回”，而不依赖打断标志是否已置位——
         // 房主开始往往就发生在预览结束的同一瞬间，只看标志会漏掉提示。
         if self.stop.take().is_none() {
             return PreviewReturn::Ignore;
         }
         self.interrupt = None;
-        // 观战者只旁观：观看结束不询问准备
-        if spectating {
-            return PreviewReturn::Ignore;
-        }
         match room {
             // 房主已经开局：只提示，不需要再问准备
             Some(RoomState::Playing) => PreviewReturn::AlreadyStarted,
@@ -141,13 +137,16 @@ impl Preview {
     /// 房间状态轮询：开始时若还在选谱/本地谱阶段，则一旦离开该阶段即视为“房主开始”；
     /// 若是在等待准备阶段开始预览，则只有真正开局（Playing）才打断。
     async fn watch_loop(client: Arc<Client>, interrupt: Arc<AtomicBool>, stop: Arc<AtomicBool>) {
-        let initial = client.blocking_room_state();
+        // 注意：这里必须用异步版 room_state()。blocking_room_state() 走的是 tokio 的
+        // RwLock::blocking_read，在 async 上下文里会 panic —— 那样这个打断任务会
+        // 一启动就静默死掉，房主点开始也打断不了预览。
+        let initial = client.room_state().await;
         loop {
             tokio::time::sleep(Duration::from_millis(150)).await;
             if stop.load(Ordering::Relaxed) {
                 break;
             }
-            let Some(state) = client.blocking_room_state() else {
+            let Some(state) = client.room_state().await else {
                 // 已离开房间/被移出：不再需要打断
                 break;
             };

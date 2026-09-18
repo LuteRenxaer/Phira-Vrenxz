@@ -29,6 +29,8 @@ mod respack;
 pub use respack::{ResPackItem, ResPackPage};
 
 mod settings;
+// 首启向导复用设置页的开关控件（同一份画法，样式才不会两边不一致）
+pub(crate) use settings::render_switch;
 pub use settings::SettingsPage;
 use tokio::sync::Notify;
 
@@ -584,6 +586,8 @@ impl SharedState {
         };
         set_bold_font(loaded);
         let icons = Resource::load_icons().await?;
+        // 多人房间页的「最好成绩」要用同一套等级图标（见 scene::TEX_RANK_ICONS）
+        crate::scene::TEX_RANK_ICONS.with(|it| *it.borrow_mut() = Some(icons.clone()));
         // 注入成就自定义图标（achievements_icon/1..20.png，按顺序对应成就；加载失败则回退 emoji）
         for order in 1..=20u8 {
             if let Ok(tex) = macroquad::texture::load_texture(&format!("achievements_icon/{order}.png")).await {

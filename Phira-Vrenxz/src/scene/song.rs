@@ -95,6 +95,13 @@ pub static LAST_MP_FINISH: Mutex<Option<prpr::scene::FinishedStats>> = Mutex::ne
 /// Matches any `@name#id (role)` or `@name#id` or `@name (role)` or `@name`.
 /// Parentheses may be ASCII `()` or fullwidth `（）`; whitespace before `(` is optional.
 /// Groups: 1=name, 2=id (optional), 3=role (optional)
+/// 选曲页「开始」按钮里，图标边长占按钮高度的比例（比原版小一圈）。
+const PLAY_ICON_RATIO: f32 = 0.38;
+
+/// 选曲页这边白闪最多兜底多久（加载页迟迟不出现时别一直白着）；
+/// 正常情况是加载页滑入完成后由它自己淡掉，见 [prpr::scene::LAUNCH_FLASH]。
+const LAUNCH_FLASH_MAX: f32 = 1.5;
+
 static MENTION_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"@([^\s#@(（]+)(?:#(\d+))?(?:\s*[（(]([^)）]+)[)）])?").unwrap());
 
 /// Parse all `@name#id` resolved collaborator mentions and return `(id, role)` pairs.
@@ -274,7 +281,8 @@ impl Downloading {
             }
         }
         let cr = Rect::new(r.right() - 0.36, r.y + r.h * 0.18, 0.32, r.h * 0.64);
-        self.cancel_download_btn.render_shadow(ui, cr, t, |ui, path| {
+        // 不带阴影：多人页的按钮一律是平底 + 描边（`build` 已经负责按压动画与命中区）
+        self.cancel_download_btn.build(ui, t, cr, |ui, path| {
             ui.fill_path(&path, semi_black(0.4));
             ui.text(tl!("dl-cancel"))
                 .pos(cr.center().x, cr.center().y)
@@ -1037,34 +1045,6 @@ impl SongScene {
         )
     }
 
-    /// 观战：加载对方正在游玩的谱面，并按远端判定事件同步播放（对方视角同步）。
-    /// `source` 由多人面板的后台任务持续喂入对方的判定事件与时间参考。
-    #[must_use]
-    pub fn global_launch_spectate(id: Option<i32>, local_path: &str, source: Arc<prpr::scene::SpectateSource>) -> Result<LocalSceneTask> {
-        // 交给 GameScene 构造时取走（见 prpr::scene::PENDING_SPECTATE）
-        *prpr::scene::PENDING_SPECTATE.lock().unwrap() = Some(source);
-        // 观战绝不接入“暂停上报服务器”的钩子：观战者本地的暂停只影响自己的画面，
-        // 不能把暂停状态发回房间（否则会去暂停被观战者的游戏）。这里顺手清掉可能残留的钩子。
-        *prpr::scene::PAUSE_NOTIFY.lock().unwrap() = None;
-        // client 传 None：观战不发送 touch/judge，也不参与成绩上报
-        let res = Self::global_launch(
-            id,
-            local_path,
-            Mods::default(),
-            GameMode::NoRetry,
-            None,
-            None,
-            None,
-            false,
-            false,
-        );
-        if res.is_err() {
-            // 启动失败：清掉待用数据源，避免影响后续正常游玩
-            *prpr::scene::PENDING_SPECTATE.lock().unwrap() = None;
-        }
-        res
-    }
-
     /// 与 [`SongScene::global_launch`] 相同的启动流程，但以“谱面预览”模式播放（autoplay 试听等）：
     /// `preview_mode` 下谱面自然播完不进入结算页（引擎层直接弹回）；`interrupt` 为外部写入的
     /// 打断信号（如多人模式房主点了开始），置位后预览立即结束。普通游玩请用
@@ -1199,7 +1179,7 @@ impl SongScene {
             let local_path = local_path.to_string();
             move |stats: FinishedStats| -> Result<()> {
                 // 自然完成且成绩有效（引擎仅在 record 有效时调用本回调）：
-                // 记录本次结算供多人面板读取（面板在每局 GameStart 清空、取走后置空），
+                // 记录本局成绩供多人模式上报读取（每局开局清空、取走后置空），
                 // 使“正常打完”上报 client.played 而非被误判为 abort。
                 *LAST_MP_FINISH.lock().unwrap() = Some(stats);
                 let new_rec = SimpleRecord {
@@ -2106,6 +2086,7 @@ impl Scene for SongScene {
         if self.scene_task.is_none() && self.next_scene.is_none() && self.play_btn.touch(touch, t) {
             play_sound();
             if self.local_path.is_some() {
+                *prpr::scene::LAUNCH_FLASH.lock().unwrap() = Some(t as f64);
                 self.launch(GameMode::Normal, false)?;
             } else {
                 self.start_download()?;
@@ -2369,12 +2350,15 @@ impl Scene for SongScene {
                     self.rate_dialog.enter(tm.real_time() as _);
                 }
                 "exercise" => {
+                    *prpr::scene::LAUNCH_FLASH.lock().unwrap() = Some(t as f64);
                     self.launch(GameMode::Exercise, false)?;
                 }
                 "offset" => {
+                    *prpr::scene::LAUNCH_FLASH.lock().unwrap() = Some(t as f64);
                     self.launch(GameMode::TweakOffset, false)?;
                 }
                 "unlock" => {
+                    *prpr::scene::LAUNCH_FLASH.lock().unwrap() = Some(t as f64);
                     self.launch(GameMode::Normal, true)?;
                 }
                 "review-approve" => {
@@ -3037,25 +3021,40 @@ impl Scene for SongScene {
                 self.ldb_btn.set(ui, ldb_r);
             }
 
-            let w = 0.28;
-            let pad = 0.07;
-            let play_r = Rect::new(1. - pad - w, ui.top - pad - w, w, w);
-            self.play_btn.render_shadow(ui, play_r, t, |ui, path| {
-                ui.fill_path(&path, semi_white(0.25));
-                let icon_r = play_r.feather(-0.06);
-                ui.fill_rect(
-                    icon_r,
-                    (
-                        if self.local_path.is_some() {
-                            *self.icons.play
-                        } else {
-                            *self.icons.download
-                        },
-                        icon_r,
-                        ScaleType::Fit,
-                    ),
-                );
-            });
+            // 开始按钮：白色平行四边形，压在右上角、右边裁平 ——
+            // 左边留斜边（上边右移），右边的两个角去掉（右边缘是贴着屏边的直边）。
+            let w = 0.42;
+            let h = 0.26;
+            let lean = h * 0.22;
+            let play_r = Rect::new(1. - w, ui.top - h, w, h);
+            self.play_btn.inner.set(ui, play_r);
+            // 按下反馈：按住期间整块压暗（不缩放 —— 缩放会让图标跟着一起动，看着晃）。
+            // 注意 DRectButton::progress 是「1 = 没按、0 = 按住并已稳定」，所以取 1 - progress
+            // 才是按下程度：按住不放会一路降到 0.84 并停在那儿，松手再回到纯白。
+            let pressed = 1. - self.play_btn.progress(t);
+            let shade = 1. - 0.16 * pressed;
+            let mut builder = lyon::path::Path::builder();
+            builder.begin(lyon::math::point(play_r.x + lean, play_r.y));
+            builder.line_to(lyon::math::point(play_r.right(), play_r.y));
+            builder.line_to(lyon::math::point(play_r.right(), play_r.bottom()));
+            builder.line_to(lyon::math::point(play_r.x, play_r.bottom()));
+            builder.close();
+            ui.fill_path(&builder.build(), Color::new(shade, shade, shade, 1.));
+            // 图标：先按贴图比例算出居中的方框再画。`ScaleType::Fit` 是「拉满整个矩形」，
+            // 直接把一个宽扁的矩形交给它，▶ 会被拉长；所以要自己算等比尺寸。
+            // 白底上用深色图标，否则白图压白底看不见。
+            let tex = if self.local_path.is_some() { *self.icons.play } else { *self.icons.download };
+            let ratio = tex.width() / tex.height();
+            let side = (play_r.h * PLAY_ICON_RATIO).min(play_r.w * 0.28);
+            let (iw, ih) = if ratio > 1. { (side, side / ratio) } else { (side * ratio, side) };
+            // 平行四边形重心在矩形中心右移 lean/2：图标跟着往右挪一点才居中
+            let icon_r = Rect::new(
+                play_r.center().x + lean * 0.5 - iw * 0.5,
+                play_r.center().y - ih * 0.5,
+                iw,
+                ih,
+            );
+            ui.fill_rect(icon_r, (tex, icon_r, ScaleType::Fit, Color::new(0.06, 0.06, 0.08, 1.)));
 
             ui.scope(|ui| {
                 ui.dx(1. - 0.03);
@@ -3197,6 +3196,17 @@ impl Scene for SongScene {
         }
 
         self.sf.render(ui, t);
+
+        // 「开始」一按下就白闪，一直白到加载页滑进来为止（那之后由加载页接着白并淡掉）。
+        // 加载页要先把谱面准备好才出现，这段时间人已经在等了，先白着才不显得卡。
+        if let Some(t0) = *prpr::scene::LAUNCH_FLASH.lock().unwrap() {
+            let e = t as f64 - t0;
+            if e >= LAUNCH_FLASH_MAX as f64 {
+                *prpr::scene::LAUNCH_FLASH.lock().unwrap() = None;
+            } else if !get_data().prefer_reduced_motion {
+                ui.fill_rect(ui.screen_rect(), WHITE);
+            }
+        }
 
         Ok(())
     }
