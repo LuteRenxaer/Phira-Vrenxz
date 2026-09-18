@@ -15,8 +15,6 @@ mp-sync-failed = Chart sync failed: { $err }
 
 # Startup / loading
 startup-chart-resource = Chart Resources
-startup-character-model = Character Models
-startup-character-voice = Character Voices
 startup-preparing-extract = Preparing to extract resources...
 startup-extracting = Extracting { $desc }...
 startup-extract-done = Extraction complete

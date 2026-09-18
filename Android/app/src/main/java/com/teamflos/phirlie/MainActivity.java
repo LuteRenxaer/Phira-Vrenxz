@@ -20,6 +20,7 @@ import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -472,7 +473,12 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 把 APK assets 中的内置资源包复制到 filesDir/assets/，供 Rust 侧 std::fs 读取和解压。 */
+    /** 把 APK assets 中的内置资源包复制到 filesDir/assets/，供 Rust 侧 std::fs 读取和解压。
+     *
+     *  <p>以前这里只判断"目标文件已存在就跳过"，于是**更新 APK 之后 filesDir 里还是旧包**：
+     *  本体包里换掉的贴图、内置谱面资源都看不到。现在把本次安装的版本指纹（APK 的更新时间）
+     *  记在 assets/.pack_stamp 里，指纹对不上就把两个包重抄一遍（Rust 侧再按包指纹重新解压）。
+     */
     private void copyBuiltinAssets(String filesDir) {
         File assetsDir = new File(filesDir, "assets");
         if (!assetsDir.exists()) {
@@ -480,10 +486,29 @@ public class MainActivity extends Activity {
             assetsDir.mkdirs();
         }
         String[] packages = {"Expansion_package.zip", "Ontology_package.zip"};
+        long updated = 0L;
+        try {
+            updated = getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime;
+        } catch (Exception e) {
+            Log.w(TAG, "cannot read package update time", e);
+        }
+        File stampFile = new File(assetsDir, ".pack_stamp");
+        boolean upToDate = false;
+        if (stampFile.exists()) {
+            try (InputStream in = new FileInputStream(stampFile)) {
+                byte[] buf = new byte[32];
+                int n = in.read(buf);
+                if (n > 0) {
+                    upToDate = Long.parseLong(new String(buf, 0, n).trim()) == updated;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "cannot read asset stamp", e);
+            }
+        }
         for (String name : packages) {
             File target = new File(assetsDir, name);
-            if (target.exists()) {
-                Log.i(TAG, "asset already exists: " + name);
+            if (upToDate && target.exists()) {
+                Log.i(TAG, "asset up to date: " + name + " (" + target.length() + " bytes)");
                 continue;
             }
             InputStream in = null;
@@ -507,6 +532,11 @@ public class MainActivity extends Activity {
                 } catch (IOException ignored) {
                 }
             }
+        }
+        try (OutputStream out = new FileOutputStream(stampFile)) {
+            out.write(Long.toString(updated).getBytes());
+        } catch (IOException e) {
+            Log.w(TAG, "cannot write asset stamp", e);
         }
     }
 

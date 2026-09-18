@@ -27,5 +27,3 @@ warn-deny-tos-policy = Bạn cần chấp nhận điều khoản
 
 open-in-web = Xem trên Web
 
-main-character-name = Shee
-main-character-intro = TODO

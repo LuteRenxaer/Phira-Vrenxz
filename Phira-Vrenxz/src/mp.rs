@@ -4,11 +4,11 @@
 //! - [`session::MpSession`]：唯一持有连接/房间状态与页面导航的对象，活在
 //!   [`MP_SESSION`] 静态里，跨场景进出存活；
 //! - [`scene::MultiplayerScene`]：与主菜单平级的整屏场景，只是会话的一层视图壳；
-//! - [`page`]：整屏分页界面（连接 / 主页=房间大厅 / 房间 / 房主管理 / 结算 / 观战），
+//! - [`page`]：整屏分页界面（连接 / 主页=房间大厅 / 房间 / 房主管理），
 //!   所有页面共用 [`theme`] 的尺寸、字号与颜色体系；
 //! - [`state`] / [`actions`]：协议状态与协议调用（无 UI）；
 //! - [`messages`]：房间消息流与聊天；
-//! - [`preview`] / [`spectate`]：谱面预览与观战会话（后台任务、数据喂送）；
+//! - [`preview`]：谱面预览会话（后台任务、打断信号）；
 //! - [`serve`]：本地谱面分享的打包 / 上传 / 下载。
 //!
 //! 多人模式内部**没有任何悬浮窗**：所有信息都是整屏页面。
@@ -22,7 +22,6 @@ mod preview;
 mod scene;
 mod serve;
 mod session;
-mod spectate;
 mod state;
 pub mod theme;
 

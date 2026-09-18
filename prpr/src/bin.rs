@@ -351,6 +351,7 @@ impl BinaryData for Note {
             color: WHITE,
             fx_color: None,
             judge_area: 1.,
+            protected: false,
         })
     }
 

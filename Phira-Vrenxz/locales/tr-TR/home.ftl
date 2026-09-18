@@ -15,4 +15,3 @@ update-desc =
 update-ignore = Bu güncellemeyi görmezden gel
 update-go = Güncelle
 
-change-char = Karakter Değiştir

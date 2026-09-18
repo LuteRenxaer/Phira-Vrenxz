@@ -1,7 +1,6 @@
 //! 房间消息流：把服务端下发的 `Message` 渲染成滚动列表，并把聊天输入
-//! 送出去。观战需要的“当前正在游玩的谱面”信息也从这里顺带取出
-//! （服务端在观战者进房时会补发选谱消息），因此 [`MessageLog::ingest`] 会返回
-//! [`RoomNotice`]，由会话转交给观战模块。
+//! 送出去。房间页要显示的“当前谱面名”也顺带从这里取出（服务端只把谱面名放在
+//! 选谱消息里，房间状态里没有），因此 [`MessageLog::ingest`] 会返回 [`RoomNotice`]。
 
 use macroquad::prelude::*;
 use phira_mp_client::Client;
@@ -33,12 +32,12 @@ impl Message {
     }
 }
 
-/// 从消息流中提取、供观战使用的选谱信息。
+/// 从消息流中提取的选谱信息（房间页左面板要显示「谱面:xxx」）。
 #[derive(Debug, Clone)]
 pub enum RoomNotice {
-    /// 服务端补发的当前在线谱面
-    OnlineChart { id: i32, name: String },
-    /// 服务端补发的当前本地谱面
+    /// 在线谱面的名字
+    OnlineChart { name: String },
+    /// 本地谱面的名字
     LocalChart { name: String },
 }
 
@@ -84,7 +83,7 @@ impl MessageLog {
         self.scroll.contains(touch) && self.scroll.touch(touch, t)
     }
 
-    /// 消费服务端消息：转成消息流文本，并返回其中可供观战使用的选谱信息。
+    /// 消费服务端消息：转成消息流文本，并返回其中带下来的谱面名。
     pub fn ingest(&mut self, client: &Client, incoming: Vec<MpMessage>) -> Vec<RoomNotice> {
         let mut notices = Vec::new();
         self.msgs.extend(incoming.into_iter().map(|msg| match msg {
@@ -96,13 +95,11 @@ impl MessageLog {
                 color: if user == 0 { semi_white(0.7) } else { WHITE },
             },
             msg => {
-                // 观战：服务端在观战者加入时补发当前谱面（SelectChart / SelectLocalChart），
-                // 记录下来以便“同步观战”能加载正在游玩的那张谱。
+                // 谱面名只有选谱消息里带（房间状态里没有），顺手记下来给房间页用
                 match &msg {
-                    MpMessage::SelectChart { id, name, .. } if *id > 0 => notices.push(RoomNotice::OnlineChart {
-                        id: *id,
-                        name: name.clone(),
-                    }),
+                    MpMessage::SelectChart { id, name, .. } if *id > 0 => {
+                        notices.push(RoomNotice::OnlineChart { name: name.clone() })
+                    }
                     MpMessage::SelectLocalChart { name, .. } => notices.push(RoomNotice::LocalChart { name: name.clone() }),
                     _ => {}
                 }
@@ -212,9 +209,11 @@ fn system_text(client: &Client, msg: MpMessage) -> String {
                 mtl!("msg-kicked", "user" => name.as_str())
             }
         }
-        // 结算排名经 room_results 队列单独展示，消息流里只留一条提示
+        // 服务端在本局结束时发来的玩家成绩汇总：独立的展示页面已经删掉，
+        // 所以这里只在消息流里留一行「几名玩家完成」，让房间里的人知道上一局结束了
+        // （对应的文案 key 仍在 locales 里，由文案那边决定怎么改写或删除）
         M::RoomResults { results } => mtl!("msg-room-results", "n" => results.len() as u64),
-        // 多人同步观战：某玩家暂停/继续
+        // 多人对局中某玩家暂停/继续
         M::PlayerPaused { user, paused } => {
             let key = if paused { "msg-player-paused" } else { "msg-player-resumed" };
             mtl!(key, "user" => client.user_name(user))

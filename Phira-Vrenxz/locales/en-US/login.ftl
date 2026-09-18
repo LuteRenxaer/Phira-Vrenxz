@@ -61,8 +61,6 @@ startup-init-failed = Initialization failed
 
 # Phira-Vrenxz startup
 startup-chart-resource = Chart Resources
-startup-character-model = Character Models
-startup-character-voice = Character Voices
 startup-expansion-package = Expansion Package
 startup-preparing-extract = Preparing to extract resources...
 startup-extracting = Extracting { $desc }...

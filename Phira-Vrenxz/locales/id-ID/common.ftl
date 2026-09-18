@@ -19,11 +19,6 @@ loading_tos_policy = Memuat Syarat Ketentuan dan Kebijakan...
 fetch-tos-policy-failed = Gagal mengambil Syarat Ketentuan dan Kebijakan Privasi
 warn-deny-tos-policy = Anda harus menyetujui untuk menggunakan layanan online Phira.
 open-in-web = Lihat di Web
-main-character-name = Shee
-main-character-intro =
-    Nyanyian yang berasal dari reruntuhan, dengan ritme yang terjalin dengan melodi yang rumit, bagaikan sebuah keajaiban tersendiri—seorang gadis misterius yang menentang semua hukum yang dikenal.
-    Ia datang dari masa depan, namun tampaknya memiliki semacam eksistensi abadi yang terhubung dengan esensi dunia. Tetapi itu tidak penting; semua keterikatan yang tak berwujud dan berwujud telah memudar dan menghilang bersama ingatan gadis itu.
-    Apa yang dilihatnya dalam mimpi ini, yang terjalin dengan nyanyian dan musik, seanggun bulu burung?
 favorites = Favorit
 default-fav-folder = Favorit Default
 favorites-online-only = Hanya chart online yang dapat ditambahkan ke favorit online. Chart lokal: { $charts }

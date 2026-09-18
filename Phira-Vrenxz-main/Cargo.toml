@@ -5,8 +5,10 @@ edition = { workspace = true }
 license = { workspace = true }
 
 [features]
-default = ["video"]
+# `chat` 打开房间页里的聊天输入框（输入框要能被点开才谈得上聊天，默认就该开）
+default = ["video", "chat"]
 video = ["phira-vrenxz/video"]
+chat = ["phira-vrenxz/chat"]
 
 [dependencies]
 phira-vrenxz = { workspace = true, default-features = false }

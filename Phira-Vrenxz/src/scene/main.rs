@@ -276,7 +276,6 @@ impl MainScene {
             "icons/order.png",          // Cycle
             "icons/mod.png",            // Lock
             "icons/search.png",         // Preview
-            "icons/multiplayer.png",    // Spectate
             "icons/plus.png",           // Create
             "icons/user.png",           // Join
             "icons/order.png",          // Refresh
@@ -459,6 +458,8 @@ impl Scene for MainScene {
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
         UI_AUDIO.with(|it| it.borrow_mut().recover_if_needed())?;
+        // 旧版本（PhirLie / 旧版 Phira-Vrenxz）数据检测与同步：只在主菜单里跑一次，与多人模式无关
+        crate::migrate::tick(tm);
         // Android 深链接（phira://）：把待处理的房间动作交给多人会话并进入多人场景
         if let Some(link) = crate::mp::take_pending_room_link() {
             // TEMP DEBUG (to be removed)

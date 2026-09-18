@@ -58,15 +58,6 @@ preview-started-title = The host has started the game
 preview-started-content = The host started this round while you were previewing the chart. You can play together again next round.
 preview-started-ok = Got it
 # Spectating
-spectate = Spectate
-spectate-title = Spectating
-spectate-none = No one is playing right now.
-spectate-waiting = Waiting…
-spectate-watch = Sync Spectate
-spectate-exit = Exit Spectate
-spectate-no-chart = No chart available to watch.
-spectate-joined = Spectating
-spectate-chart = Now playing: { $chart }
 
 lock-room = { $current ->
   [true] Unlock Room
@@ -124,9 +115,7 @@ msg-send-chart = `{ $user }` started sharing the chart
 msg-download-ready = `{ $user }` finished downloading the chart
 msg-player-paused = `{ $user }` paused the game
 msg-player-resumed = `{ $user }` resumed the game
-msg-room-results = Round finished: { $n } players. Tap to view ranking.
-results-title = Round Results
-results-aborted = Aborted
+msg-room-results = Round finished: { $n } players.
 msg-room-lock = { $lock ->
   [true] Room locked.
   *[other] Room unlocked.
@@ -153,7 +142,6 @@ mp-lobby-not-room = Not in a room yet
 mp-room-tag = Room #{ $id }
 mp-player-count = Players ({ $n })
 mp-you = You
-mp-watching = Watching
 mp-ready-tag = Ready
 mp-host = Host
 mp-state-choose = Choosing chart…
@@ -171,10 +159,4 @@ mp-manage-title = Manage { $name }
 mp-manage-transfer = Make host
 mp-manage-kick = Kick out
 mp-manage-cancel = Cancel
-room-list-tap-hint = Tap a row to join · tap Spectate to watch
 mp-room-locked = 🔒 Password
-mp-room-counts = { $players } players / { $spectators } watching
-mp-spectate-hint = Tap a player row to pick the sync-watch target
-spectate-best = Best { $score }
-spectate-syncing = Synced
-mp-library = Charts

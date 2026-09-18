@@ -15,8 +15,6 @@ mp-sync-failed = 谱面同步失败: { $err }
 
 # Startup / loading
 startup-chart-resource = 谱面资源
-startup-character-model = 角色模型
-startup-character-voice = 角色语音
 startup-preparing-extract = 准备解压资源...
 startup-extracting = 正在解压{ $desc }...
 startup-extract-done = 解压完成

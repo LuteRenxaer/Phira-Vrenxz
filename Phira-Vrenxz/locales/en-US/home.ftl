@@ -16,4 +16,3 @@ update-desc =
 update-ignore = Ignore
 update-go = View
 
-change-char = Change Character (Web)

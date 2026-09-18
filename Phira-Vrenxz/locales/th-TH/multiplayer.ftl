@@ -84,7 +84,6 @@ msg-room-cycle = { $cycle ->
   [true] ห้องถูกเปลี่ยนเป็นโหมดวนแล้ว.
   *[other] ห้องได้ถูกเปลี่ยนเป็นโหมดธรรมดาแล้ว.
 }
-spectate-best = สูงสุด { $score }
-spectate-syncing = กำลังซิงค์
 mp-library = Charts
 mp-chart-label = Chart
+

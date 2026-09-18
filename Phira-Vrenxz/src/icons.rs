@@ -72,7 +72,6 @@ pub struct Icons {
     pub cloud_check: SafeTexture,
     pub plus: SafeTexture,
     pub select: SafeTexture,
-    pub character: SafeTexture,
     pub achievements: SafeTexture,
 
     #[cfg(feature = "hykb")]
@@ -112,7 +111,6 @@ impl Icons {
             cloud_check,
             plus,
             select,
-            character,
             achievements,
             abstract_tex,
         ) = join!(
@@ -143,7 +141,6 @@ impl Icons {
             icon("icons/cloud_check.png"),
             icon("icons/plus.png"),
             icon("icons/select.png"),
-            icon("icons/skel_icon.png"),
             icon("icons/achievements.png"),
             icon("backgrounds/abstract.jpg"),
         );
@@ -184,7 +181,6 @@ impl Icons {
             cloud_check,
             plus,
             select,
-            character,
             achievements,
 
             #[cfg(feature = "hykb")]

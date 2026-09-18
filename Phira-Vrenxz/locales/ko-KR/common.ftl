@@ -28,6 +28,4 @@ warn-deny-tos-policy = 온라인 서비스를 이용하려면 동의가 필요�
 
 open-in-web = 웹에서 열기
 
-main-character-name = Shee
-main-character-intro = TODO
 

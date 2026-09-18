@@ -28,8 +28,6 @@ warn-deny-tos-policy = You must accept to use Phira's online services.
 
 open-in-web = View in Web
 
-main-character-name = Shee
-main-character-intro = To be added.
 
 favorites = Favorites
 default-fav-folder = Favorites

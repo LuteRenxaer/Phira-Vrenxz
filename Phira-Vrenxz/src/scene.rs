@@ -31,6 +31,9 @@ pub use studio_logo::StudioLogoScene;
 mod login_scene;
 pub use login_scene::LoginScene;
 
+mod setup_scene;
+pub use setup_scene::SetupScene;
+
 use crate::{
     client::{Client, UserManager},
     data::LocalChart,
@@ -69,6 +72,12 @@ use uuid::Uuid;
 thread_local! {
     pub static TEX_BACKGROUND: RefCell<Option<SafeTexture>> = const { RefCell::new(None) };
     pub static TEX_ICON_BACK: RefCell<Option<SafeTexture>> = const { RefCell::new(None) };
+    /// 谱面成绩等级图标（`assets/rank/*.png`，顺序同 [prpr::judge::icon_index]）。
+    ///
+    /// 与 [TEX_ICON_BACK] 一样在启动时装载：选曲页是通过 `ChartItem` 传进来的，
+    /// 但多人房间页没有那条链路，左下角的「最好成绩」又必须和选曲页长得一样，
+    /// 所以这里留一份全局的。
+    pub static TEX_RANK_ICONS: RefCell<Option<[SafeTexture; 8]>> = const { RefCell::new(None) };
 }
 
 pub static ASSET_CHART_INFO: Lazy<Mutex<Option<ChartInfo>>> = Lazy::new(Mutex::default);

@@ -19,11 +19,6 @@ loading_tos_policy = Die Nutzungsbedingungen & Datenschutzrichtlinie werden gela
 fetch-tos-policy-failed = Fehler beim Laden der Nutzungsbedingungen & Datenschutzrichtlinie
 warn-deny-tos-policy = Du musst der Nutzung der Online-Dienste von Phira zustimmen
 open-in-web = Im Web anzeigen
-main-character-name = Shee
-main-character-intro =
-    Ein Lied, das aus den Ruinen herüberweht – eine Melodie, verwoben in kunstvolle musikalische Bewegungen, die eine ganz eigene Form annimmt. Sie ist wie ein leibhaftiges Wunder, ein geheimnisvolles Mädchen, das sich jeder Beschreibung durch bekannte Gesetze entzieht.
-    Obwohl sie aus der Zukunft stammt, wirkt sie wie eine ewige Präsenz – untrennbar verbunden mit dem Wesen der Welt. Es spielt keine Rolle; alle Bindungen, ob greifbar oder ungreifbar, sind mit ihren Erinnerungen verblasst und haben keine Spur hinterlassen.
-    Leicht wie eine Feder, anmutig schwebend – was erblickt sie in diesem Traum, in dem Stimmen und Musik ineinanderfließen?
 favorites = Favoriten
 default-fav-folder = Standard-Favoriten
 favorites-online-only = Nur Online-Charts können in Online-Favoriten gespeichert werden. Lokale Charts: { $charts }

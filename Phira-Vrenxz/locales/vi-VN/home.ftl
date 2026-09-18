@@ -16,4 +16,3 @@ update-desc =
 update-ignore = Bỏ qua
 update-go = Cập nhật
 
-change-char = Thay đổi nhân vật

@@ -28,5 +28,3 @@ warn-deny-tos-policy = Accepter pour utiliser notre service en ligne
 
 open-in-web = Ouvrir dans la page Web
 
-main-character-name = Shee
-main-character-intro = À ajouter

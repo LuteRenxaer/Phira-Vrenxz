@@ -72,7 +72,6 @@ msg-room-cycle =
         [true] Өрөө дугуйн горим руу өөрчлөгдөв
        *[other] Өрөө энгийн горим руу өөрчлөгдөв
     }
-spectate-best = Хамгийн сайн { $score }
-spectate-syncing = Синк хийгдсэн
 mp-library = Чартууд
 mp-chart-label = Чарт
+

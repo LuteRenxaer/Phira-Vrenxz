@@ -203,7 +203,6 @@ custom-ui-scale = UI 比例
 custom-show-score = 显示分数
 custom-show-combo = 显示连击
 custom-show-acc = 显示准确率
-custom-show-character = 显示角色
 custom-accent-color = 主题色
 custom-edit = 修改
 custom-section-ui-position = UI 位置

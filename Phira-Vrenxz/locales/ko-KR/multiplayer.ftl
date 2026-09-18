@@ -84,7 +84,6 @@ msg-room-cycle = { $cycle ->
   [true] 방이 순환 모드로 변경되었습니다.
   *[other] 방이 일반 모드로 변경되었습니다.
 }
-spectate-best = 최고 { $score }
-spectate-syncing = 동기화 중
 mp-library = 채보
 mp-chart-label = 채보
+

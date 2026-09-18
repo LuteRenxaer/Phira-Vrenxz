@@ -438,7 +438,11 @@ fn render_title<'a>(ui: &mut Ui, title: impl Into<Cow<'a, str>>, subtitle: Optio
 }
 
 
-fn render_switch(ui: &mut Ui, r: Rect, t: f32, btn: &mut DRectButton, on: bool) {
+/// 开关：底槽 + 圆钮。
+///
+/// `pub(crate)` 是为了让首启向导（`scene::SetupScene`）用同一个开关，
+/// 两边样式必须是同一份代码画出来的，不然同一个设置项在向导里和设置页里会不一样。
+pub(crate) fn render_switch(ui: &mut Ui, r: Rect, t: f32, btn: &mut DRectButton, on: bool) {
     btn.build(ui, t, r, |_, _| {});
 
     let scale = 0.8;
@@ -500,6 +504,8 @@ struct GeneralList {
     fullscreen_btn: DRectButton,
 
     cache_btn: DRectButton,
+    /// 「同步旧版本数据」（crate::migrate）
+    legacy_btn: DRectButton,
     offline_btn: DRectButton,
     server_status_btn: DRectButton,
     mp_btn: DRectButton,
@@ -545,6 +551,7 @@ impl GeneralList {
             fullscreen_btn: DRectButton::new(),
 
             cache_btn: DRectButton::new(),
+            legacy_btn: DRectButton::new(),
             offline_btn: DRectButton::new(),
             server_status_btn: DRectButton::new(),
             mp_btn: DRectButton::new(),
@@ -627,6 +634,11 @@ impl GeneralList {
             fs::remove_dir_all(dir::cache()?)?;
             self.update_cache_size()?;
             show_message(tl!("item-cache-cleared")).ok();
+            return Ok(Some(false));
+        }
+        if self.legacy_btn.touch(touch, t) {
+            // 旧版本（PhirLie / 旧版 Phira-Vrenxz）数据同步：找到就弹确认框，找不到给个提示
+            crate::migrate::manual_sync();
             return Ok(Some(false));
         }
         if self.offline_btn.touch(touch, t) {
@@ -924,6 +936,11 @@ impl GeneralList {
             };
             render_title(ui, tl!("item-clear-cache"), Some(cache_size));
             self.cache_btn.render_text(ui, rr, t, tl!("item-clear-cache-btn"), 0.5, true);
+        }
+        item! {
+            render_title(ui, crate::migrate::mtl!("migrate-settings-item"), Some(crate::migrate::mtl!("migrate-settings-item-sub")));
+            self.legacy_btn
+                .render_text(ui, rr, t, crate::migrate::mtl!("migrate-settings-now"), 0.5, true);
         }
         item! {
             render_title(ui, tl!("item-reset-settings"), Some(tl!("item-reset-settings-sub")));
