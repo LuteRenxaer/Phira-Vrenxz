@@ -630,7 +630,7 @@ pub(crate) fn render_switch(ui: &mut Ui, r: Rect, t: f32, btn: &mut DRectButton,
     });
 }
 /// 设置页左上角返回按钮：结算页重试键同款斜切按钮 + 镜像 proceed 图标。
-fn settings_back_rect(ui: &Ui) -> Rect {
+pub(crate) fn settings_back_rect(ui: &Ui) -> Rect {
     settings_back_rect_top(ui.top)
 }
 /// 同上，但只按 top 算（触摸判定没有 Ui 时用）
@@ -641,7 +641,7 @@ fn settings_back_rect_top(top: f32) -> Rect {
     Rect::new(-1. - h * PARALLELOGRAM_SLOPE, y, w, h)
 }
 /// 左上角返回键：结算页重试按钮同款斜切样式 + 镜像 proceed 图标。
-fn draw_settings_back(ui: &mut Ui, offset: f32) {
+pub(crate) fn draw_settings_back(ui: &mut Ui, offset: f32) {
     let base = settings_back_rect(ui);
     let br = Rect::new(base.x + offset, base.y, base.w, base.h);
     draw_parallelogram(br, None, Color::new(0.012, 0.012, 0.016, 0.94), true);

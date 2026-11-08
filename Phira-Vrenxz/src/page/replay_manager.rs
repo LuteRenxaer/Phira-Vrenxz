@@ -173,8 +173,10 @@ pub struct ReplayEditPage {
     end: f32,
     offset_ms: f32,
     speed: f32,
-    btns: [DRectButton; 8],
+    btns: [DRectButton; 9],
     next: Option<NextPage>,
+    preview_task: LocalTask<Result<NextScene>>,
+    preview_ready: Option<NextScene>,
 }
 
 impl ReplayEditPage {
@@ -191,6 +193,8 @@ impl ReplayEditPage {
             replay,
             btns: std::array::from_fn(|_| DRectButton::new()),
             next: None,
+            preview_task: None,
+            preview_ready: None,
         }
     }
 
@@ -218,6 +222,15 @@ impl Page for ReplayEditPage {
                 "replay_offset" => self.offset_ms = text.parse().unwrap_or(self.offset_ms),
                 "replay_speed" => self.speed = text.parse().unwrap_or(self.speed),
                 _ => prpr::scene::return_input(id, text),
+            }
+        }
+        if let Some(task) = &mut self.preview_task {
+            if let Some(result) = poll_future(task.as_mut()) {
+                self.preview_task = None;
+                match result {
+                    Ok(scene) => self.preview_ready = Some(scene),
+                    Err(err) => show_error(err),
+                }
             }
         }
         Ok(())
@@ -254,6 +267,45 @@ impl Page for ReplayEditPage {
             show_message("已偏移").ok();
             return Ok(true);
         }
+        if self.btns[8].touch(touch, t) {
+            let Some(local_path) = self.replay.local_path.clone().or_else(|| {
+                crate::get_data()
+                    .charts
+                    .iter()
+                    .find(|c| c.info.name == self.replay.name)
+                    .map(|c| c.local_path.clone())
+            }) else {
+                show_error(anyhow::anyhow!("找不到对应谱面"));
+                return Ok(true);
+            };
+            let mut preview = self.replay.clone();
+            preview.speed = self.speed;
+            preview.shift(self.offset_ms / 1000.);
+            preview.trim(self.start, self.end);
+            prpr::replay::set_pending(preview);
+            let local_path = local_path.replace('\\', "/");
+            self.preview_task = Some(Box::pin(async move {
+                let mut fs = crate::scene::fs_from_path(&local_path)?;
+                let info = load_info(fs.as_mut()).await?;
+                let config = crate::get_data().config.clone();
+                let scene = LoadingScene::new(
+                    GameMode::Replay,
+                    info,
+                    config,
+                    fs,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
+                Ok(NextScene::Overlay(Box::new(scene)))
+            }));
+            return Ok(true);
+        }
         if self.btns[6].touch(touch, t) {
             self.replay.speed = self.speed;
             if let Err(err) = self.replay.save_as(&self.path) {
@@ -273,10 +325,10 @@ impl Page for ReplayEditPage {
 
     fn render(&mut self, ui: &mut Ui, _s: &mut SharedState) -> Result<()> {
         let area = super::settings::draw_settings_content_panel(ui);
+        super::settings::draw_settings_back(ui, 0.);
         let top = ui.top;
-        ui.text("编辑回放").pos(area.x, -top + 0.10).size(0.72).draw();
         ui.text(&self.replay.name)
-            .pos(area.x, -top + 0.17)
+            .pos(area.x, -top + 0.13)
             .size(0.34)
             .color(Color::new(1., 1., 1., 0.6))
             .draw();
@@ -293,6 +345,8 @@ impl Page for ReplayEditPage {
         y += 0.085;
         Self::row(ui, y, "应用时间偏移", "", &mut self.btns[5], "执行");
         y += 0.10;
+        Self::row(ui, y, "在游戏场景中预览", "", &mut self.btns[8], "预览");
+        y += 0.085;
         Self::row(ui, y, "保存修改", "", &mut self.btns[6], "保存");
         y += 0.085;
         Self::row(ui, y, "取消", "", &mut self.btns[7], "返回");
@@ -301,5 +355,13 @@ impl Page for ReplayEditPage {
 
     fn next_page(&mut self) -> NextPage {
         self.next.take().unwrap_or(NextPage::None)
+    }
+
+    fn next_scene(&mut self, _s: &mut SharedState) -> NextScene {
+        self.preview_ready.take().unwrap_or(NextScene::None)
+    }
+
+    fn back_button_rect(&self, ui: &Ui) -> Option<Rect> {
+        Some(super::settings::settings_back_rect(ui))
     }
 }
