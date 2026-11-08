@@ -2874,7 +2874,7 @@ impl ReplayList {
                 return;
             }
         };
-        let full = format!("{}/{}", root, local_path.replace('\\', "/"));
+        let full = local_path.replace('\\', "/");
         self.play_task = Some(Box::pin(async move {
             let mut fs = crate::scene::fs_from_path(&full)?;
             let info = prpr::fs::load_info(fs.as_mut()).await?;
