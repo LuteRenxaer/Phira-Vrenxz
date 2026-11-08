@@ -1,4 +1,4 @@
-//! 本地回放列表与编辑器。
+//! 本地回放管理页与编辑器（自研格式，仿 Phira Pro 的交互，不复制其代码）。
 use super::{NextPage, Page, SharedState};
 use anyhow::Result;
 use inputbox::InputBox;
@@ -6,7 +6,10 @@ use macroquad::prelude::*;
 use prpr::{
     ext::{poll_future, LocalTask},
     fs::load_info,
-    scene::{request_input, show_error, show_message, take_input, GameMode, LoadingScene, NextScene},
+    scene::{
+        request_file, request_input, return_file, show_error, show_message, take_file, take_input,
+        GameMode, LoadingScene, NextScene,
+    },
     ui::{DRectButton, Ui},
 };
 use std::{borrow::Cow, path::PathBuf};
@@ -18,7 +21,13 @@ struct Item {
 
 pub struct ReplayManager {
     items: Vec<Item>,
-    buttons: Vec<DRectButton>,
+    play_btns: Vec<DRectButton>,
+    del_btns: Vec<DRectButton>,
+    filter_btns: [DRectButton; 8],
+    search_btn: DRectButton,
+    query: String,
+    filter: usize,
+    status: String,
     play_task: LocalTask<Result<NextScene>>,
     ready: Option<NextScene>,
 }
@@ -27,7 +36,13 @@ impl ReplayManager {
     pub fn new() -> Self {
         let mut this = Self {
             items: Vec::new(),
-            buttons: Vec::new(),
+            play_btns: Vec::new(),
+            del_btns: Vec::new(),
+            filter_btns: std::array::from_fn(|_| DRectButton::new()),
+            search_btn: DRectButton::new(),
+            query: String::new(),
+            filter: 0,
+            status: String::new(),
             play_task: None,
             ready: None,
         };
@@ -48,7 +63,26 @@ impl ReplayManager {
             }
         }
         self.items.sort_by_key(|i| std::cmp::Reverse(i.replay.recorded_at));
-        self.buttons = (0..self.items.len() * 2).map(|_| DRectButton::new()).collect();
+        self.play_btns = (0..self.items.len()).map(|_| DRectButton::new()).collect();
+        self.del_btns = (0..self.items.len()).map(|_| DRectButton::new()).collect();
+    }
+
+    fn visible(&self) -> Vec<usize> {
+        let q = self.query.to_lowercase();
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| {
+                let text = format!("{} {} {}", i.replay.name, i.replay.chart, i.replay.player.clone().unwrap_or_default());
+                text.to_lowercase().contains(&q)
+            })
+            .filter(|(_, i)| match self.filter {
+                1 => i.replay.local_path.is_some(),
+                2 => i.replay.local_path.is_none(),
+                _ => true,
+            })
+            .map(|(i, _)| i)
+            .collect()
     }
 
     fn play(&mut self, index: usize) {
@@ -87,14 +121,48 @@ impl ReplayManager {
             Ok(NextScene::Overlay(Box::new(scene)))
         }));
     }
+
+    fn button(ui: &mut Ui, r: Rect, label: &str, active: bool, btn: &mut DRectButton) {
+        btn.inner.set(ui, r);
+        ui.fill_rect(r, if active { WHITE } else { Color::new(0.07, 0.08, 0.10, 0.95) });
+        ui.text(label)
+            .pos(r.center().x, r.center().y)
+            .anchor(0.5, 0.5)
+            .size(0.30)
+            .color(if active { BLACK } else { WHITE })
+            .draw();
+    }
 }
 
 impl Page for ReplayManager {
     fn label(&self) -> Cow<'static, str> {
-        Cow::Borrowed("回放管理")
+        Cow::Borrowed("回放文件")
     }
 
     fn update(&mut self, _s: &mut SharedState) -> Result<()> {
+        if let Some((id, text)) = take_input() {
+            if id == "replay_search" {
+                self.query = text;
+            } else {
+                prpr::scene::return_input(id, text);
+            }
+        }
+        if let Some((id, file)) = take_file() {
+            if id == "_import_replay" {
+                let name = std::path::Path::new(&file)
+                    .file_name()
+                    .map(|v| v.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "imported.json".into());
+                if let Err(err) = std::fs::copy(&file, std::path::Path::new("replays").join(name)) {
+                    show_error(anyhow::Error::new(err));
+                } else {
+                    self.reload();
+                    show_message("回放已导入").ok();
+                }
+            } else {
+                return_file(id, file);
+            }
+        }
         if let Some(task) = &mut self.play_task {
             if let Some(result) = poll_future(task.as_mut()) {
                 self.play_task = None;
@@ -108,56 +176,126 @@ impl Page for ReplayManager {
     }
 
     fn touch(&mut self, touch: &Touch, s: &mut SharedState) -> Result<bool> {
-        for i in 0..self.items.len() {
-            if self.buttons.get_mut(i * 2).is_some_and(|b| b.touch(touch, s.t)) {
-                self.play(i);
+        let t = s.t;
+        if self.search_btn.touch(touch, t) {
+            request_input("replay_search", InputBox::new().default_text(&self.query));
+            return Ok(true);
+        }
+        for i in 0..8 {
+            if self.filter_btns[i].touch(touch, t) {
+                match i {
+                    0 => request_file("_import_replay"),
+                    1 => self.reload(),
+                    2 => {
+                        self.items.sort_by_key(|i| std::cmp::Reverse(i.replay.recorded_at));
+                        self.filter = 0;
+                    }
+                    3 => self.status = "多选功能暂未开放".into(),
+                    4 => self.filter = 0,
+                    5 => self.filter = 1,
+                    6 => self.filter = 2,
+                    _ => self.filter = 3,
+                }
                 return Ok(true);
             }
-            if self.buttons.get_mut(i * 2 + 1).is_some_and(|b| b.touch(touch, s.t)) {
-                let _ = std::fs::remove_file(&self.items[i].path);
+        }
+        let visible = self.visible();
+        for (row, idx) in visible.iter().enumerate().take(10) {
+            if self.play_btns.get_mut(*idx).is_some_and(|b| b.touch(touch, t)) {
+                self.play(*idx);
+                return Ok(true);
+            }
+            if self.del_btns.get_mut(*idx).is_some_and(|b| b.touch(touch, t)) {
+                let _ = std::fs::remove_file(&self.items[*idx].path);
                 self.reload();
                 show_message("回放已删除").ok();
                 return Ok(true);
             }
+            let _ = row;
         }
         Ok(false)
     }
 
     fn render(&mut self, ui: &mut Ui, _s: &mut SharedState) -> Result<()> {
-        let area = super::settings::draw_settings_content_panel(ui);
         let top = ui.top;
-        ui.text("回放管理").pos(area.x, -top + 0.10).size(0.72).draw();
-        ui.text(format!("共 {} 份回放", self.items.len()))
-            .pos(area.right(), -top + 0.115)
-            .anchor(1., 0.)
-            .size(0.34)
-            .color(Color::new(1., 1., 1., 0.6))
+        let panel = Rect::new(-0.85, -top + 0.07, 1.7, top * 2. - 0.14);
+        ui.fill_rect(panel, Color::new(0.05, 0.07, 0.09, 0.97));
+        ui.text("回放管理")
+            .pos(panel.x + 0.02, panel.y + 0.025)
+            .size(0.56)
+            .color(WHITE)
             .draw();
-        let mut y = area.y;
-        for (i, item) in self.items.iter().enumerate().take(12) {
-            let r = Rect::new(area.x, y, area.w, 0.11);
-            ui.fill_rect(r, Color::new(0.055, 0.060, 0.075, 0.78));
-            ui.text(&item.replay.name).pos(r.x + 0.02, r.y + 0.025).size(0.42).draw();
+        let sr = Rect::new(panel.right() - 0.48, panel.y + 0.02, 0.45, 0.06);
+        ui.fill_rect(sr, Color::new(0.02, 0.025, 0.03, 1.));
+        self.search_btn.inner.set(ui, sr);
+        ui.text(if self.query.is_empty() { "搜索" } else { &self.query })
+            .pos(sr.x + 0.02, sr.center().y)
+            .anchor(0., 0.5)
+            .size(0.30)
+            .color(Color::new(1., 1., 1., 0.7))
+            .draw();
+        let labels = ["导入回放", "刷新列表", "最新录制", "多选回放", "全部回放", "本地录制", "导入谱面", "缺少谱面"];
+        let bw = 0.40;
+        let gap = 0.015;
+        let mut by = panel.y + 0.10;
+        for row in 0..2 {
+            for col in 0..4 {
+                let i = row * 4 + col;
+                let r = Rect::new(panel.x + 0.02 + col as f32 * (bw + gap), by, bw, 0.065);
+                let active = match i {
+                    4 => self.filter == 0,
+                    5 => self.filter == 1,
+                    6 => self.filter == 2,
+                    7 => self.filter == 3,
+                    _ => false,
+                };
+                Self::button(ui, r, labels[i], active, &mut self.filter_btns[i]);
+            }
+            by += 0.075;
+        }
+        let visible = self.visible();
+        self.status = format!("{} 个回放", visible.len());
+        let mut y = by + 0.02;
+        if visible.is_empty() {
+            ui.text("暂无回放，请导入文件或调整搜索条件")
+                .pos(panel.x + 0.03, y + 0.04)
+                .size(0.32)
+                .color(Color::new(1., 1., 1., 0.75))
+                .draw();
+        }
+        for idx in visible.iter().take(10) {
+            let item = &self.items[*idx];
+            let r = Rect::new(panel.x + 0.02, y, panel.w - 0.04, 0.095);
+            ui.fill_rect(r, Color::new(0.07, 0.08, 0.10, 0.92));
+            ui.text(&item.replay.name)
+                .pos(r.x + 0.02, r.y + 0.018)
+                .size(0.38)
+                .draw();
             ui.text(format!(
-                "{:.2}x  P/G/B/M {}/{}/{}/{}",
+                "{}  {:.2}x  P/G/B/M {}/{}/{}/{}",
+                item.replay.chart,
                 item.replay.speed,
                 item.replay.stats().0,
                 item.replay.stats().1,
                 item.replay.stats().2,
                 item.replay.stats().3
             ))
-            .pos(r.x + 0.02, r.y + 0.07)
-            .size(0.26)
+            .pos(r.x + 0.02, r.y + 0.060)
+            .size(0.25)
             .color(Color::new(1., 1., 1., 0.6))
             .draw();
-            let p = Rect::new(r.right() - 0.30, r.y + 0.025, 0.12, 0.06);
-            let d = Rect::new(r.right() - 0.16, r.y + 0.025, 0.12, 0.06);
-            self.buttons[i * 2].inner.set(ui, p);
-            self.buttons[i * 2 + 1].inner.set(ui, d);
-            ui.text("播放").pos(p.center().x, p.center().y).anchor(0.5, 0.5).size(0.30).draw();
-            ui.text("删除").pos(d.center().x, d.center().y).anchor(0.5, 0.5).size(0.30).draw();
-            y += 0.13;
+            let p = Rect::new(r.right() - 0.30, r.y + 0.020, 0.12, 0.055);
+            let d = Rect::new(r.right() - 0.16, r.y + 0.020, 0.12, 0.055);
+            Self::button(ui, p, "播放", false, &mut self.play_btns[*idx]);
+            Self::button(ui, d, "删除", false, &mut self.del_btns[*idx]);
+            y += 0.105;
         }
+        ui.text(&self.status)
+            .pos(panel.center().x, panel.bottom() - 0.04)
+            .anchor(0.5, 0.)
+            .size(0.26)
+            .color(Color::new(1., 1., 1., 0.5))
+            .draw();
         Ok(())
     }
 
@@ -202,7 +340,7 @@ impl ReplayEditPage {
         let r = Rect::new(-0.85, y, 1.7, 0.075);
         ui.fill_rect(r, Color::new(0.055, 0.060, 0.075, 0.78));
         ui.text(label).pos(r.x + 0.02, r.center().y).anchor(0., 0.5).size(0.38).draw();
-        ui.text(value).pos(r.right() - 0.20, r.center().y).anchor(1., 0.5).size(0.32).draw();
+        ui.text(value).pos(r.right() - 0.26, r.center().y).anchor(1., 0.5).size(0.32).draw();
         let b = Rect::new(r.right() - 0.22, r.y + 0.010, 0.20, 0.055);
         super::settings::draw_settings_action_button(ui, b, action, btn);
     }

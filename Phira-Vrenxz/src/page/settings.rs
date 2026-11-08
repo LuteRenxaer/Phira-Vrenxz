@@ -3147,6 +3147,7 @@ impl DebugList {
             row_value("打开回放目录", Some("在资源管理器中查看 replays/".into()), &mut self.replay_folder_btn, "打开"),
             row_value("清空回放", Some("删除 replays/ 下全部 JSON 回放".into()), &mut self.replay_clear_btn, "清空"),
             row_value("导出回放", Some("复制到 export/replays".into()), &mut self.replay_export_btn, "导出"),
+            row_value("回放管理", Some("搜索、筛选、播放、删除本地回放".into()), &mut self.replay_manager_btn, "打开"),
         ]
     }
 }
