@@ -21,15 +21,32 @@ pub struct HitFrame {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ReplayResult {
+    pub score: u32,
+    pub accuracy: f64,
+    pub max_combo: u32,
+    pub counts: [u32; 4],
+    pub full_combo: bool,
+    pub early: u32,
+    pub late: u32,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Replay {
+    pub header: String,
     pub version: u32,
     pub name: String,
+    pub player: Option<String>,
     pub chart: String,
     #[serde(default)]
     pub local_path: Option<String>,
     pub speed: f32,
+    pub offset: f32,
+    pub mods: u32,
+    pub duration: f32,
     pub recorded_at: i64,
+    pub result: Option<ReplayResult>,
     pub touches: Vec<TouchFrame>,
     pub hits: Vec<HitFrame>,
     #[serde(skip)]
@@ -58,7 +75,17 @@ pub fn take_pending() -> Option<Replay> {
 
 pub fn load(path: &std::path::Path) -> Option<Replay> {
     let data = std::fs::read(path).ok()?;
-    serde_json::from_slice(&data).ok()
+    let mut replay: Replay = serde_json::from_slice(&data).ok()?;
+    if replay.header.is_empty() {
+        replay.header = "PhiraVrenxzReplay".into();
+    }
+    if replay.version < 2 {
+        replay.version = 2;
+    }
+    if replay.duration <= 0. {
+        replay.duration = replay.touches.iter().map(|t| t.t).fold(0., f32::max);
+    }
+    Some(replay)
 }
 
 /// Find the newest replay recorded for a chart display name.
@@ -129,12 +156,18 @@ impl Replay {
 
 pub fn begin(name: &str, chart: &str, speed: f32) {
     *ACTIVE.lock().unwrap() = Some(Replay {
-        version: 1,
+        header: "PhiraVrenxzReplay".into(),
+        version: 2,
         name: name.to_owned(),
+        player: None,
         chart: chart.to_owned(),
         local_path: NEXT_LOCAL_PATH.lock().unwrap().clone(),
         speed,
+        offset: 0.,
+        mods: 0,
+        duration: 0.,
         recorded_at: chrono::Utc::now().timestamp(),
+        result: None,
         touches: Vec::new(),
         hits: Vec::new(),
         seen_hits: HashSet::new(),
@@ -169,8 +202,15 @@ pub fn is_recording() -> bool {
 }
 
 /// 结束并写入 `replays/`；返回保存路径。
-pub fn finish() -> Option<PathBuf> {
-    let replay = ACTIVE.lock().unwrap().take()?;
+pub fn finish(result: Option<ReplayResult>) -> Option<PathBuf> {
+    let mut replay = ACTIVE.lock().unwrap().take()?;
+    replay.result = result;
+    replay.duration = replay
+        .touches
+        .iter()
+        .map(|t| t.t)
+        .chain(replay.hits.iter().map(|h| h.t))
+        .fold(0., f32::max);
     if replay.touches.is_empty() {
         return None;
     }
@@ -188,6 +228,49 @@ pub fn finish() -> Option<PathBuf> {
 
 pub fn cancel() {
     *ACTIVE.lock().unwrap() = None;
+}
+
+impl Replay {
+    pub fn save_as(&self, path: &std::path::Path) -> std::io::Result<()> {
+        let json = serde_json::to_vec_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        std::fs::write(path, json)
+    }
+
+    pub fn trim(&mut self, start: f32, end: f32) {
+        let start = start.max(0.);
+        let end = end.max(start);
+        self.touches.retain(|t| t.t >= start && t.t <= end);
+        self.hits.retain(|h| h.t >= start && h.t <= end);
+        for t in &mut self.touches {
+            t.t -= start;
+        }
+        for h in &mut self.hits {
+            h.t -= start;
+        }
+        self.duration = (end - start).max(0.);
+    }
+
+    pub fn shift(&mut self, delta: f32) {
+        for t in &mut self.touches {
+            t.t = (t.t + delta).max(0.);
+        }
+        for h in &mut self.hits {
+            h.t = (h.t + delta).max(0.);
+        }
+        self.duration = (self.duration + delta).max(0.);
+    }
+
+    pub fn delete_range(&mut self, start: f32, end: f32) {
+        self.touches.retain(|t| t.t < start || t.t > end);
+        self.hits.retain(|h| h.t < start || h.t > end);
+    }
+
+    pub fn rename(&mut self, name: String) {
+        if !name.trim().is_empty() {
+            self.name = name;
+        }
+    }
 }
 
 fn sanitize(name: &str) -> String {

@@ -2041,7 +2041,19 @@ impl GameScene {
             self.should_exit = true;
             return Ok(());
         }
-        if let Some(path) = crate::replay::finish() {
+        let replay_result = {
+            let r = self.judge.result();
+            Some(crate::replay::ReplayResult {
+                score: r.score,
+                accuracy: r.accuracy,
+                max_combo: r.max_combo,
+                counts: r.counts,
+                full_combo: r.max_combo == r.num_of_notes && r.num_of_notes > 0,
+                early: r.early,
+                late: r.late,
+            })
+        };
+        if let Some(path) = crate::replay::finish(replay_result) {
             info!("replay saved: {}", path.display());
         }
         let mut record_data = None;

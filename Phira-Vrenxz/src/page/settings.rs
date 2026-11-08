@@ -1390,6 +1390,11 @@ impl Page for SettingsPage {
                 return p;
             }
         }
+        if self.tab == SettingListType::Replay {
+            if let Some(p) = self.list_replay.next_page() {
+                return p;
+            }
+        }
         NextPage::None
     }
     fn next_scene(&mut self, _s: &mut SharedState) -> NextScene {
@@ -2818,9 +2823,11 @@ struct ReplayItem {
 struct ReplayList {
     items: Vec<ReplayItem>,
     play_btns: Vec<DRectButton>,
+    edit_btns: Vec<DRectButton>,
     del_btns: Vec<DRectButton>,
     play_task: LocalTask<Result<NextScene>>,
     ready: Option<NextScene>,
+    next_page: Option<NextPage>,
 }
 
 impl ReplayList {
@@ -2828,9 +2835,11 @@ impl ReplayList {
         let mut this = Self {
             items: Vec::new(),
             play_btns: Vec::new(),
+            edit_btns: Vec::new(),
             del_btns: Vec::new(),
             play_task: None,
             ready: None,
+            next_page: None,
         };
         this.reload();
         this
@@ -2850,6 +2859,7 @@ impl ReplayList {
         }
         self.items.sort_by_key(|i| std::cmp::Reverse(i.replay.recorded_at));
         self.play_btns = (0..self.items.len()).map(|_| DRectButton::new()).collect();
+        self.edit_btns = (0..self.items.len()).map(|_| DRectButton::new()).collect();
         self.del_btns = (0..self.items.len()).map(|_| DRectButton::new()).collect();
     }
 
@@ -2905,6 +2915,15 @@ impl ReplayList {
                 self.play(i);
                 return Ok(Some(false));
             }
+            if self.edit_btns[i].touch(touch, t) {
+                self.next_page = Some(NextPage::Overlay(Box::new(
+                    super::replay_manager::ReplayEditPage::new(
+                        self.items[i].path.clone(),
+                        self.items[i].replay.clone(),
+                    ),
+                )));
+                return Ok(Some(false));
+            }
             if self.del_btns[i].touch(touch, t) {
                 let _ = fs::remove_file(&self.items[i].path);
                 self.reload();
@@ -2932,12 +2951,22 @@ impl ReplayList {
         self.ready.take()
     }
 
+    fn next_page(&mut self) -> Option<NextPage> {
+        self.next_page.take()
+    }
+
     fn rows(&mut self) -> Vec<Row<'_>> {
         let mut v = Vec::new();
         let items = &self.items;
         let plays = &mut self.play_btns;
+        let edits = &mut self.edit_btns;
         let dels = &mut self.del_btns;
-        for ((item, play), del) in items.iter().zip(plays.iter_mut()).zip(dels.iter_mut()) {
+        for (((item, play), edit), del) in items
+            .iter()
+            .zip(plays.iter_mut())
+            .zip(edits.iter_mut())
+            .zip(dels.iter_mut())
+        {
             let sub = format!(
                 "{:.2}x  P/G/B/M {}/{}/{}/{}",
                 item.replay.speed,
@@ -2947,6 +2976,7 @@ impl ReplayList {
                 item.replay.stats().3
             );
             v.push(row_value(item.replay.name.clone(), Some(sub.into()), play, "播放"));
+            v.push(row_value(format!("编辑：{}", item.replay.name), None, edit, "编辑"));
             v.push(row_value(format!("删除：{}", item.replay.name), None, del, "删除"));
         }
         v
