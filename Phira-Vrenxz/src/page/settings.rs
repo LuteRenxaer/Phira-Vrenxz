@@ -1669,7 +1669,7 @@ impl GeneralList {
             info.tip = Some(tl!("tutorial").to_string());
             let config = get_data().config.clone();
             let scene = prpr::scene::LoadingScene::new(
-                prpr::scene::GameMode::Normal,
+                prpr::scene::GameMode::Tutorial,
                 info,
                 config,
                 fs,

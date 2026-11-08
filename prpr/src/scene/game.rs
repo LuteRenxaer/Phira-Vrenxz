@@ -227,6 +227,10 @@ pub enum GameMode {
     Challenge,
     /// [Replay] 回放：自动播放谱面并叠加录制的触点。
     Replay,
+    /// 教程/演示：不计成绩、不继承全局 HP。
+    Tutorial,
+    /// 多人联机：由房间状态驱动，不继承单机全局 HP。
+    Lan,
     /// [Re:课题] Re:课题：界面内切换，选谱不限数量不重复，自定义判定窗口
     ReChallenge,
 }
@@ -651,7 +655,10 @@ impl GameScene {
         judge.set_challenge(limits, challenge.is_some());
 
         // [HP 血量模式] 课题 HP 配置优先，否则按普通游玩 mod（config.hp）应用
-        let hp_cfg = challenge.as_ref().and_then(|c| c.hp).or_else(|| res.config.hp_config());
+        let hp_cfg = challenge
+            .as_ref()
+            .and_then(|c| c.hp)
+            .or_else(|| (matches!(mode, GameMode::Normal) && !preview_mode).then(|| res.config.hp_config()).flatten());
         let (hp, hp_max, hp_lose, hp_running) = match hp_cfg {
             Some(c) => (c.max_hp, c.max_hp, c.lose_condition, true),
             None => (0., 0., HpLoseCondition::BadOrMiss, false),
@@ -2150,7 +2157,7 @@ impl GameScene {
                 }
             }
             GameMode::TweakOffset => Some(NextScene::PopWithResult(Box::new(None::<f32>))),
-            GameMode::Replay => Some(NextScene::Pop),
+            GameMode::Replay | GameMode::Tutorial | GameMode::Lan => Some(NextScene::Pop),
             GameMode::Exercise => None,
         };
         Ok(())
@@ -3545,7 +3552,8 @@ void main() {
                         NextScene::Pop
                     }
                 }
-                GameMode::Exercise | GameMode::NoRetry | GameMode::View | GameMode::Reveal | GameMode::Replay => NextScene::Pop,
+                GameMode::Exercise | GameMode::NoRetry | GameMode::View | GameMode::Reveal | GameMode::Replay
+                | GameMode::Tutorial | GameMode::Lan => NextScene::Pop,
                 GameMode::TweakOffset => NextScene::PopWithResult(Box::new(None::<f32>)),
                 GameMode::Challenge | GameMode::ReChallenge => {
                     // 非自然完成（返回键 / HP 耗尽等触发退出）→ 课题整场作废
