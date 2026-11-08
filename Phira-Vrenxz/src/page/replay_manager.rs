@@ -23,6 +23,9 @@ pub struct ReplayManager {
     items: Vec<Item>,
     play_btns: Vec<DRectButton>,
     del_btns: Vec<DRectButton>,
+    row_btns: Vec<DRectButton>,
+    multi: bool,
+    chosen: std::collections::HashSet<usize>,
     filter_btns: [DRectButton; 8],
     search_btn: DRectButton,
     query: String,
@@ -38,6 +41,9 @@ impl ReplayManager {
             items: Vec::new(),
             play_btns: Vec::new(),
             del_btns: Vec::new(),
+            row_btns: Vec::new(),
+            multi: false,
+            chosen: Default::default(),
             filter_btns: std::array::from_fn(|_| DRectButton::new()),
             search_btn: DRectButton::new(),
             query: String::new(),
@@ -65,6 +71,8 @@ impl ReplayManager {
         self.items.sort_by_key(|i| std::cmp::Reverse(i.replay.recorded_at));
         self.play_btns = (0..self.items.len()).map(|_| DRectButton::new()).collect();
         self.del_btns = (0..self.items.len()).map(|_| DRectButton::new()).collect();
+        self.row_btns = (0..self.items.len()).map(|_| DRectButton::new()).collect();
+        self.chosen.clear();
     }
 
     fn visible(&self) -> Vec<usize> {
@@ -190,7 +198,18 @@ impl Page for ReplayManager {
                         self.items.sort_by_key(|i| std::cmp::Reverse(i.replay.recorded_at));
                         self.filter = 0;
                     }
-                    3 => self.status = "多选功能暂未开放".into(),
+                    3 => {
+                        if self.multi && !self.chosen.is_empty() {
+                            for i in self.chosen.drain() {
+                                let _ = std::fs::remove_file(&self.items[i].path);
+                            }
+                            self.multi = false;
+                            self.reload();
+                        } else {
+                            self.multi = !self.multi;
+                            self.chosen.clear();
+                        }
+                    }
                     4 => self.filter = 0,
                     5 => self.filter = 1,
                     6 => self.filter = 2,
@@ -201,6 +220,12 @@ impl Page for ReplayManager {
         }
         let visible = self.visible();
         for (row, idx) in visible.iter().enumerate().take(10) {
+            if self.multi && self.row_btns.get_mut(*idx).is_some_and(|b| b.touch(touch, t)) {
+                if !self.chosen.insert(*idx) {
+                    self.chosen.remove(idx);
+                }
+                return Ok(true);
+            }
             if self.play_btns.get_mut(*idx).is_some_and(|b| b.touch(touch, t)) {
                 self.play(*idx);
                 return Ok(true);
@@ -234,7 +259,8 @@ impl Page for ReplayManager {
             .size(0.30)
             .color(Color::new(1., 1., 1., 0.7))
             .draw();
-        let labels = ["导入回放", "刷新列表", "最新录制", "多选回放", "全部回放", "本地录制", "导入谱面", "缺少谱面"];
+        let multi_label = if self.multi { "删除选中" } else { "多选回放" };
+        let labels = ["导入回放", "刷新列表", "最新录制", multi_label, "全部回放", "本地录制", "导入谱面", "缺少谱面"];
         let bw = 0.40;
         let gap = 0.015;
         let mut by = panel.y + 0.10;
@@ -266,7 +292,8 @@ impl Page for ReplayManager {
         for idx in visible.iter().take(10) {
             let item = &self.items[*idx];
             let r = Rect::new(panel.x + 0.02, y, panel.w - 0.04, 0.095);
-            ui.fill_rect(r, Color::new(0.07, 0.08, 0.10, 0.92));
+            self.row_btns[*idx].inner.set(ui, r);
+            ui.fill_rect(r, if self.chosen.contains(idx) { Color::new(0.18, 0.22, 0.28, 0.95) } else { Color::new(0.07, 0.08, 0.10, 0.92) });
             ui.text(&item.replay.name)
                 .pos(r.x + 0.02, r.y + 0.018)
                 .size(0.38)
