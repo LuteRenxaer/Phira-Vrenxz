@@ -1077,10 +1077,11 @@ impl Page for SettingsPage {
         }
         // 下拉弹窗画在最上层，触摸也优先给它
         let top_hit = match self.tab {
-            SettingListType::General => self.list_general.top_touch(touch, t),
+            SettingListType::General => self.list_general.top_touch(touch, t) || self.list_chart.top_touch(touch, t),
             SettingListType::Chart => self.list_chart.top_touch(touch, t),
-            SettingListType::Visual => self.list_visual.top_touch(touch, t),
-            SettingListType::Custom => self.list_custom.top_touch(touch, t),
+            SettingListType::Visual => self.list_visual.top_touch(touch, t) || self.list_chart.top_touch(touch, t),
+            SettingListType::Custom => self.list_custom.top_touch(touch, t) || self.list_chart.top_touch(touch, t),
+            SettingListType::Debug => self.list_chart.top_touch(touch, t),
             _ => false,
         };
         if top_hit {
@@ -1142,6 +1143,14 @@ impl Page for SettingsPage {
             self.scroll.y_scroller.halt();
             return Ok(true);
         }
+        if self.tab != SettingListType::Chart {
+            if let Some(p) = self.list_chart.touch(touch, t)? {
+                if p {
+                    self.save_time = t;
+                }
+                return Ok(true);
+            }
+        }
         Ok(false)
     }
     fn enter(&mut self, s: &mut SharedState) -> Result<()> {
@@ -1191,14 +1200,18 @@ impl Page for SettingsPage {
             }
         }
         self.list_general.poll_tutorial()?;
-        let changed = match self.tab {
+        let mut changed = match self.tab {
             SettingListType::General => self.list_general.update(t)?,            SettingListType::Audio => self.list_audio.update(t)?,
             SettingListType::Chart => self.list_chart.update(t)?,
             SettingListType::Visual => self.list_visual.update(t)?,
             SettingListType::Custom => self.list_custom.update(t)?,
             SettingListType::Debug => self.list_debug.update(t)?,
+            SettingListType::Plugin => self.list_plugin.update(t)?,
             _ => false,
         };
+        if self.tab != SettingListType::Chart && self.list_chart.update(t)? {
+            changed = true;
+        }
         self.scroll.update(t);
         if changed {
             self.save_time = t;
@@ -1255,12 +1268,28 @@ impl Page for SettingsPage {
                         }
                         _ => {
                             let mut rows = match self.tab {
-                                SettingListType::General => self.list_general.rows(),
+                                SettingListType::General => {
+                                    let mut r = self.list_general.rows();
+                                    r.extend(self.list_chart.general_rows());
+                                    r
+                                }
                                 SettingListType::Audio => self.list_audio.rows(),
                                 SettingListType::Chart => self.list_chart.rows(),
-                                SettingListType::Visual => self.list_visual.rows(),
-                                SettingListType::Custom => self.list_custom.rows(),
-                                SettingListType::Debug => self.list_debug.rows(),
+                                SettingListType::Visual => {
+                                    let mut r = self.list_visual.rows();
+                                    r.extend(self.list_chart.visual_rows());
+                                    r
+                                }
+                                SettingListType::Custom => {
+                                    let mut r = self.list_custom.rows();
+                                    r.extend(self.list_chart.custom_rows());
+                                    r
+                                }
+                                SettingListType::Debug => {
+                                    let mut r = self.list_debug.rows();
+                                    r.extend(self.list_chart.debug_rows());
+                                    r
+                                }
                                 SettingListType::Plugin => self.list_plugin.rows(),
                                 _ => Vec::new(),
                             };
@@ -1291,6 +1320,9 @@ impl Page for SettingsPage {
                 SettingListType::Visual => self.list_visual.render_top(ui, t),
                 SettingListType::Custom => self.list_custom.render_top(ui, t),
                 _ => {}
+            }
+            if self.tab != SettingListType::Chart {
+                self.list_chart.render_top(ui, t);
             }
             ui.alpha = old_ui_alpha;
             ui.dx(-self.page_offset);
@@ -2257,10 +2289,10 @@ impl ChartList {
         }
         Ok(false)
     }
-    pub fn rows(&mut self) -> Vec<Row<'_>> {
+    pub fn all_rows(&mut self) -> Vec<Row<'_>> {
         let data = get_data();
         let config = &data.config;
-        let mut v = Vec::with_capacity(24);
+        let mut v = Vec::with_capacity(32);
         v.push(row_choose(tl!("item-perf"), Some(tl!("item-perf-sub")), &mut self.perf_btn, 0.20));
         if config.perf_profile() == prpr::config::Config::PERF_CUSTOM {
             v.push(row_switch(
@@ -2514,6 +2546,50 @@ impl ChartList {
         ));
         v
     }
+    fn row_group(label: &str) -> u8 {
+        if ["显示帧率", "FPS 位置", "显示平均帧率", "双击暂停", "使用键盘游玩"].iter().any(|s| label.contains(s)) {
+            1
+        } else if ["AP/FC", "准度指示器", "指示器颜色"].iter().any(|s| label.contains(s)) {
+            2
+        } else if ["自定义 HP", "噪域开关"].iter().any(|s| label.contains(s)) {
+            3
+        } else if label.contains("记录本地回放") {
+            4
+        } else {
+            0
+        }
+    }
+
+    pub fn rows(&mut self) -> Vec<Row<'_>> {
+        let mut v = self.all_rows();
+        v.retain(|r| Self::row_group(r.label.as_ref()) == 0);
+        v
+    }
+
+    pub fn general_rows(&mut self) -> Vec<Row<'_>> {
+        let mut v = self.all_rows();
+        v.retain(|r| Self::row_group(r.label.as_ref()) == 1);
+        v
+    }
+
+    pub fn visual_rows(&mut self) -> Vec<Row<'_>> {
+        let mut v = self.all_rows();
+        v.retain(|r| Self::row_group(r.label.as_ref()) == 2);
+        v
+    }
+
+    pub fn custom_rows(&mut self) -> Vec<Row<'_>> {
+        let mut v = self.all_rows();
+        v.retain(|r| Self::row_group(r.label.as_ref()) == 3);
+        v
+    }
+
+    pub fn debug_rows(&mut self) -> Vec<Row<'_>> {
+        let mut v = self.all_rows();
+        v.retain(|r| Self::row_group(r.label.as_ref()) == 4);
+        v
+    }
+
     pub fn render_top(&mut self, ui: &mut Ui, t: f32) {
         self.perf_btn.render_top(ui, t, 1.);
         self.indicator_delay_mode_btn.render_top(ui, t, 1.);
@@ -2814,6 +2890,10 @@ impl PluginList {
     pub fn refresh_plugins(&mut self) {
         self.plugins = crate::plugin::load_plugins();
         self.plugin_btns = (0..self.plugins.len()).map(|_| DRectButton::new()).collect();
+    }
+
+    pub fn update(&mut self, _t: f32) -> Result<bool> {
+        Ok(false)
     }
     pub fn touch(&mut self, touch: &Touch, t: f32) -> Result<Option<bool>> {
         if self.import_btn.touch(touch, t) {
