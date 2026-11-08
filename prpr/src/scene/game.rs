@@ -290,7 +290,9 @@ pub struct GameScene {
     replay_hit_gen: u64,
     replay_paused: bool,
     replay_controls_hidden: bool,
-    replay_buttons: [crate::ui::DRectButton; 5],
+    replay_speed_idx: usize,
+    replay_show_analysis: bool,
+    replay_buttons: [crate::ui::DRectButton; 10],
     /// 棰勮琚墦鏂殑澶栭儴淇″彿锛堝澶氫汉妯″紡鎴夸富鐐逛簡寮€濮嬶級锛氱疆浣嶅悗 update() 妫€娴嬪埌浼氱珛鍗崇粨鏉熼瑙堝苟寮瑰洖銆?
     /// 浠呴瑙堢瓑鍙楁帶鎾斁浼氫紶鍏ワ紝鏅€氭父鐜╀负 None锛屼笉鍙楀奖鍝嶃€?
     interrupt: Option<Arc<AtomicBool>>,
@@ -698,6 +700,8 @@ impl GameScene {
             replay_paused: false,
             replay_controls_hidden: false,
             replay_buttons: std::array::from_fn(|_| crate::ui::DRectButton::new()),
+            replay_speed_idx: 1,
+            replay_show_analysis: false,
             interrupt,
 
             pause_notify,
@@ -2392,40 +2396,102 @@ fn mods_to_strings(mods: Mods) -> Vec<String> {
 }
 
 impl GameScene {
+    fn replay_seek(&mut self, tm: &mut TimeManager, dst: f64) {
+        let dst = dst.clamp(0., self.res.track_length.max(0.001));
+        tm.seek_to(dst);
+        let _ = self.music.seek_to(dst);
+        self.res.time = dst;
+        self.judge.reset();
+        self.chart.reset();
+        for line in &mut self.chart.lines {
+            for note in &mut line.notes {
+                if note.time < dst {
+                    note.judge = crate::judge::JudgeStatus::Judged;
+                }
+            }
+            line.cache.reset(&mut line.notes);
+        }
+        self.replay_paused = false;
+        let _ = self.music.play();
+    }
+
+    fn replay_nav(&mut self, tm: &mut TimeManager, next: bool) {
+        let Some(replay) = &self.replay_view else { return };
+        let cur = self.res.time;
+        let target = if next {
+            replay.hits.iter().filter(|h| h.t as f64 > cur + 0.01 && h.kind >= 2).map(|h| h.t as f64).fold(f64::INFINITY, f64::min)
+        } else {
+            replay.hits.iter().filter(|h| (h.t as f64) < cur - 0.01 && h.kind >= 2).map(|h| h.t as f64).fold(f64::NEG_INFINITY, f64::max)
+        };
+        if target.is_finite() {
+            self.replay_seek(tm, target);
+        }
+    }
+
     fn render_replay_controls(&mut self, ui: &mut Ui) {
         let top = ui.top;
         if self.replay_controls_hidden {
             let r = Rect::new(0.72, -top + 0.02, 0.22, 0.06);
-            self.replay_buttons[4].inner.set(ui, r);
+            self.replay_buttons[9].inner.set(ui, r);
             ui.fill_rect(r, Color::new(0., 0., 0., 0.75));
             ui.text("显示控制").pos(r.center().x, r.center().y).anchor(0.5, 0.5).size(0.30).draw();
             return;
         }
-        let bar = Rect::new(-1., top - 0.14, 2., 0.14);
-        ui.fill_rect(bar, Color::new(0., 0., 0., 0.72));
-        let labels = [if self.replay_paused { "继续" } else { "暂停" }, "重播", "隐藏"];
-        let rects = [
-            Rect::new(-0.95, top - 0.10, 0.16, 0.07),
-            Rect::new(-0.77, top - 0.10, 0.16, 0.07),
-            Rect::new(-0.59, top - 0.10, 0.16, 0.07),
-            Rect::new(-0.41, top - 0.10, 0.16, 0.07),
-            Rect::new(-0.23, top - 0.10, 0.16, 0.07),
+        let bar = Rect::new(-1., top - 0.16, 2., 0.16);
+        ui.fill_rect(bar, Color::new(0., 0., 0., 0.75));
+        let labels = [
+            "返回",
+            if self.replay_paused { "继续" } else { "暂停" },
+            "重播",
+            "-5s",
+            "+5s",
+            match self.replay_speed_idx { 0 => "0.5x", 1 => "1x", 2 => "1.5x", _ => "2x" },
+            "上个失误",
+            "下个失误",
+            "隐藏",
+            "分析",
         ];
-        self.replay_buttons[0].inner.set(ui, rects[0]);
-        self.replay_buttons[1].inner.set(ui, rects[1]);
-        self.replay_buttons[2].inner.set(ui, rects[2]);
-        self.replay_buttons[3].inner.set(ui, rects[3]);
-        self.replay_buttons[4].inner.set(ui, rects[4]);
-        ui.text("返回").pos(rects[0].center().x, rects[0].center().y).anchor(0.5, 0.5).size(0.30).draw();
-        ui.text(labels[0]).pos(rects[1].center().x, rects[1].center().y).anchor(0.5, 0.5).size(0.30).draw();
-        ui.text(labels[1]).pos(rects[2].center().x, rects[2].center().y).anchor(0.5, 0.5).size(0.30).draw();
-        ui.text(labels[2]).pos(rects[3].center().x, rects[3].center().y).anchor(0.5, 0.5).size(0.30).draw();
+        for i in 0..10 {
+            let r = Rect::new(-0.98 + i as f32 * 0.17, top - 0.115, 0.15, 0.07);
+            self.replay_buttons[i].inner.set(ui, r);
+            let active = i == 9 && self.replay_show_analysis;
+            ui.fill_rect(r, if active { WHITE } else { Color::new(0.07, 0.08, 0.10, 0.9) });
+            ui.text(labels[i])
+                .pos(r.center().x, r.center().y)
+                .anchor(0.5, 0.5)
+                .size(0.24)
+                .color(if active { BLACK } else { WHITE })
+                .draw();
+        }
+        let progress = (self.res.time as f32 / self.res.track_length.max(0.001) as f32).clamp(0., 1.);
+        let pb = Rect::new(-0.98, top - 0.032, 1.96, 0.012);
+        ui.fill_rect(pb, Color::new(0.20, 0.22, 0.25, 1.));
+        ui.fill_rect(Rect::new(pb.x, pb.y, pb.w * progress, pb.h), Color::new(0.9, 0.92, 0.95, 1.));
+        if let Some(replay) = &self.replay_view {
+            for h in &replay.hits {
+                let x = pb.x + pb.w * (h.t / self.res.track_length.max(0.001) as f32).clamp(0., 1.);
+                ui.fill_rect(Rect::new(x, pb.y - 0.004, 0.002, 0.020), Color::new(1., 0.3, 0.35, 0.9));
+            }
+        }
         ui.text(format!("{:.2} / {:.2}", self.res.time, self.res.track_length))
-            .pos(0.95, top - 0.065)
+            .pos(0.95, top - 0.052)
             .anchor(1., 0.5)
-            .size(0.30)
+            .size(0.26)
             .color(Color::new(1., 1., 1., 0.8))
             .draw();
+        if self.replay_show_analysis {
+            let panel = Rect::new(0.55, -top + 0.10, 0.42, 0.35);
+            ui.fill_rect(panel, Color::new(0., 0., 0., 0.78));
+            if let Some(replay) = &self.replay_view {
+                let max = replay.hits.iter().map(|h| h.diff.abs()).fold(0.001, f32::max);
+                for h in &replay.hits {
+                    let x = panel.x + 0.02 + (h.t / self.res.track_length.max(0.001) as f32).clamp(0., 1.) * (panel.w - 0.04);
+                    let y = panel.center().y - h.diff / max * (panel.h * 0.42);
+                    let col = if h.diff.abs() < 0.08 { Color::new(0.4, 1., 0.5, 0.9) } else { Color::new(1., 0.4, 0.4, 0.9) };
+                    ui.fill_rect(Rect::new(x, y, 0.003, 0.003), col);
+                }
+            }
+        }
     }
 }
 
@@ -2894,22 +2960,15 @@ impl Scene for GameScene {
         if self.mode == GameMode::Replay {
             let top = screen_height() / screen_width();
             if self.replay_controls_hidden {
-                let r = Rect::new(0.72, -top + 0.02, 0.22, 0.06);
-                if self.replay_buttons[4].touch(touch, tm.now() as f32) {
+                if self.replay_buttons[9].touch(touch, tm.now() as f32) {
                     self.replay_controls_hidden = false;
                     return Ok(true);
                 }
                 return Ok(false);
             }
             let y = top - 0.10;
-            let rects = [
-                Rect::new(-0.95, y, 0.16, 0.07),
-                Rect::new(-0.77, y, 0.16, 0.07),
-                Rect::new(-0.59, y, 0.16, 0.07),
-                Rect::new(-0.41, y, 0.16, 0.07),
-                Rect::new(-0.23, y, 0.16, 0.07),
-            ];
-            for (i, r) in rects.into_iter().enumerate() {
+            for i in 0..10 {
+                let r = Rect::new(-0.98 + i as f32 * 0.17, y, 0.15, 0.07);
                 if self.replay_buttons[i].touch(touch, tm.now() as f32) {
                     match i {
                         0 => {
@@ -2926,19 +2985,28 @@ impl Scene for GameScene {
                                 let _ = self.music.play();
                             }
                         }
-                        2 => {
-                            tm.seek_to(0.);
-                            let _ = self.music.seek_to(0.);
-                            self.res.time = 0.;
-                            self.judge.reset();
-                            self.chart.reset();
-                            self.replay_paused = false;
-                            let _ = self.music.play();
+                        2 => self.replay_seek(tm, 0.),
+                        3 => self.replay_seek(tm, self.res.time - 5.),
+                        4 => self.replay_seek(tm, self.res.time + 5.),
+                        5 => {
+                            const SPEEDS: [f32; 4] = [0.5, 1., 1.5, 2.];
+                            self.replay_speed_idx = (self.replay_speed_idx + 1) % SPEEDS.len();
+                            tm.speed = SPEEDS[self.replay_speed_idx] as f64 * self.res.config.speed as f64;
                         }
-                        _ => self.replay_controls_hidden = true,
+                        6 => self.replay_nav(tm, false),
+                        7 => self.replay_nav(tm, true),
+                        8 => self.replay_controls_hidden = true,
+                        _ => self.replay_show_analysis = !self.replay_show_analysis,
                     }
                     return Ok(true);
                 }
+            }
+            // 底部进度条点击跳转
+            let bar = Rect::new(-0.98, top - 0.025, 1.96, 0.018);
+            if bar.contains(touch.position) {
+                let p = ((touch.position.x - bar.x) / bar.w).clamp(0., 1.);
+                self.replay_seek(tm, p as f64 * self.res.track_length.max(0.001));
+                return Ok(true);
             }
             return Ok(false);
         }
