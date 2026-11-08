@@ -133,22 +133,24 @@ impl Page for ReplayManager {
     }
 
     fn render(&mut self, ui: &mut Ui, _s: &mut SharedState) -> Result<()> {
+        let area = super::settings::draw_settings_content_panel(ui);
         let top = ui.top;
         ui.text("回放管理")
-            .pos(-0.85, -top + 0.12)
-            .size(0.8)
+            .pos(area.x, -top + 0.10)
+            .size(0.72)
             .draw();
         ui.text(format!("共 {} 份回放", self.items.len()))
-            .pos(-0.85, -top + 0.23)
-            .size(0.4)
-            .color(Color::new(1., 1., 1., 0.65))
+            .pos(area.right(), -top + 0.115)
+            .anchor(1., 0.)
+            .size(0.34)
+            .color(Color::new(1., 1., 1., 0.6))
             .draw();
-        let mut y = -top + 0.32;
+        let mut y = area.y;
         for (i, item) in self.items.iter().enumerate().take(12) {
-            let r = Rect::new(-0.85, y, 1.7, 0.10);
-            ui.fill_rect(r, Color::new(0.08, 0.09, 0.12, 0.82));
+            let r = Rect::new(area.x, y, area.w, 0.11);
+            ui.fill_rect(r, Color::new(0.055, 0.060, 0.075, 0.78));
             ui.text(&item.replay.name)
-                .pos(r.x + 0.02, r.y + 0.03)
+                .pos(r.x + 0.02, r.y + 0.025)
                 .size(0.42)
                 .draw();
             ui.text(format!(
@@ -159,17 +161,17 @@ impl Page for ReplayManager {
                 item.replay.stats().2,
                 item.replay.stats().3
             ))
-            .pos(r.x + 0.02, r.y + 0.065)
+            .pos(r.x + 0.02, r.y + 0.07)
             .size(0.26)
             .color(Color::new(1., 1., 1., 0.6))
             .draw();
-            let p = Rect::new(r.right() - 0.30, r.y + 0.02, 0.12, 0.06);
-            let d = Rect::new(r.right() - 0.16, r.y + 0.02, 0.12, 0.06);
+            let p = Rect::new(r.right() - 0.30, r.y + 0.025, 0.12, 0.06);
+            let d = Rect::new(r.right() - 0.16, r.y + 0.025, 0.12, 0.06);
             self.buttons[i * 2].inner.set(ui, p);
             self.buttons[i * 2 + 1].inner.set(ui, d);
-            ui.text("播放").pos(p.center().x, p.center().y).anchor(0.5, 0.5).size(0.32).draw();
-            ui.text("删除").pos(d.center().x, d.center().y).anchor(0.5, 0.5).size(0.32).draw();
-            y += 0.12;
+            ui.text("播放").pos(p.center().x, p.center().y).anchor(0.5, 0.5).size(0.30).draw();
+            ui.text("删除").pos(d.center().x, d.center().y).anchor(0.5, 0.5).size(0.30).draw();
+            y += 0.13;
         }
         Ok(())
     }

@@ -565,6 +565,33 @@ thread_local! {
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 /// 开关滑块的缓动进度（0 = 关，1 = 开）。每帧调用一次，内部按帧间隔推进。
+/// 供回放管理等子页面复用设置页的面板/内容区。
+pub(crate) fn draw_settings_content_panel(ui: &mut Ui) -> Rect {
+    let top = ui.top;
+    let sk = panel_skew(top);
+    let panel_r = panel_right(top);
+    fill_quad(
+        ui,
+        [
+            (fx(PANEL_L) + sk, -top),
+            (fx(panel_r) + sk, -top),
+            (fx(panel_r), top),
+            (fx(PANEL_L), top),
+        ],
+        Color::new(0.026, 0.030, 0.038, 0.80),
+    );
+    ui.fill_rect(
+        Rect::new(-1., -top, 2., (TAB_Y0 + TAB_BAR_H) * 2. * top),
+        Color::new(0.012, 0.014, 0.018, 0.92),
+    );
+    Rect::new(
+        fx(CONTENT_X0),
+        fy(ui, CONTENT_Y0),
+        fx((panel_right(top) - 0.02).min(CONTENT_X1)) - fx(CONTENT_X0),
+        fy(ui, CONTENT_Y1) - fy(ui, CONTENT_Y0),
+    )
+}
+
 fn switch_smooth(r: Rect, on: bool) -> f32 {
     let key = ((r.center().x * 512.) as i32, (r.center().y * 512.) as i32);
     let target = if on { 1.0 } else { 0.0 };
