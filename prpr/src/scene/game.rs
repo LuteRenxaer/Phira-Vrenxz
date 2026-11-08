@@ -288,6 +288,9 @@ pub struct GameScene {
     preview_mode: bool,
     replay_view: Option<crate::replay::Replay>,
     replay_hit_gen: u64,
+    replay_paused: bool,
+    replay_controls_hidden: bool,
+    replay_buttons: [crate::ui::DRectButton; 5],
     /// 棰勮琚墦鏂殑澶栭儴淇″彿锛堝澶氫汉妯″紡鎴夸富鐐逛簡寮€濮嬶級锛氱疆浣嶅悗 update() 妫€娴嬪埌浼氱珛鍗崇粨鏉熼瑙堝苟寮瑰洖銆?
     /// 浠呴瑙堢瓑鍙楁帶鎾斁浼氫紶鍏ワ紝鏅€氭父鐜╀负 None锛屼笉鍙楀奖鍝嶃€?
     interrupt: Option<Arc<AtomicBool>>,
@@ -692,6 +695,9 @@ impl GameScene {
             preview_mode,
             replay_view,
             replay_hit_gen: 0,
+            replay_paused: false,
+            replay_controls_hidden: false,
+            replay_buttons: std::array::from_fn(|_| crate::ui::DRectButton::new()),
             interrupt,
 
             pause_notify,
@@ -2385,6 +2391,44 @@ fn mods_to_strings(mods: Mods) -> Vec<String> {
         .collect()
 }
 
+impl GameScene {
+    fn render_replay_controls(&mut self, ui: &mut Ui) {
+        let top = ui.top;
+        if self.replay_controls_hidden {
+            let r = Rect::new(0.72, -top + 0.02, 0.22, 0.06);
+            self.replay_buttons[4].inner.set(ui, r);
+            ui.fill_rect(r, Color::new(0., 0., 0., 0.75));
+            ui.text("显示控制").pos(r.center().x, r.center().y).anchor(0.5, 0.5).size(0.30).draw();
+            return;
+        }
+        let bar = Rect::new(-1., top - 0.14, 2., 0.14);
+        ui.fill_rect(bar, Color::new(0., 0., 0., 0.72));
+        let labels = [if self.replay_paused { "继续" } else { "暂停" }, "重播", "隐藏"];
+        let rects = [
+            Rect::new(-0.95, top - 0.10, 0.16, 0.07),
+            Rect::new(-0.77, top - 0.10, 0.16, 0.07),
+            Rect::new(-0.59, top - 0.10, 0.16, 0.07),
+            Rect::new(-0.41, top - 0.10, 0.16, 0.07),
+            Rect::new(-0.23, top - 0.10, 0.16, 0.07),
+        ];
+        self.replay_buttons[0].inner.set(ui, rects[0]);
+        self.replay_buttons[1].inner.set(ui, rects[1]);
+        self.replay_buttons[2].inner.set(ui, rects[2]);
+        self.replay_buttons[3].inner.set(ui, rects[3]);
+        self.replay_buttons[4].inner.set(ui, rects[4]);
+        ui.text("返回").pos(rects[0].center().x, rects[0].center().y).anchor(0.5, 0.5).size(0.30).draw();
+        ui.text(labels[0]).pos(rects[1].center().x, rects[1].center().y).anchor(0.5, 0.5).size(0.30).draw();
+        ui.text(labels[1]).pos(rects[2].center().x, rects[2].center().y).anchor(0.5, 0.5).size(0.30).draw();
+        ui.text(labels[2]).pos(rects[3].center().x, rects[3].center().y).anchor(0.5, 0.5).size(0.30).draw();
+        ui.text(format!("{:.2} / {:.2}", self.res.time, self.res.track_length))
+            .pos(0.95, top - 0.065)
+            .anchor(1., 0.5)
+            .size(0.30)
+            .color(Color::new(1., 1., 1., 0.8))
+            .draw();
+    }
+}
+
 impl Scene for GameScene {
     fn enter(&mut self, tm: &mut TimeManager, target: Option<RenderTarget>) -> Result<()> {
         #[cfg(target_arch = "wasm32")]
@@ -2846,6 +2890,57 @@ impl Scene for GameScene {
         if crate::hud::edit_active() {
             crate::hud::set_cur_page(crate::hud::PageId::Game);
             return Ok(crate::hud::editor_touch(touch));
+        }
+        if self.mode == GameMode::Replay {
+            let top = screen_height() / screen_width();
+            if self.replay_controls_hidden {
+                let r = Rect::new(0.72, -top + 0.02, 0.22, 0.06);
+                if self.replay_buttons[4].touch(touch, tm.now() as f32) {
+                    self.replay_controls_hidden = false;
+                    return Ok(true);
+                }
+                return Ok(false);
+            }
+            let y = top - 0.10;
+            let rects = [
+                Rect::new(-0.95, y, 0.16, 0.07),
+                Rect::new(-0.77, y, 0.16, 0.07),
+                Rect::new(-0.59, y, 0.16, 0.07),
+                Rect::new(-0.41, y, 0.16, 0.07),
+                Rect::new(-0.23, y, 0.16, 0.07),
+            ];
+            for (i, r) in rects.into_iter().enumerate() {
+                if self.replay_buttons[i].touch(touch, tm.now() as f32) {
+                    match i {
+                        0 => {
+                            self.should_exit = true;
+                            self.next_scene = Some(NextScene::Pop);
+                        }
+                        1 => {
+                            self.replay_paused = !self.replay_paused;
+                            if self.replay_paused {
+                                tm.pause();
+                                let _ = self.music.pause();
+                            } else {
+                                tm.resume();
+                                let _ = self.music.play();
+                            }
+                        }
+                        2 => {
+                            tm.seek_to(0.);
+                            let _ = self.music.seek_to(0.);
+                            self.res.time = 0.;
+                            self.judge.reset();
+                            self.chart.reset();
+                            self.replay_paused = false;
+                            let _ = self.music.play();
+                        }
+                        _ => self.replay_controls_hidden = true,
+                    }
+                    return Ok(true);
+                }
+            }
+            return Ok(false);
         }
         if self.skip_done {
             return Ok(false);
@@ -3542,8 +3637,12 @@ void main() {
             }
             pop_camera_state();
         }
+        if self.mode == GameMode::Replay {
+            self.render_replay_controls(ui);
+        }
         Ok(())
     }
+
 
     fn next_scene(&mut self, tm: &mut TimeManager) -> NextScene {
         if self.should_exit || self.next_scene.is_some() {
