@@ -377,6 +377,40 @@ use inner::*;
 type Judgements = Vec<(f64, u32, u32, Result<Judgement, bool>)>;
 
 #[repr(C)]
+thread_local! {
+    static REPLAY_TOUCHES: RefCell<Option<HashMap<u64, Touch>>> = RefCell::default();
+}
+
+/// 回放模式注入触点；坐标为谱面坐标，已做过屏幕变换。
+pub fn set_replay_touches(touches: Vec<(u64, u8, f32, f32)>) {
+    let map: HashMap<u64, Touch> = touches
+        .into_iter()
+        .map(|(id, phase, x, y)| {
+            let phase = match phase {
+                0 => TouchPhase::Started,
+                2 => TouchPhase::Ended,
+                3 => TouchPhase::Cancelled,
+                4 => TouchPhase::Stationary,
+                _ => TouchPhase::Moved,
+            };
+            (
+                id,
+                Touch {
+                    id,
+                    phase,
+                    position: vec2(x, y),
+                    time: f64::NEG_INFINITY,
+                },
+            )
+        })
+        .collect();
+    REPLAY_TOUCHES.with(|it| *it.borrow_mut() = Some(map));
+}
+
+pub fn clear_replay_touches() {
+    REPLAY_TOUCHES.with(|it| *it.borrow_mut() = None);
+}
+
 pub struct Judge {
 
     pub notes: Vec<(Vec<u32>, usize)>,
@@ -602,7 +636,11 @@ impl Judge {
 
         let t = res.time;
 
-        let mut touches: HashMap<u64, Touch> = {
+        let replay = REPLAY_TOUCHES.with(|it| it.borrow_mut().take());
+        let replay_mode = replay.is_some();
+        let mut touches: HashMap<u64, Touch> = if let Some(map) = replay {
+            map
+        } else {
             let mut touches = touches();
             let btn = MouseButton::Left;
             let id = button_to_id(btn);
@@ -640,7 +678,9 @@ impl Judge {
                 })
                 .collect()
         };
-        let (events, keys_down, key_delta) = TOUCHES.with(|it| {
+        let (events, keys_down, key_delta) = if replay_mode {
+            (Vec::new(), 0, 0)
+        } else { TOUCHES.with(|it| {
             let guard = it.borrow();
             let events = guard.touches.clone();
             if res.config.use_keyboard {
@@ -648,7 +688,7 @@ impl Judge {
             } else {
                 (events, 0, 0)
             }
-        });
+        }) };
         self.key_down_count = self.key_down_count.saturating_add_signed(key_delta);
         {
             fn to_local(Vec2 { x, y }: Vec2) -> Point {

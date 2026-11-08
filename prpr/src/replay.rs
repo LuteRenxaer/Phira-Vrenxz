@@ -139,8 +139,28 @@ impl Replay {
         self.hits.iter().map(|h| h.diff).sum::<f32>() / self.hits.len() as f32 * 1000.
     }
 
-    pub fn active_touches(&self, time: f32, window: f32) -> Vec<TouchFrame> {
-        // Keep the latest frame per finger near the current time.
+    /// 回放驱动判定：返回当前帧应注入的触点（谱面坐标）。
+    pub fn touches_at(&self, time: f32) -> Vec<(u64, u8, f32, f32)> {
+        let mut latest: std::collections::HashMap<u64, TouchFrame> = std::collections::HashMap::new();
+        for f in &self.touches {
+            if f.t > time + 0.001 {
+                break;
+            }
+            latest.insert(f.id, *f);
+        }
+        latest
+            .into_values()
+            .filter_map(|f| {
+                if matches!(f.phase, 2 | 3) {
+                    (f.t >= time - 0.05).then_some((f.id, f.phase, f.x, f.y))
+                } else {
+                    Some((f.id, if f.t >= time - 0.001 { f.phase } else { 1 }, f.x, f.y))
+                }
+            })
+            .collect()
+    }
+
+    pub fn active_touches(&self, time: f32, window: f32) -> Vec<TouchFrame> {        // Keep the latest frame per finger near the current time.
         let mut map = std::collections::HashMap::new();
         for f in &self.touches {
             if f.t > time + 0.03 {

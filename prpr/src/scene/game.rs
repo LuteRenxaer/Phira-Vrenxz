@@ -565,7 +565,7 @@ impl GameScene {
             None
         };
         if replay_view.is_some() {
-            config.mods.insert(Mods::AUTOPLAY);
+            config.mods.remove(Mods::AUTOPLAY);
             config.speed = replay_view.as_ref().map_or(config.speed, |r| r.speed);
         }
 
@@ -2604,6 +2604,9 @@ impl Scene for GameScene {
         }
         if !tm.paused() && self.pause_rewind.is_none() && self.mode != GameMode::View && !self.skip_done {
             self.gl.quad_gl.viewport(self.res.camera.viewport);
+            if let Some(replay) = &self.replay_view {
+                crate::judge::set_replay_touches(replay.touches_at(time as f32));
+            }
             self.judge.update(&mut self.res, &mut self.chart, &mut self.bad_notes);
             self.gl.quad_gl.viewport(None);
             if crate::replay::is_recording() && self.judge.hit_generation() != self.replay_hit_gen {
