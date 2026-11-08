@@ -5,8 +5,7 @@ prpr_l10n::tl_file!("common" ttl crate::);
 mod inner;
 
 mod anim;
-mod achievement;
-mod blue_archive_tips;
+mod tips;
 mod censor;
 mod charts_view;
 mod client;
@@ -15,29 +14,38 @@ mod extension;
 mod icons;
 mod images;
 mod lanzou;
+mod lan;
 mod login;
 mod migrate;
 mod mp;
+mod pack;
 mod page;
+mod plugin;
 mod popup;
 mod rate;
+mod recorder;
 mod resource;
+mod score_upload;
 mod scene;
+mod splash_ui;
+mod crash_extra;
 mod tabs;
 mod tags;
 mod threed;
 mod uml;
 mod xcsim;
+mod xcsim_theme;
 
+use anyhow::Context;
 use anyhow::Result;
 use data::Data;
 use macroquad::prelude::*;
 use prpr::{
     build_conf,
-    core::{init_assets, PGR_FONT},
+    core::{init_assets, MAIN_FONT, PGR_FONT},
     ext::SafeTexture,
     log,
-    scene::{show_error, CrashCode},
+    scene::{show_error, show_message, CrashCode},
     time::TimeManager,
     ui::{cleanup_audio, FontArc, TextPainter},
     Main,
@@ -45,12 +53,12 @@ use prpr::{
 use prpr_l10n::set_prefered_locale;
 #[cfg(not(feature = "hykb"))]
 use prpr_l10n::{GLOBAL, LANGS};
-use scene::{LoginScene, SetupScene, StartupLoadingScene, StudioLogoScene};
+use scene::{SetupScene, StudioLogoScene};
 use std::{
     any::Any,
     collections::VecDeque,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicIsize, Ordering},
         mpsc, Mutex,
     },
 };
@@ -63,16 +71,18 @@ use jni::{
     EnvUnowned,
 };
 
+#[cfg(target_os = "windows")]
+pub static MAIN_HWND: AtomicIsize = AtomicIsize::new(0);
 static MESSAGES_TX: Mutex<Option<mpsc::Sender<bool>>> = Mutex::new(None);
 static DATA_PATH: Mutex<Option<String>> = Mutex::new(None);
 static CACHE_DIR: Mutex<Option<String>> = Mutex::new(None);
 pub static mut DATA: Option<Data> = None;
 
-/// Set once a panic has been routed to the crash screen, so repeated panics
-/// (e.g. inside the crash scene itself) cannot push it again.
 static CRASH_SCENE_SHOWN: AtomicBool = AtomicBool::new(false);
 
-/// Extract the message from a caught panic payload.
+/// 拖拽导入谱面完成后置位，主场景 update 消费后刷新内存谱面列表（与手动导入一致）。
+pub static DROPPED_IMPORT_DIRTY: AtomicBool = AtomicBool::new(false);
+
 fn panic_message(payload: &(dyn Any + Send)) -> String {
     if let Some(s) = payload.downcast_ref::<&str>() {
         (*s).to_owned()
@@ -132,20 +142,81 @@ pub fn get_data_mut() -> &'static mut Data {
     unsafe { DATA.as_mut().unwrap() }
 }
 
-/// 返回应用可写数据目录（Android = `getFilesDir()`，由 MainActivity 通过 JNI 设置）。
 #[cfg(target_os = "android")]
 pub(crate) fn writable_data_dir() -> Option<String> {
     DATA_PATH.lock().unwrap().clone()
 }
 
 pub fn save_data() -> Result<()> {
-    // 旧版本数据刚同步进 data/ 时（见 crate::migrate）：本次运行内存里还是「上一份」数据，
-    // 写回去就把同步结果盖掉了 —— 同步完成后唯一的出路是重启，重启前一律不落盘。
+
     if migrate::migrated() {
         return Ok(());
     }
     std::fs::write(format!("{}/data.json", dir::root()?), serde_json::to_string(get_data())?)?;
     Ok(())
+}
+
+/// 轮询引擎层接收到的拖拽文件路径（桌面端支持）。
+/// 每帧调用，返回本轮新拖入的文件路径列表。
+#[cfg(target_os = "windows")]
+fn poll_dropped_files() -> Vec<String> {
+    let mut paths = Vec::new();
+    let quad_ctx = unsafe { get_internal_gl() }.quad_context;
+    let count = quad_ctx.dropped_file_count();
+    for i in 0..count {
+        if let Some(path) = quad_ctx.dropped_file_path(i) {
+            if let Some(s) = path.to_str() {
+                paths.push(s.to_owned());
+            }
+        }
+    }
+    quad_ctx.clear_dropped_files();
+    // 调试辅助：--drop-test=<zip> 在首帧模拟一次拖拽，走完整导入+刷新链路
+    #[cfg(debug_assertions)]
+    {
+        use std::sync::atomic::AtomicBool;
+        static DROP_TEST_TAKEN: AtomicBool = AtomicBool::new(false);
+        if !DROP_TEST_TAKEN.swap(true, Ordering::Relaxed) {
+            for arg in std::env::args().skip(1) {
+                if let Some(p) = arg.strip_prefix("--drop-test=") {
+                    paths.push(p.to_owned());
+                }
+            }
+        }
+    }
+    if !paths.is_empty() {
+        eprintln!("[drop-debug] poll got: {paths:?}");
+    }
+    paths
+}
+
+/// 导入拖入的谱面压缩包（zip）到自定义谱面目录，并刷新内存列表。
+async fn import_dropped_chart(path: String) {
+    let err_ctx = || format!("导入谱面失败: {path}");
+    let file = match std::fs::File::open(&path) {
+        Ok(f) => f,
+        Err(err) => {
+            show_error(anyhow::Error::new(err).context(err_ctx()));
+            return;
+        }
+    };
+    match scene::import_chart(file).await {
+        Ok((chart, warnings)) => {
+            eprintln!("[drop-debug] import ok: {}", chart.info.name);
+            {
+                let data = get_data_mut();
+                data.charts.push(chart);
+            }
+            let _ = save_data();
+            DROPPED_IMPORT_DIRTY.store(true, Ordering::Relaxed);
+            if let Some(w) = scene::parse_warnings_to_string(&warnings) {
+                show_message(format!("已导入谱面\n{w}")).warn();
+            } else {
+                show_message("已导入谱面").warn();
+            }
+        }
+        Err(err) => show_error(err.context(err_ctx())),
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -172,7 +243,15 @@ mod dir {
     use crate::{CACHE_DIR, DATA_PATH};
 
     fn ensure(s: &str) -> Result<String> {
-        let s = format!("{}/{}", DATA_PATH.lock().unwrap().as_ref().map(|it| it.as_str()).unwrap_or("."), s);
+        // 绝对路径（如 cache_image_local 传入的 DATA_PATH/cache/image）直接使用，
+        // 避免再次拼接 DATA_PATH 变成 F:\xxx/F:\xxx/... 触发 os error 123
+        let s = if std::path::Path::new(s).is_absolute() {
+            s.to_owned()
+        } else {
+            let data_path = DATA_PATH.lock().unwrap();
+            let prefix = data_path.as_ref().map(|it| it.as_str()).unwrap_or(".");
+            format!("{prefix}/{s}")
+        };
         let path = std::path::Path::new(&s);
         if !path.exists() {
             std::fs::create_dir_all(path)?;
@@ -219,12 +298,15 @@ mod dir {
     pub fn respacks() -> Result<String> {
         ensure("data/respack")
     }
+
+    pub fn fonts() -> Result<String> {
+        ensure("data/fonts")
+    }
 }
 
 async fn the_main() -> Result<()> {
     log::register();
 
-    // 设置全局 panic hook，捕获所有线程的 panic
     std::panic::set_hook(Box::new(|info| {
         let message = if let Some(s) = info.payload().downcast_ref::<&str>() {
             (*s).to_owned()
@@ -234,6 +316,7 @@ async fn the_main() -> Result<()> {
             format!("{:?}", info.payload())
         };
         let location = info.location().map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
+        crash_extra::record_panic(&message, location.clone());
         error!("panic occurred: {} at {}", message, location.unwrap_or_else(|| "unknown".to_string()));
     }));
 
@@ -246,9 +329,58 @@ async fn the_main() -> Result<()> {
 
     init_assets();
 
-    // Android：把进程工作目录切到应用私有目录（init_assets 之后执行，避免被覆盖）。
-    // Java 侧已把 APK 内置资源 zip（Expansion/Ontology）复制到 <getFilesDir()>/assets，
-    // Rust 相对路径 "assets/..."（内置谱面加载等）需指向该可写目录。
+    #[cfg(target_os = "windows")]
+    {
+        // 双击 exe 直接启动时 cwd 可能不在项目根（如 target\\release），
+        // 从 cwd / exe 目录向上多级探测真正的 data 目录，避免读到空的 data.json 与谱面。
+        if DATA_PATH.lock().unwrap().is_none() {
+            let mut bases: Vec<std::path::PathBuf> = Vec::new();
+            if let Ok(cwd) = std::env::current_dir() {
+                bases.push(cwd);
+            }
+            if let Some(exe_dir) = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            {
+                bases.push(exe_dir);
+            }
+            let mut seen = std::collections::HashSet::new();
+            'outer: for base in bases {
+                let mut cur = base;
+                for _ in 0..=5 {
+                    let data_dir = cur.join("data");
+                    let has_charts_dir = data_dir.join("charts").is_dir()
+                        && std::fs::read_dir(data_dir.join("charts"))
+                            .map(|mut it| it.next().is_some())
+                            .unwrap_or(false);
+                    let has_charts_in_json = std::fs::read_to_string(data_dir.join("data.json"))
+                        .ok()
+                        .and_then(|s| {
+                            serde_json::from_str::<serde_json::Value>(&s)
+                                .ok()
+                                .and_then(|v| v.get("charts").and_then(|c| c.as_array()).map(|a| a.len()))
+                        })
+                        .map(|n| n > 0)
+                        .unwrap_or(false);
+                    let is_real = has_charts_dir || has_charts_in_json;
+                    if !seen.contains(&data_dir) && is_real {
+                        let root_s = cur.to_string_lossy().into_owned();
+                        *DATA_PATH.lock().unwrap() = Some(root_s.clone());
+                        // 顺带切换 cwd 到数据根，修复 assets/cache 等其它相对路径依赖
+                        if let Err(err) = std::env::set_current_dir(&cur) {
+                            error!("failed to set current dir to {root_s}: {err:?}");
+                        }
+                        break 'outer;
+                    }
+                    seen.insert(data_dir);
+                    if !cur.pop() {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     #[cfg(target_os = "android")]
     {
         if let Some(dir) = DATA_PATH.lock().unwrap().clone() {
@@ -276,6 +408,7 @@ async fn the_main() -> Result<()> {
     }
 
     let dir = dir::root()?;
+    prpr::hud::set_root(dir.clone());
     let mut data: Data = std::fs::read_to_string(format!("{dir}/data.json"))
         .map_err(anyhow::Error::new)
         .and_then(|s| Ok(serde_json::from_str(&s)?))
@@ -284,15 +417,6 @@ async fn the_main() -> Result<()> {
     set_data(data);
     sync_data();
     save_data()?;
-
-    // 初始化成就系统
-    {
-        let data_dir = std::path::PathBuf::from(dir::root()?);
-        if let Err(e) = achievement::init_manager(&data_dir) {
-            tracing::warn!(?e, "初始化成就系统失败");
-        }
-    }
-
 
 
     tokio::spawn(censor::preload());
@@ -308,23 +432,59 @@ async fn the_main() -> Result<()> {
         .display_mut()
         .set_pause_resume_listener(on_pause_resume);
 
+    #[cfg(target_os = "windows")]
+    if let Some(hwnd) = unsafe { get_internal_gl() }
+        .quad_context
+        .display()
+        .native_window_handle()
+    {
+        crate::MAIN_HWND.store(hwnd, Ordering::Relaxed);
+        info!("cached main hwnd: {hwnd:#x}");
+    } else {
+        info!("failed to obtain main hwnd via native_window_handle");
+    }
+
     let pgr_font = FontArc::try_from_vec(load_file("fonts/phigros.ttf").await?)?;
     PGR_FONT.with(move |it| *it.borrow_mut() = Some(TextPainter::new(pgr_font, None)));
 
-    let font = FontArc::try_from_vec(load_file("fonts/font.ttf").await?)?;
-    let mut painter = TextPainter::new(font.clone(), None);
+    // 主字体：优先使用玩家导入的自定义字体，否则回退到内置字体
+    let builtin_font = FontArc::try_from_vec(load_file("fonts/font.ttf").await?)?;
+    let (main_font, fallback) = {
+        let data = get_data();
+        let custom = data
+            .font_id
+            .checked_sub(1)
+            .and_then(|i| data.fonts.get(i))
+            .and_then(|f| dir::fonts().ok().map(|root| format!("{root}/{}", f.file)))
+            .and_then(|path| std::fs::read(path).ok())
+            .and_then(|bytes| FontArc::try_from_vec(bytes).ok());
+        match custom {
+            Some(font) => (font, Some(builtin_font.clone())),
+            None => (builtin_font.clone(), None),
+        }
+    };
+    MAIN_FONT.with(move |it| *it.borrow_mut() = Some(TextPainter::new(main_font, fallback)));
 
     let first_scene: Box<dyn prpr::scene::Scene> = {
-        // 三选一：有启动画面就走启动页（它点完把玩家交给首启向导）；关掉启动画面时，
-        // 首次启动仍然直接进向导 —— 「第一次该问的几件事」不该因为关了一个显示开关就被跳过。
-        let inner: Box<dyn prpr::scene::Scene> = if get_data().show_startup_screen {
-            Box::new(LoginScene::new(font))
-        } else if !get_data().initial_setup_done {
-            Box::new(SetupScene::new(font))
+
+        // 与 Phigros 一致：开屏（StudioLogoScene）为唯一启动场景，LoginScene 已删除并合并入开屏，
+        // 主界面在开屏播放期间后台加载完成，结束后直接进入；仅首次设置保留前置 SetupScene。
+        let inner: Option<Box<dyn prpr::scene::Scene>> = if !get_data().initial_setup_done {
+            Some(Box::new(SetupScene::new(builtin_font.clone())))
         } else {
-            Box::new(StartupLoadingScene::new(font))
+            None
         };
-        Box::new(StudioLogoScene::new(inner).await)
+
+
+        let studio = StudioLogoScene::new(inner, builtin_font).await;
+        #[cfg(not(target_os = "android"))]
+        {
+            Box::new(studio)
+        }
+        #[cfg(target_os = "android")]
+        {
+            Box::new(studio)
+        }
     };
     let mut main = Main::new(first_scene, TimeManager::default(), None).await?;
 
@@ -376,14 +536,51 @@ async fn the_main() -> Result<()> {
                 }
             }
             if !paused {
+                #[cfg(target_os = "windows")]
+                {
+                    // 拖拽导入谱面：把拖入窗口的 zip 导入自定义谱面
+                    let dropped = poll_dropped_files();
+                    if !dropped.is_empty() {
+                        for path in dropped {
+                            tokio::spawn(import_dropped_chart(path));
+                        }
+                    }
+                }
                 if is_key_pressed(KeyCode::F11) {
                     let data = get_data_mut();
                     data.config.fullscreen_mode = !data.config.fullscreen_mode;
                     set_fullscreen_mode(data.config.fullscreen_mode);
                     let _ = save_data();
                 }
+                if is_key_pressed(KeyCode::F10) {
+                    recorder::recorder().lock().unwrap().toggle();
+                }
+                if recorder::take_render_on_next_play() {
+                    recorder::recorder().lock().unwrap().start();
+                }
                 main.update()?;
-                main.render(&mut painter)?;
+                {
+                    let data = get_data();
+                    let avg = if fps_times.is_empty() {
+                        0.
+                    } else {
+                        1. / (fps_time_sum / fps_times.len() as f32)
+                    };
+                    prpr::scene::set_fps_overlay(
+                        data.config.show_fps,
+                        data.config.fps_position,
+                        avg,
+                    );
+                }
+                let render_res = MAIN_FONT.with(|it| {
+                    let mut guard = it.borrow_mut();
+                    match guard.as_mut() {
+                        Some(painter) => main.render(painter),
+                        None => Ok(()),
+                    }
+                });
+                render_res?;
+                recorder::recorder().lock().unwrap().capture_frame();
             }
             prpr::ext::flush_pending_texture_deletions();
             Ok(())
@@ -394,7 +591,7 @@ async fn the_main() -> Result<()> {
                 let message = panic_message(&*payload);
                 error!("caught panic on main thread: {message}");
                 if !CRASH_SCENE_SHOWN.swap(true, Ordering::SeqCst) {
-                    let crash_code = CrashCode::from_panic_message(&message);
+                    let crash_code = crash_extra::make_crash_code(&message);
                     let entered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         main.enter_crash_scene(crash_code, ttl!("crash-unexpected").into_owned())
                     }));
@@ -427,11 +624,16 @@ async fn the_main() -> Result<()> {
             }
         }
 
-
-
+        if let Some(limit) = Some(get_data().config.fps_limit).filter(|v| *v > 0) {
+            let target = 1. / limit as f64;
+            let elapsed = tm.real_time() - frame_start as f64;
+            if elapsed < target {
+                std::thread::sleep(std::time::Duration::from_secs_f64(target - elapsed));
+            }
+        }
         next_frame().await;
     }
-    // 退出前清理音频，防止退出后音频还在播放
+
     prpr::ui::cleanup_audio();
     Ok(())
 }
@@ -469,7 +671,6 @@ extern "system" {
 #[cfg(target_os = "windows")]
 static CONSOLE_ALLOCATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// 切换调试控制台（仅 Windows 有效；其它平台为无操作，保证设置页可编译）。
 pub fn set_console_enabled(enabled: bool) {
     #[cfg(target_os = "windows")]
     {
@@ -503,11 +704,6 @@ fn on_pause_resume(pause: bool) {
     }
 }
 
-/// 通过传入的 JNIEnv 把 Java String 转为 Rust String。
-///
-/// 不能直接 `path.to_string()`（jni 的 Display 需要 `JavaVM::singleton` 已初始化，
-/// 而 setDataPath 等会在 miniquad 引擎启动前被调用，那时 singleton 尚未就绪，
-/// 会得到占位字符串 `<JNI Not Initialized>`）。这里用 JNI 函数表直接读取。
 #[cfg(target_os = "android")]
 fn android_jstring_to_string(env: &mut jni::EnvUnowned, s: &jni::objects::JString) -> String {
     use jni::Outcome;
@@ -523,9 +719,6 @@ fn android_jstring_to_string(env: &mut jni::EnvUnowned, s: &jni::objects::JStrin
     }
 }
 
-/// 初始化 rustls-platform-verifier（Android 证书校验需要先 init，并且 APK 里
-/// 必须带 rustls-platform-verifier-android 的 Java 类）。在拥有 JNI env 的
-/// 早期 native 调用里执行一次即可（ndk_context 的 Activity 已由 initializeContext 设置）。
 #[cfg(target_os = "android")]
 fn init_rustls_platform_verifier(mut env: EnvUnowned) {
     use jni::Outcome;
@@ -634,9 +827,6 @@ pub extern "C" fn Java_quad_1native_QuadNative_markAutoImport(_env: EnvUnowned, 
     CHOSEN_FILE.lock().unwrap().0 = Some("_import_auto".to_owned());
 }
 
-/// 深链接（phira://room/join|create/<...>?server=...）多人启动参数。
-/// Java 侧保证三个参数都不为 null（空字符串表示未提供），这里只暂存，
-/// 等玩家进入多人场景、连上服务器后再由多人会话自动加入/创建房间。
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "C" fn Java_quad_1native_QuadNative_setStartupArgs(
@@ -663,9 +853,8 @@ pub extern "C" fn Java_quad_1native_QuadNative_setInputText(mut env: EnvUnowned,
     INPUT_TEXT.lock().unwrap().1 = Some(android_jstring_to_string(&mut env, &text));
 }
 
-/// Credentials obtained from the native HYKB (好游快爆) login SDK.
 pub struct HykbCredential {
-    /// SDK result code: 0 on success, otherwise an error / user cancellation.
+
     pub code: i32,
     pub uid: i64,
     pub nick: String,
@@ -673,20 +862,12 @@ pub struct HykbCredential {
 }
 
 impl HykbCredential {
-    /// Map the SDK result code to an error, or yield the credential on success.
-    /// Centralizes the code → user-facing message translation shared by every
-    /// HYKB login/bind entry point.
+
     #[cfg(feature = "hykb")]
     pub fn ok_or_err(self) -> Result<Self> {
         if self.code == 0 {
             Ok(self)
         } else {
-
-
-
-
-
-
 
             force_logout();
             anyhow::bail!("{}", crate::ttl!("hykb-login-cancelled"))
@@ -694,10 +875,8 @@ impl HykbCredential {
     }
 }
 
-/// Slot for the pending HYKB login result. The native callback fulfills it.
 static HYKB_TX: Mutex<Option<tokio::sync::oneshot::Sender<HykbCredential>>> = Mutex::new(None);
 
-/// Call a no-arg `void` method on the Android host activity (the HYKB shell).
 #[cfg(all(target_os = "android", feature = "hykb"))]
 fn call_activity_void(method: &'static jni::strings::JNIStr) {
     use jni::{jni_sig, objects::JObject, vm::JavaVM};
@@ -798,12 +977,6 @@ pub extern "C" fn Java_quad_1native_QuadNative_hykbLoginCallback(
             access_token,
         });
     } else if code == 2005 {
-
-
-
-
-
-
 
     }
 }

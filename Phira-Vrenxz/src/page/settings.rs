@@ -1915,6 +1915,7 @@ struct ChartList {
     show_avg_fps_btn: DRectButton,
     show_fps_btn: DRectButton,
     fps_pos_btn: ChooseButton,
+    fps_limit_slider: Slider,
     dc_pause_btn: DRectButton,
     dhint_btn: DRectButton,
     opt_btn: DRectButton,
@@ -1976,6 +1977,7 @@ impl ChartList {
             fps_pos_btn: ChooseButton::new()
                 .with_options(vec!["左上".into(), "右上".into(), "左下".into(), "右下".into()])
                 .with_selected(get_data().config.fps_position.min(3) as usize),
+            fps_limit_slider: Slider::new(0.0..480.0, 10.0),
             dc_pause_btn: DRectButton::new(),
             dhint_btn: DRectButton::new(),
             opt_btn: DRectButton::new(),
@@ -2060,6 +2062,13 @@ impl ChartList {
         }
         if self.fps_pos_btn.touch(touch, t) {
             return Ok(Some(false));
+        }
+        {
+            let mut v = config.fps_limit as f32;
+            if let wt @ Some(_) = self.fps_limit_slider.touch(touch, t, &mut v) {
+                config.fps_limit = v.round().clamp(0., 480.) as u32;
+                return Ok(wt);
+            }
         }
         if config.perf_is_custom() {
             if self.perf_custom_metrics_btn.touch(touch, t) {
@@ -2366,6 +2375,13 @@ impl ChartList {
             &mut self.fps_pos_btn,
             0.20,
         ));
+        v.push(row_slider(
+            "帧率上限",
+            Some("0 = 不限制；建议 60/120/144".into()),
+            &mut self.fps_limit_slider,
+            config.fps_limit as f32,
+            format!("{}", config.fps_limit),
+        ));
         v.push(row_switch(
             tl!("item-show-avg-fps"),
             Some(tl!("item-show-avg-fps-sub")),
@@ -2547,7 +2563,7 @@ impl ChartList {
         v
     }
     fn row_group(label: &str) -> u8 {
-        if ["显示帧率", "FPS 位置", "显示平均帧率", "双击暂停", "使用键盘游玩"].iter().any(|s| label.contains(s)) {
+        if ["显示帧率", "FPS 位置", "帧率上限", "显示平均帧率", "双击暂停", "使用键盘游玩"].iter().any(|s| label.contains(s)) {
             1
         } else if ["AP/FC", "准度指示器", "指示器颜色"].iter().any(|s| label.contains(s)) {
             2

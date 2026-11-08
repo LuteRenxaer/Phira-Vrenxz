@@ -1,8 +1,9 @@
 use super::{
+    draw_disabled_zones, draw_zones_with_touches,
     line::{run_line_note_pass, LineNoteView},
     note::{FrameGeo, NoteVertexItem, StagingSink},
     note::FADEOUT_TIME,
-    BpmList, CtrlObject, Effect, JudgeLine, JudgeLineKind, Matrix, Note, NoteKind, Resource, UIElement, Vector,
+    BlockArea, BlockRotateEvent, BpmList, CtrlObject, Effect, JudgeLine, JudgeLineKind, Matrix, Note, NoteKind, Point, Resource, UIElement, Vector, Zone, zone_on_screen, zone_on_screen_lim,
 };
 use crate::{core::Object, fs::FileSystem, judge::JudgeStatus, parallel::POOL, ui::Ui};
 use anyhow::{Context, Result};
@@ -17,6 +18,7 @@ pub struct ChartExtra {
     pub global_effects: Vec<Effect>,
     #[cfg(feature = "video")]
     pub videos: Vec<(super::Video, Option<super::VideoAttach>)>,
+    pub lyrics: Vec<crate::parse::lyrics::LyricLine>,
 }
 
 #[derive(Default)]
@@ -35,26 +37,49 @@ pub struct Chart {
     pub settings: ChartSettings,
     pub extra: ChartExtra,
 
-    /// Use Arcaea-style judgement and scoring (for XC-SIM charts)
     pub arcaea_judgement: bool,
-    /// Use FNF-style judgement and scoring
+
     pub fnf_judgement: bool,
 
-    /// Line order according to z-index, lines with attach_ui will be removed from this list
-    ///
-    /// Store the index of the line in z-index ascending order
     pub order: Vec<usize>,
-    /// TODO: docs from RPE
+
     pub attach_ui: [Option<usize>; 7],
 
     pub hitsounds: HitSoundMap,
 
-    /// 并行 Note 顶点生成的复用缓冲（按 `order` 下标索引，跨帧复用容量）
+    /// 噪域（blockArea）区域对象，由谱面 blockAreaList 解析而来。
+    pub block_areas: Vec<BlockArea>,
+    /// RNPE/rpe-next 噪域；坐标与时间语义和原生 BlockArea 不同。
+    pub next_block_areas: Vec<super::rpe_next_block::Area>,
+    pub next_single_inversion: bool,
+    next_block_frame: RefCell<(Option<(f64, f32, usize)>, Vec<super::rpe_next_block::Sample>)>,
+    /// Chart-space positions of touches blocked by the zones this frame.
+    pub blocked_touches: Vec<(u64, Vector)>,
+    block_frame: RefCell<BlockFrame>,
+    rpe_block_markers: Vec<usize>,
+    line_transforms: Vec<Matrix>,
+    line_rotations: Vec<f32>,
+
     note_staging: RefCell<Vec<Vec<NoteVertexItem>>>,
 }
 
+#[derive(Default)]
+struct BlockFrame {
+    timeline: super::block_timeline::BlockTimeline,
+    key: Option<(f64, f32, usize)>,
+    zones: Vec<Zone>,
+}
+
 impl Chart {
-    pub fn new(offset: f32, lines: Vec<JudgeLine>, bpm_list: BpmList, settings: ChartSettings, extra: ChartExtra, hitsounds: HitSoundMap) -> Self {
+    pub fn new(
+        offset: f32,
+        lines: Vec<JudgeLine>,
+        bpm_list: BpmList,
+        settings: ChartSettings,
+        extra: ChartExtra,
+        hitsounds: HitSoundMap,
+        block_areas: Vec<BlockArea>,
+    ) -> Self {
         let mut attach_ui = [None; 7];
         let mut order = (0..lines.len())
             .filter(|it| {
@@ -67,6 +92,18 @@ impl Chart {
             })
             .collect::<Vec<_>>();
         order.sort_by_key(|it| (lines[*it].z_index, *it));
+        let rpe_block_markers = lines
+            .iter()
+            .enumerate()
+            .filter_map(|(id, line)| match &line.kind {
+                JudgeLineKind::Texture(_, path)
+                    if matches!(path.rsplit(['/', '\\']).next().unwrap_or("").to_ascii_lowercase().as_str(), "issubtract0.png" | "issubtract1.png") =>
+                {
+                    Some(id)
+                }
+                _ => None,
+            })
+            .collect();
         Self {
             offset,
             lines,
@@ -81,6 +118,15 @@ impl Chart {
             attach_ui,
 
             hitsounds,
+            block_areas,
+            next_block_areas: Vec::new(),
+            next_single_inversion: false,
+            next_block_frame: RefCell::default(),
+            blocked_touches: Vec::new(),
+            block_frame: RefCell::default(),
+            rpe_block_markers,
+            line_transforms: Vec::new(),
+            line_rotations: Vec::new(),
             note_staging: RefCell::new(Vec::new()),
         }
     }
@@ -121,7 +167,36 @@ impl Chart {
         Ok(())
     }
 
+    pub fn set_next_block_areas(&mut self, areas: Vec<super::rpe_next_block::Area>, single_inversion: bool) {
+        self.next_block_areas = areas;
+        self.next_single_inversion = single_inversion;
+        self.next_block_frame.get_mut().0 = None;
+    }
+
+    pub fn has_block_areas(&self) -> bool {
+        !self.block_areas.is_empty() || !self.rpe_block_markers.is_empty() || !self.next_block_areas.is_empty()
+    }
+
+    pub fn next_block_samples(&self, time: f64, aspect: f32) -> Vec<super::rpe_next_block::Sample> {
+        let key = (time, aspect, self.next_block_areas.len());
+        let mut cache = self.next_block_frame.borrow_mut();
+        if cache.0 == Some(key) {
+            return cache.1.clone();
+        }
+        let mut samples: Vec<_> = self
+            .next_block_areas
+            .iter()
+            .filter_map(|area| area.sample(time, aspect))
+            .collect();
+        samples.sort_by_key(|s| s.layer);
+        cache.0 = Some(key);
+        cache.1 = samples.clone();
+        samples
+    }
+
     pub fn reset(&mut self) {
+        self.blocked_touches.clear();
+        super::reset_block_effects();
         self.lines
             .iter_mut()
             .flat_map(|it| it.notes.iter_mut())
@@ -145,11 +220,13 @@ impl Chart {
         for line in &mut self.lines {
             line.object.set_time(res.time);
         }
-
-        let trs = self.lines.iter().map(|it| it.now_transform(res, &self.lines)).collect::<Vec<_>>();
-        let rotations = self.lines.iter().map(|it| it.fetch_rot(&self.lines)).collect::<Vec<_>>();
-        for ((line, tr), rot) in self.lines.iter_mut().zip(trs).zip(rotations) {
-            line.update(res, tr, rot);
+        self.line_transforms.clear();
+        self.line_rotations.clear();
+        self.line_transforms
+            .extend(self.lines.iter().map(|it| it.now_transform(res, &self.lines)));
+        self.line_rotations.extend(self.lines.iter().map(|it| it.fetch_rot(&self.lines)));
+        for ((line, tr), rot) in self.lines.iter_mut().zip(&self.line_transforms).zip(&self.line_rotations) {
+            line.update(res, *tr, *rot);
         }
         for effect in &mut self.extra.effects {
             effect.update(res);
@@ -162,27 +239,10 @@ impl Chart {
         }
     }
 
-    /// 计算当前帧的 Note 负载指标。
-    ///
-    /// 返回 `(屏幕上可见的 Note 数量, 未来 1 秒内需要击打的 Note 数量)`，
-    /// 供游戏场景据此启用低分辨率 Note 渲染 / 关闭打击特效。
-    ///
-    /// 按判定线逐条统计（每帧一次，开销为微秒级，不阻塞主线程）。
-    ///
-    /// 不再每帧全量遍历所有 Note（百万级谱面会浪费大量主线程时间/内存带宽），
-    /// 而是只扫描每条判定线自己维护的“活跃”Note（[`JudgeLineCache::active_ids`]，
-    /// 即 `update_order` = 上一帧结束时仍未消亡的 Note，与旧实现 `filter(!dead)` 的
-    /// 集合一致，最多滞后一帧，对画面阈值无可感知差异）。
-    ///
-    /// 活跃 Note 总量极大（罕见的巨型活跃集合）时再交给全局常驻线程池
-    /// [`crate::parallel::POOL`] 并行统计，主线程只在屏障处等待；其安全模型与
-    /// `parallel.rs` 一致（“调用方阻塞屏障 + 裸指针”）：统计期间主线程阻塞等待
-    /// 全部工作线程结束，没有任何并发写者，工作线程只读共享的 Note 数据。
     pub fn load_metrics(&self, res: &Resource) -> (usize, usize) {
         let t = res.time;
         let end = t + 1.0;
-        // 屏幕可见的近似时间窗口：Note 一般提前约 2~3 秒进入屏幕，
-        // 取 5 秒既不会漏掉慢速滚动，也不会把几十秒后的 Note 误算为"在屏幕上"
+
         let visible_end = t + 5.0;
 
         let workers = POOL.worker_count();
@@ -190,9 +250,9 @@ impl Chart {
         if active_total == 0 {
             return (0, 0);
         }
-        // 是否并行由“性能优化档位”决定（见 Config::metrics_parallel / metrics_parallel_min）
+
         if workers > 1 && res.config.metrics_parallel() && active_total > res.config.metrics_parallel_min() {
-            // 每条线一个统计任务（只读共享，无并发写者）
+
             let mut jobs: Vec<ActiveMetricsJob> = Vec::with_capacity(self.lines.len());
             for line in &self.lines {
                 let ids = line.cache.active_ids();
@@ -228,7 +288,7 @@ impl Chart {
             }
             (visible, upcoming)
         } else {
-            // 常规谱面：活跃集合很小，串行扫描即可（微秒级）
+
             let mut visible = 0usize;
             let mut upcoming = 0usize;
             for line in &self.lines {
@@ -257,20 +317,22 @@ impl Chart {
                 video.render(res.time, res.aspect_ratio, WHITE);
             }
         }
-        // 平行反转（X 轴镜像）与垂直反转（Y 轴镜像）作用于谱面整体显示；
-        // Y 方向的基准 -1 为屏幕方向修正，垂直反转时改回 +1 即实现上下颠倒。
+
         let mirror_x = res.config.flip_x();
         let mirror_y = res.config.flip_y();
         res.apply_model_of(
             &Matrix::identity().append_nonuniform_scaling(&Vector::new(if mirror_x { -1. } else { 1. }, if mirror_y { 1. } else { -1. })),
             |res| {
-                // 默认路径：与画面正常时期一致（判定线视觉 + 逐线 Note 串行生成）
+
+                // Native Background sorting layer order 2, judge lines order 3.
+                let zones = Self::scale_zones_for_render(res, &self.block_zones(res));
+                draw_disabled_zones(res, res.aspect_ratio, &zones);
                 let mut guard = self.bpm_list.borrow_mut();
                 for id in &self.order {
                     self.lines[*id].render(ui, res, &self.lines, &mut guard, &self.settings, *id);
                 }
                 drop(guard);
-                // 一次性 draw_all（仍处于镜像模型矩阵作用域内）
+
                 res.note_buffer.borrow_mut().draw_all();
                 if res.config.sample_count > 1 {
                     unsafe { get_internal_gl() }.flush();
@@ -297,10 +359,6 @@ impl Chart {
         );
     }
 
-    /// 逐线收集 Note 顶点工作项，交由全局常驻线程池按判定线并行生成，
-    /// 主线程随后按线序把各线程暂存结果合批进 `note_buffer`。
-    ///
-    /// 试验性：画面 bug（note 拖影）修复前默认不启用（渲染走旧串行路径）。
     #[allow(dead_code)]
     fn render_notes(&self, res: &mut Resource) {
         let order = &self.order;
@@ -315,7 +373,6 @@ impl Chart {
             buffers.resize_with(n, Vec::new);
         }
 
-        /// 一条判定线的顶点生成任务：只读共享 Note 切片 + 拷贝的线视图 + 独占 ctrl 拷贝
         struct Job<'l> {
             view: LineNoteView<'l>,
             ctrl: CtrlObject,
@@ -339,7 +396,6 @@ impl Chart {
             });
         }
 
-        // 并行/串行共用同一生成代码；线程数不足或只有一条线时原地串行执行
         let run = |job: &mut Job| {
             let last = run_line_note_pass(&frame, &job.view, &mut job.ctrl, &mut StagingSink(&mut job.out));
             job.last_h = last;
@@ -353,14 +409,12 @@ impl Chart {
             }
         }
 
-        // 并行路径用的是 ctrl 拷贝：把真实判定线 ctrl 恢复为与串行渲染一致的“帧末状态”
         for job in &jobs {
             if let Some(h) = job.last_h {
                 self.lines[job.line_id].ctrl_obj.borrow_mut().set_height(h);
             }
         }
 
-        // 按线序合批进共享 note_buffer（与旧实现相同的插入顺序 → 相同的合批结果）
         let mut nb = res.note_buffer.borrow_mut();
         for (k, mut job) in jobs.into_iter().enumerate() {
             let out = std::mem::take(&mut job.out);
@@ -370,15 +424,171 @@ impl Chart {
             buffers[k] = out;
         }
     }
+
+    /// [谱面揭晓] 读取模型栈上各帧均匀缩放的累积乘积（取绝对值容忍镜像翻转），
+    /// 得到当前谱面相对全屏 NDC 的缩放系数。噪域 mask 光栅化与最终合成均在
+    /// 全屏 NDC 空间完成（官方 shader 无 Model uniform，全屏矩形顶点为 CPU 直算），
+    /// 不会随 model_stack 缩放，须用该系数把 Zone 几何同倍缩小后再光栅化，
+    /// 使噪域随判定线/note 一起缩进游玩区域。
+    fn current_zone_scale(res: &Resource) -> f32 {
+        res.model_stack
+            .iter()
+            .fold(1.0f32, |acc, m| acc * m.m11)
+            .abs()
+    }
+
+    /// [谱面揭晓] 按当前模型栈缩放系数缩小 Zone 列表，并在缩小后的空间重新执行
+    /// 屏幕外剔除。缩放后 Zone 变小、Reveal 视野扩大，原始 NDC 剔除（zone_on_screen
+    /// 按全屏 [-1,1] 边界判断）会把本应可见的边缘 Zone 丢弃，故须在缩放坐标上
+    /// 重新判定可见性；非缩放路径保持原 Zone 原样返回。
+    fn scale_zones_for_render(res: &Resource, zones: &[Zone]) -> Vec<Zone> {
+        let scale = Self::current_zone_scale(res);
+        if (scale - 1.).abs() > 1e-4 {
+            zones.iter()
+                .map(|z| Zone { center: z.center * scale, half: z.half * scale, ..*z })
+                .filter(|z| zone_on_screen(z, res.aspect_ratio))
+                .collect()
+        } else {
+            zones.iter().cloned().collect()
+        }
+    }
+
+    pub fn render_block_overlay(&self, res: &mut Resource) {
+        if !res.config.noise_enabled {
+            return;
+        }
+        let flip_x = res.config.flip_x();
+        let mut zones = Self::scale_zones_for_render(res, &self.block_zones(res));
+        zones.extend(
+            self.next_block_samples(res.time, res.aspect_ratio)
+                .into_iter()
+                .map(|sample| sample.zone),
+        );
+        res.apply_model_of(&Matrix::identity().append_nonuniform_scaling(&Vector::new(if flip_x { -1. } else { 1. }, -1.)), |res| {
+            draw_zones_with_touches(res, res.aspect_ratio, &zones, &self.blocked_touches, flip_x);
+        });
+    }
+
+    fn block_zones(&self, res: &Resource) -> std::cell::Ref<'_, [Zone]> {
+        // [谱面揭晓] Reveal 全景缩放下视野扩大 1/scale 倍，首层剔除必须使用
+        // 扩大后的边界（zone_on_screen_lim），否则全景视野内但全屏 NDC 之外的
+        // Zone 会被误丢弃，噪域边缘宽度缺失并随 Zone 动画在边界处频繁闪烁。
+        // 第二层 scale_zones_for_render 仍按缩放后的 ±1 边界剔除，不受影响。
+        let scale = Self::current_zone_scale(res);
+        let cull_lim = if (scale - 1.).abs() > 1e-4 { 1. / scale } else { 1. };
+        let key = (res.time, res.aspect_ratio, self.block_areas.len());
+        let mut cache = self.block_frame.borrow_mut();
+        if cache.key != Some(key) {
+            let BlockFrame { timeline, zones, .. } = &mut *cache;
+            zones.clear();
+            zones.extend(
+                timeline
+                    .at(&self.block_areas, res.time)
+                    .iter()
+                    .filter_map(|&id| Zone::from_area(&self.block_areas[id], res.time, res.aspect_ratio))
+                    // Render-only cull: fully off-screen zones skip mask
+                    // rasterization and the full-screen effect pass. Judgement
+                    // never reads Zone, so touch blocking is unaffected.
+                    .filter(|zone| zone_on_screen_lim(zone, res.aspect_ratio, cull_lim)),
+            );
+            let marker_areas = self.rpe_marker_areas(res.aspect_ratio);
+            zones.extend(
+                marker_areas
+                    .iter()
+                    .filter_map(|area| Zone::from_area(area, res.time, res.aspect_ratio))
+                    .filter(|zone| zone_on_screen_lim(zone, res.aspect_ratio, cull_lim)),
+            );
+            cache.key = Some(key);
+        }
+        drop(cache);
+        std::cell::Ref::map(self.block_frame.borrow(), |cache| cache.zones.as_slice())
+    }
+
+    pub(crate) fn touch_blocked(&self, p: Vector, time: f64, aspect: f32) -> bool {
+        let marker_areas = self.rpe_marker_areas(aspect);
+        let mut cache = self.block_frame.borrow_mut();
+        let areas = cache
+            .timeline
+            .at(&self.block_areas, time)
+            .iter()
+            .map(|&id| &self.block_areas[id])
+            .chain(marker_areas.iter());
+        super::block::block_touch_blocked_iter(areas, p, time, aspect)
+            || super::rpe_next_block::blocked(
+                &self.next_block_samples(time, aspect),
+                p,
+                aspect,
+                self.next_single_inversion,
+            )
+    }
+
+    /// RPE charts commonly encode block areas as opaque texture lines named
+    /// `isSubtract0.png` (normal) / `isSubtract1.png` (subtract). Resolve those
+    /// animated lines into the same rectangle model used by official block areas.
+    fn rpe_marker_areas(&self, aspect: f32) -> Vec<BlockArea> {
+        self.rpe_block_markers
+            .iter()
+            .filter_map(|&id| {
+                let line = self.lines.get(id)?;
+                let (texture, path) = match &line.kind {
+                    JudgeLineKind::Texture(texture, path) => (texture, path),
+                    _ => return None,
+                };
+                let is_subtract = match path.rsplit(['/', '\\']).next()?.to_ascii_lowercase().as_str() {
+                    "issubtract0.png" => false,
+                    "issubtract1.png" => true,
+                    _ => return None,
+                };
+                let alpha = line.object.alpha.now_opt().unwrap_or(1.).max(0.);
+                let scale = line.object.scale.now_with_def(1., 1.);
+                if scale.x.abs() < 1e-6 || scale.y.abs() < 1e-6 || texture.width() <= 0. || texture.height() <= 0. {
+                    return None;
+                }
+                let center = self
+                    .line_transforms
+                    .get(id)
+                    .map(|matrix| matrix.transform_point(&Point::new(0., 0.)))
+                    .unwrap_or_else(|| {
+                        let mut pos = line.object.translation.now();
+                        pos.y /= aspect;
+                        Point::new(pos.x, pos.y)
+                    });
+                let rotation = self.line_rotations.get(id).copied().unwrap_or_else(|| line.object.rotation.now());
+                let half_x = texture.width() * scale.x.abs() * 0.5;
+                let half_y = texture.height() * scale.y.abs() * 0.5;
+                let to_pct_x = |x: f32| (x + 1.) * 0.5;
+                let to_pct_y = |y: f32| (y * aspect + 1.) * 0.5;
+                let c = Vector::new(center.x, center.y);
+                let top_right = Vector::new(to_pct_x(c.x + half_x), to_pct_y(c.y + half_y));
+                let bottom_left = Vector::new(to_pct_x(c.x - half_x), to_pct_y(c.y - half_y));
+                let anchor = Vector::new(to_pct_x(c.x), to_pct_y(c.y));
+                Some(BlockArea {
+                    top_right,
+                    bottom_left,
+                    appear_time: if alpha > 0. { 0. } else { f64::INFINITY },
+                    enable_time: if alpha > 0. { 0. } else { f64::INFINITY },
+                    disable_time: f64::INFINITY,
+                    disappear_time: f64::INFINITY,
+                    is_subtract,
+                    rotate_events: vec![BlockRotateEvent {
+                        anchor,
+                        time: 0.,
+                        ease: 0,
+                        rotation,
+                    }],
+                    move_events: Vec::new(),
+                    scale_events: Vec::new(),
+                    active_intervals: Vec::new(),
+                    absolute_scale: false,
+                    base_px: Vector::zeros(),
+                    move_x_events: Vec::new(),
+                    move_y_events: Vec::new(),
+                })
+            })
+            .collect()
+    }
 }
 
-/// 单条 Note 对负载统计的贡献 `(可见, 即将击打)`。判定口径与旧 `load_metrics` 完全一致：
-///
-/// - 已判定的非 Hold note 不再渲染（同 `Note::render`）；
-/// - 超出淡出窗口的 note 不再渲染（同 `Note::render`）；
-/// - 未来 1 秒内仍未判定、非假 note 计入“即将击打”。
-///
-/// 调用方保证传入的均为“活跃”（尚未消亡）Note，即旧实现 `filter(!it.dead())` 的集合。
 #[inline]
 fn note_metric(note: &Note, t: f64, end: f64, visible_end: f64) -> (usize, usize) {
     if matches!(note.judge, JudgeStatus::Judged) && !matches!(note.kind, NoteKind::Hold { .. }) {
@@ -395,7 +605,6 @@ fn note_metric(note: &Note, t: f64, end: f64, visible_end: f64) -> (usize, usize
     (visible, upcoming)
 }
 
-/// 一条判定线的活跃 Note 统计任务：`notes`/`ids` 裸指针指向的数据在屏障期间被本任务只读。
 struct ActiveMetricsJob {
     notes: *const Note,
     notes_len: usize,
@@ -405,6 +614,4 @@ struct ActiveMetricsJob {
     upcoming: usize,
 }
 
-// 裸指针 + 调用方阻塞屏障（与 parallel.rs 同款模式）：`scoped_parallel_for` 阻塞等待
-// 期间，`notes`/`ids` 指向的数据只会被本任务读取——主线程（唯一的写者）不会并发写这些数据。
 unsafe impl Send for ActiveMetricsJob {}
