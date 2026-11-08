@@ -1,4 +1,3 @@
-//! Judgement system
 
 use crate::{
     config::Config,
@@ -13,7 +12,7 @@ use miniquad::{EventHandler, MouseButton};
 use once_cell::sync::Lazy;
 use sasa::{PlaySfxParams, Sfx};
 use serde::Serialize;
-use std::{cell::RefCell, collections::HashMap, mem, num::FpCategory};
+use std::{cell::RefCell, collections::{HashMap, HashSet}, mem, num::FpCategory};
 use tracing::debug;
 
 pub const FLICK_SPEED_THRESHOLD: f32 = 0.8;
@@ -24,7 +23,7 @@ pub const UP_TOLERANCE: f64 = 0.05;
 pub const DIST_FACTOR: f64 = 0.2;
 
 const EARLY_OFFSET: f64 = 0.07;
-/// flick / drag 的判定时机窗口，对齐 phire 的 `LIMIT_GOOD`（0.18，双向对称）。
+
 const FLICK_DRAG_WINDOW: f64 = 0.18;
 
 #[derive(Debug, Clone)]
@@ -67,6 +66,16 @@ pub fn play_sfx(sfx: &mut Sfx, config: &Config) {
     }
     let _ = sfx.play(PlaySfxParams {
         amplifier: config.volume_sfx,
+    });
+}
+
+/// 噪域失效反馈 SFX：进入噪域时播放一次音量减小的打击音。
+pub fn play_noise_sfx(res: &mut Resource) {
+    if res.config.volume_sfx <= 1e-2 {
+        return;
+    }
+    let _ = res.sfx_click.play(PlaySfxParams {
+        amplifier: res.config.volume_sfx * 0.5,
     });
 }
 
@@ -124,12 +133,6 @@ impl FlickTracker {
                 self.flicked = delta.magnitude() / dt >= self.threshold * 2.;
             }
 
-
-
-
-
-
-
         }
         self.last_delta = Some(delta.normalize());
         self.last_time = time;
@@ -168,6 +171,19 @@ pub(crate) struct JudgeInner {
 
     arcaea_mode: bool,
     fnf_mode: bool,
+
+    /// [课题模式] 自定义判定窗口 (perfect, good, bad)，单位秒
+    custom_limits: Option<(f64, f64, f64)>,
+    late_leniency: f64,
+    perfect_plus_limit: f64,
+    perfect_plus_count: u32,
+    detailed: bool,
+    great_limit: f64,
+    ok_limit: f64,
+    meh_limit: f64,
+    detailed_counts: [u32; 3],
+    /// [课题模式] 课题计分：无连击加成，单局满分 1_000_000
+    challenge_scoring: bool,
 }
 
 #[cfg(not(closed))]
@@ -186,16 +202,61 @@ impl JudgeInner {
 
             arcaea_mode,
             fnf_mode,
+            custom_limits: None,
+            late_leniency: 0.,
+            perfect_plus_limit: 0.,
+            perfect_plus_count: 0,
+            detailed: false,
+            great_limit: 0.,
+            ok_limit: 0.,
+            meh_limit: 0.,
+            detailed_counts: [0; 3],
+            challenge_scoring: false,
         }
+    }
+
+    /// [课题模式] 设置自定义判定窗口与课题计分
+    pub fn set_challenge(&mut self, limits: Option<(f64, f64, f64)>, scoring: bool) {
+        self.custom_limits = limits;
+        self.challenge_scoring = scoring;
+    }
+
+    pub fn set_late_leniency(&mut self, seconds: f64) {
+        self.late_leniency = seconds.max(0.);
+    }
+
+    pub fn set_perfect_plus(&mut self, seconds: f64) {
+        self.perfect_plus_limit = seconds.max(0.);
+    }
+
+    pub fn set_detailed(&mut self, enabled: bool, great: f64, ok: f64, meh: f64) {
+        self.detailed = enabled;
+        self.great_limit = great;
+        self.ok_limit = ok;
+        self.meh_limit = meh;
     }
 
     pub fn commit(&mut self, what: Judgement, diff: f64) {
         use Judgement::*;
         if matches!(what, Judgement::Good) {
             self.diffs.push(diff);
+            if self.detailed {
+                let d = diff.abs();
+                let i = if d <= self.great_limit {
+                    0
+                } else if d <= self.ok_limit {
+                    1
+                } else {
+                    2
+                };
+                self.detailed_counts[i] += 1;
+            }
         }
         if matches!(what, Judgement::Perfect) {
             self.perfect_diffs.push(diff);
+            if self.perfect_plus_limit > 0. && diff.abs() <= self.perfect_plus_limit {
+                self.perfect_plus_count += 1;
+            }
         }
         if diff < 0. {
             self.early_kind[what as usize] += 1;
@@ -222,6 +283,8 @@ impl JudgeInner {
         self.counts = [0; 4];
         self.diffs.clear();
         self.perfect_diffs.clear();
+        self.perfect_plus_count = 0;
+        self.detailed_counts = [0; 3];
         self.early_kind = [0; 4];
         self.late_kind = [0; 4];
     }
@@ -239,28 +302,29 @@ impl JudgeInner {
     }
 
     pub fn score(&self) -> u32 {
+        if self.challenge_scoring {
+            // [课题模式] 课题计分：无连击加成，单局满分 1_000_000
+            // Perfect=100% / Good=65% / Bad/Miss=0%，总分 = 判定分之和
+            let acc = self.accuracy().clamp(0., 1.);
+            return (acc * 1_000_000.).round() as u32;
+        }
         if self.fnf_mode {
-            // FNF-style scoring: fixed points per judgement
-            // Sick (Perfect): 350, Good: 200, Bad: 100, Miss: 0
+
             const FNF_PERFECT: u32 = 350;
             const FNF_GOOD: u32 = 200;
             const FNF_BAD: u32 = 100;
             self.counts[0] * FNF_PERFECT + self.counts[1] * FNF_GOOD + self.counts[2] * FNF_BAD
         } else if self.arcaea_mode {
-            // Arcaea-style scoring: max 10,000,000 + note count
-            // Big Pure (Pure+): diff.abs() <= 25ms -> base + 1
-            // Small Pure: base
-            // Far (Good): base * 0.5
-            // Lost: 0
+
             const ARCAEA_TOTAL: f64 = 10_000_000.;
-            const BIG_PURE_THRESHOLD: f64 = 0.025; // 25ms
+            const BIG_PURE_THRESHOLD: f64 = 0.025;
             if self.num_of_notes == 0 {
                 return 0;
             }
             let base = ARCAEA_TOTAL / self.num_of_notes as f64;
             let big_pure = self.perfect_diffs.iter().filter(|d| d.abs() <= BIG_PURE_THRESHOLD).count() as f64;
             let small_pure = (self.counts[0] as f64 - big_pure).max(0.);
-            let far = self.counts[1] as f64; // Good
+            let far = self.counts[1] as f64;
             let score = (big_pure * (base + 1.) + small_pure * base + far * base * 0.5).round();
             score as u32
         } else {
@@ -287,6 +351,11 @@ impl JudgeInner {
             std: 0.,
             early_kind: self.early_kind,
             late_kind: self.late_kind,
+            perfect_plus: self.perfect_plus_count,
+            great: self.detailed_counts[0],
+            ok: self.detailed_counts[1],
+            meh: self.detailed_counts[2],
+            diffs: self.diffs.iter().map(|&d| d as f32).collect(),
         }
     }
 
@@ -310,15 +379,22 @@ type Judgements = Vec<(f64, u32, u32, Result<Judgement, bool>)>;
 #[repr(C)]
 pub struct Judge {
 
-
     pub notes: Vec<(Vec<u32>, usize)>,
     pub trackers: HashMap<u64, FlickTracker>,
     pub last_time: f64,
+    /// 落入生效噪域（blockArea）的失效手指：`(手指 id, NDC 位置)`，供渲染红圈与音量反馈使用。
+    pub noise_fingers: Vec<(u64, Vector)>,
+    /// 噪域失效手指的「感染集合」：手指一旦落入生效噪域即被标记，直到该手指抬起前
+    /// 持续失效（官方 Phigros 语义：进入 enable~disable 窗口即失效，不因移出区域恢复）。
+    pub noise_finger_ids: HashSet<u64>,
 
     key_down_count: u32,
 
     pub(crate) inner: JudgeInner,
     pub judgements: RefCell<Judgements>,
+    /// 准度指示器用：最近判定历史 (谱面时间, 判定等级, 误差秒)
+    pub(crate) hit_history: Vec<(f64, Judgement, f64)>,
+    hit_generation: u64,
 }
 
 #[derive(Default)]
@@ -353,6 +429,8 @@ impl Judge {
             notes,
             trackers: HashMap::new(),
             last_time: 0.,
+            noise_fingers: Vec::new(),
+            noise_finger_ids: HashSet::new(),
 
             key_down_count: 0,
 
@@ -362,6 +440,8 @@ impl Judge {
                 chart.fnf_judgement,
             ),
             judgements: RefCell::new(Vec::new()),
+            hit_history: Vec::new(),
+            hit_generation: 0,
         }
     }
 
@@ -370,10 +450,12 @@ impl Judge {
         self.trackers.clear();
         self.inner.reset();
         self.judgements.borrow_mut().clear();
+        self.hit_history.clear();
+        self.hit_generation = self.hit_generation.wrapping_add(1);
+        self.noise_fingers.clear();
+        self.noise_finger_ids.clear();
     }
 
-    /// Advance note pointers past notes before time `t`, marking them as judged.
-    /// Used in exercise mode to skip notes before the exercise range start.
     pub fn advance_to(&mut self, chart: &mut Chart, t: f64) {
         for (line, (idx, st)) in chart.lines.iter_mut().zip(self.notes.iter_mut()) {
             while *st < idx.len() {
@@ -388,9 +470,48 @@ impl Judge {
         self.last_time = t;
     }
 
-    pub fn commit(&mut self, t: f64, what: Judgement, line_id: u32, note_id: u32, diff: f64) {
+    /// [课题模式] 设置自定义判定窗口（秒）与课题计分
+    pub fn set_challenge(&mut self, limits: Option<(f64, f64, f64)>, scoring: bool) {
+        self.inner.set_challenge(limits, scoring);
+    }
+
+    pub fn set_late_leniency(&mut self, seconds: f64) {
+        self.inner.set_late_leniency(seconds);
+    }
+
+    pub fn set_perfect_plus(&mut self, seconds: f64) {
+        self.inner.set_perfect_plus(seconds);
+    }
+
+    pub fn set_detailed(&mut self, enabled: bool, great: f64, ok: f64, meh: f64) {
+        self.inner.set_detailed(enabled, great, ok, meh);
+    }
+
+    fn push_hit_history(&mut self, t: f64, what: Judgement, diff: f64) {
+        // 记录准度历史（供 UI 准度指示器渲染）
+        self.hit_history.push((t, what, diff));
+        self.hit_generation = self.hit_generation.wrapping_add(1);
+        if self.hit_history.len() > 128 {
+            let overflow = self.hit_history.len() - 128;
+            self.hit_history.drain(0..overflow);
+        }
+    }
+
+    pub fn commit(&mut self, t: f64, what: Judgement, line_id: u32, note_id: u32, diff: f64, record_history: bool) {
         self.judgements.borrow_mut().push((t, line_id, note_id, Ok(what)));
         self.inner.commit(what, diff);
+        if record_history {
+            self.push_hit_history(t, what, diff);
+        }
+    }
+
+    /// 最近判定历史：(谱面时间, 判定等级, 误差秒)。early 为负、late 为正。
+    pub fn recent_hits(&self) -> &[(f64, Judgement, f64)] {
+        &self.hit_history
+    }
+
+    pub fn hit_generation(&self) -> u64 {
+        self.hit_generation
     }
 
     #[inline]
@@ -415,6 +536,10 @@ impl Judge {
         };
         repeat_all_miniquad_input(&mut handler, *SUBSCRIBER_ID);
         handler.finalize();
+        let mut pending = crate::gamepad::take_pending();
+        handler.status.key_delta += pending.key_delta;
+        handler.status.keys_down += pending.keys_down;
+        handler.status.touches.append(&mut pending.touches);
         TOUCHES.with(|it| {
             *it.borrow_mut() = handler.status;
         });
@@ -463,8 +588,11 @@ impl Judge {
         }
         const X_DIFF_MAX: f64 = 0.21 / (16. / 9.) * 2.;
         let spd = res.config.speed as f64;
-        // FNF判定窗口: Sick±45ms, Good±90ms, Bad±135ms
-        let (limit_perfect, limit_good, limit_bad) = if self.inner.fnf_mode {
+
+        let (limit_perfect, limit_good, limit_bad) = if let Some((p, g, b)) = self.inner.custom_limits {
+            // [课题模式 / Re:课题] 自定义判定窗口（秒）
+            (p, g, b)
+        } else if self.inner.fnf_mode {
             (0.045, 0.09, 0.135)
         } else {
             (LIMIT_PERFECT, LIMIT_GOOD, LIMIT_BAD)
@@ -575,6 +703,38 @@ impl Judge {
             .collect();
 
         let full_screen_judge = res.config.full_screen_judge();
+
+        // [噪域] 手指失效过滤（官方 Phigros 语义）：手指进入 enable~disable 生效窗口的
+        // blockArea 即被「感染」，直到该手指抬起前持续失效；失效手指不参与一切 Note 判定
+        // （Tap/Hold/Flick/Drag），其负责的 Hold 视为断判。
+        //
+        // 生命周期收尾：已抬起的失效手指解除感染（本帧 Ended 触摸仍保留在 touches 内，
+        // 其 Held note 由 held_by_noise 按断判结算，下一帧起不再感染）。
+        let live_ids: HashSet<u64> = touches.iter().map(|touch| touch.id).collect();
+        self.noise_finger_ids.retain(|id| live_ids.contains(id));
+        // 新手指落入生效噪域 → 感染（even-odd + inset 判定，见 block::block_touch_blocked_iter）。
+        for touch in touches.iter() {
+            if self.noise_finger_ids.contains(&touch.id) {
+                continue;
+            }
+            let p = Vector::new(touch.position.x, touch.position.y);
+            if res.config.noise_enabled && chart.touch_blocked(Vector::new(p.x, -p.y), t, res.aspect_ratio) {
+                self.noise_finger_ids.insert(touch.id);
+            }
+        }
+        let invalid_finger_ids: HashSet<u64> = self.noise_finger_ids.clone();
+        self.noise_fingers = touches
+            .iter()
+            .filter(|touch| invalid_finger_ids.contains(&touch.id))
+            .map(|touch| (touch.id, Vector::new(touch.position.x, touch.position.y)))
+            .collect();
+        // 同步给 chart 层，供 render_block_overlay 在噪域上绘制失效触摸标记。
+        chart.blocked_touches = self
+            .noise_fingers
+            .iter()
+            .map(|(id, p)| (*id, Vector::new(p.x, -p.y)))
+            .collect();
+
         let mut pos = Vec::<Vec<Option<Point>>>::with_capacity(chart.lines.len());
         for id in 0..chart.lines.len() {
             chart.lines[id].object.set_time(t);
@@ -603,8 +763,7 @@ impl Judge {
         } else {
             X_DIFF_MAX
         };
-        // flick / drag 的判定窗口：对齐 phire 的 LIMIT_GOOD = 0.18（比我们的 LIMIT_GOOD 宽 0.02），
-        // 这里按同样差值加到当前 limit_good 上，FNF 等自定义窗口也能跟着缩放
+
         let flick_drag_window = limit_good + (FLICK_DRAG_WINDOW - LIMIT_GOOD);
 
         let time_of = |touch: &Touch| {
@@ -617,6 +776,9 @@ impl Judge {
         let mut judgements = Vec::new();
 
         for (touch_id, touch) in touches.iter().enumerate() {
+            if invalid_finger_ids.contains(&touch.id) {
+                continue;
+            }
             let click = touch.phase == TouchPhase::Started;
             let flick =
                 matches!(touch.phase, TouchPhase::Moved | TouchPhase::Stationary) && self.trackers.get_mut(&touch.id).is_some_and(|it| it.flicked);
@@ -642,15 +804,18 @@ impl Judge {
                     if dt_raw >= closest.3 {
                         break;
                     }
-                    // 晚按保护：[-EARLY_OFFSET, 0) 的晚按当作 0（等价于 phire 的 LATE_OFFSET 技巧）。
-                    // 这里**保留符号**：正 = 按早了、负 = 按晚了 —— 后面判断"这一下点击要不要
-                    // 放弃、改成保护附近的 drag/flick"要用到符号（phire 也是这么干的）。
+
                     let dt_signed = if dt_raw < 0. {
                         (dt_raw + EARLY_OFFSET).min(0.)
                     } else {
                         dt_raw
                     };
                     let dt = dt_signed.abs();
+                    let dt = if dt_signed > 0. {
+                        (dt - self.inner.late_leniency).max(0.)
+                    } else {
+                        dt
+                    };
                     let x = &mut note.object.translation.0;
                     x.set_time(t);
                     let dist = if full_screen_judge {
@@ -661,8 +826,7 @@ impl Judge {
                     if dist > x_diff_max {
                         continue;
                     }
-                    // 判定时机：flick / drag 对齐 phire —— 用未经晚按修正的 dt 做双向对称窗口（0.18），
-                    // click 用 limit_bad 减去距离惩罚，其余（hold）沿用 limit_good
+
                     let flick_or_drag = matches!(note.kind, NoteKind::Flick | NoteKind::Drag);
                     let dt = if flick_or_drag {
                         let dt = dt_raw.abs();
@@ -682,11 +846,11 @@ impl Judge {
                         }
                         dt
                     };
-                    // 优先级：flick / drag 取 phire 的 Low Priority（|dt| + LIMIT_BAD），排在同刻 click 之后
+
                     let key = (if flick_or_drag { dt + limit_bad } else { dt })
                         + (dist / NOTE_WIDTH_RATIO_BASE - 1.).max(0.) * DIST_FACTOR;
                     if key < closest.3 {
-                        // 记下带符号的 dt：flick / drag 分支后面不用它，点击分支要用符号判断早晚
+
                         closest = (Some((line_id, *id)), dist, if flick_or_drag { dt } else { dt_signed }, key);
                     }
                 }
@@ -698,10 +862,7 @@ impl Judge {
                     continue;
                 }
                 if click {
-                    // 晚按保护（对齐 phire）：按下的时间比 perfect 窗口更晚时，若版面附近还有
-                    // drag / flick，就把它们标记成「已保护」并让这一下点击作废。
-                    // 为什么需要：flick 谱里"手指按下"的那一下本身也是一次 click，
-                    // 没有这段保护的话，它会顺手把旁边的 drag / flick 当成点击去吃判定。
+
                     if dt > limit_perfect {
                         let mut any = false;
                         for (line_idx, line) in lines.iter_mut().enumerate() {
@@ -712,7 +873,7 @@ impl Judge {
                                 }
                                 let x = &mut note.object.translation.0;
                                 x.set_time(t);
-                                // 只有"还没到 / 刚过一点点"的 drag / flick 值得保护
+
                                 if !(-limit_good..=limit_bad).contains(&(t - note.time)) {
                                     continue;
                                 }
@@ -735,6 +896,7 @@ impl Judge {
                     if dt <= limit_good || matches!(note.kind, NoteKind::Hold { .. }) {
                         match note.kind {
                             NoteKind::Click => {
+                                eprintln!("[DBG] CLICK_TAP t={:.3} line={} id={} note_t={:.3}", t, line_id, id, note.time);
                                 note.judge = JudgeStatus::Judged;
                                 judgements.push((if dt <= limit_perfect { Judgement::Perfect } else { Judgement::Good }, line_id, id, Some(t)));
                             }
@@ -742,11 +904,12 @@ impl Judge {
                                 note.hitsound.play(res);
                                 self.judgements.borrow_mut().push((t, line_id as _, id, Err(dt <= limit_perfect)));
                                 note.judge = JudgeStatus::Hold(dt <= limit_perfect, t, t, false, f64::INFINITY);
+                                self.push_hit_history(t, if dt <= limit_perfect { Judgement::Perfect } else { Judgement::Good }, (t - note.time) / spd);
                             }
                             _ => unreachable!(),
                         };
                     } else {
-                        // prevent extra judgements：留到 PreJudge，后面还能再判一次
+
                         let note = &mut lines[line_id].notes[id as usize];
                         if matches!(note.judge, JudgeStatus::NotJudged) {
                             note.judge = JudgeStatus::PreJudge;
@@ -754,7 +917,7 @@ impl Judge {
                         }
                     }
                 } else {
-                    // 真划出去的那一下：先把音符挂成 PreJudge，下面那段会把它落成 Perfect
+
                     lines[line_id].notes[id as usize].judge = JudgeStatus::PreJudge;
                     if let Some(tracker) = self.trackers.get_mut(&touch.id) {
                         tracker.flicked = false;
@@ -804,6 +967,7 @@ impl Judge {
                             note.hitsound.play(res);
                             self.judgements.borrow_mut().push((t, line_id as _, id, Err(dt <= limit_perfect)));
                             note.judge = JudgeStatus::Hold(dt <= limit_perfect, t, (t - note.time) / spd, false, f64::INFINITY);
+                            self.push_hit_history(t, if dt <= limit_perfect { Judgement::Perfect } else { Judgement::Good }, (t - note.time) / spd);
                         }
                         _ => unreachable!(),
                     };
@@ -825,12 +989,23 @@ impl Judge {
                         let x = &mut note.object.translation.0;
                         x.set_time(t);
                         let x = x.now();
-                        if self.key_down_count == 0
-                            && !pos
-                                .iter()
-                                .any(|it| it.is_some_and(|it| (it.x - x).abs() as f64 / note.judge_area as f64 <= x_diff_max))
-                        {
-                            if t > *up_time + UP_TOLERANCE {
+                        // [噪域] 失效手指在负责该 Hold → 立即断判 Miss（即使手指仍按压）；
+                        // 正常手指在区 → 维持按压；均无 → 沿用原有无手指的容差断判逻辑。
+                        let held_by_normal = pos.iter().enumerate().any(|(i, it)| {
+                            !invalid_finger_ids.contains(&touches[i].id)
+                                && it.is_some_and(|it| (it.x - x).abs() as f64 / note.judge_area as f64 <= x_diff_max)
+                        });
+                        let held_by_noise = pos.iter().enumerate().any(|(i, it)| {
+                            invalid_finger_ids.contains(&touches[i].id)
+                                && it.is_some_and(|it| (it.x - x).abs() as f64 / note.judge_area as f64 <= x_diff_max)
+                        });
+                        if self.key_down_count == 0 {
+                            if held_by_normal {
+                                *up_time = f64::INFINITY;
+                            } else if held_by_noise {
+                                note.judge = JudgeStatus::Judged;
+                                judgements.push((Judgement::Miss, line_id, *id, None));
+                            } else if t > *up_time + UP_TOLERANCE {
                                 note.judge = JudgeStatus::Judged;
                                 judgements.push((Judgement::Miss, line_id, *id, None));
                             } else if up_time.is_infinite() {
@@ -855,10 +1030,7 @@ impl Judge {
                 if -dt > limit_bad {
                     break;
                 }
-                // 会被"手指在附近"自动预判的只有 drag；flick 必须真的划出去 ——
-                // 例外是键盘玩法（有键按着）时 phire 也让它自动预判。
-                // 条件少了后半句的话，flick 会被这一遍预判，紧接着下面那段把它直接落成 Perfect，
-                // 等于"手指放上去就白送一个 Perfect"，这就是 flick 判定不对的根源。
+
                 if !matches!(note.kind, NoteKind::Drag) && (self.key_down_count == 0 || !matches!(note.kind, NoteKind::Flick)) {
                     continue;
                 }
@@ -867,11 +1039,13 @@ impl Judge {
                 x.set_time(t);
                 let x = x.now();
                 if self.key_down_count != 0
-                    || pos.iter().any(|it| {
-                        it.is_some_and(|it| {
-                            let dx = (it.x - x).abs() as f64 / note.judge_area as f64;
-                            dx <= x_diff_max && dt <= (limit_bad - limit_perfect * (dx - 0.9).max(0.))
-                        })
+                    || pos.iter().enumerate().any(|(i, it)| {
+                        // [噪域] 失效手指不参与 Drag 驻留判定
+                        !invalid_finger_ids.contains(&touches[i].id)
+                            && it.is_some_and(|it| {
+                                let dx = (it.x - x).abs() as f64 / note.judge_area as f64;
+                                dx <= x_diff_max && dt <= (limit_bad - limit_perfect * (dx - 0.9).max(0.))
+                            })
                     })
                 {
                     note.judge = JudgeStatus::PreJudge;
@@ -922,6 +1096,7 @@ impl Judge {
             let line = &chart.lines[line_id];
             let note = &line.notes[id as usize];
             let line_tr = line.now_transform(res, &chart.lines);
+            let record_history = !(matches!(note.kind, NoteKind::Hold { .. }) && !matches!(judgement, Judgement::Miss));
             self.commit(
                 t,
                 judgement,
@@ -934,6 +1109,7 @@ impl Judge {
                 } else {
                     (diff.unwrap_or(t) - note.time) / spd
                 },
+                record_history,
             );
             if matches!(note.kind, NoteKind::Hold { .. }) {
                 continue;
@@ -1029,7 +1205,7 @@ impl Judge {
             }
         }
         for (line_id, id) in judgements.into_iter() {
-            self.commit(t, Judgement::Perfect, line_id as _, id, 0.);
+            self.commit(t, Judgement::Perfect, line_id as _, id, 0., true);
             let (note_transform, note_hitsound) = {
                 let line = &mut chart.lines[line_id];
                 let note = &mut line.notes[id as usize];
@@ -1150,6 +1326,12 @@ pub struct PlayResult {
     pub std: f32,
     pub early_kind: [u32; 4],
     pub late_kind: [u32; 4],
+    pub perfect_plus: u32,
+    pub great: u32,
+    pub ok: u32,
+    pub meh: u32,
+    /// 判定误差（秒，负 Early / 正 Late），用于结算分布图与推荐偏移。
+    pub diffs: Vec<f32>,
 }
 
 pub fn icon_index(score: u32, full_combo: bool) -> usize {

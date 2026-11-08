@@ -7,11 +7,13 @@ use std::{any::Any, cell::RefCell, collections::HashMap, future::IntoFuture, io:
 use tracing::debug;
 
 use super::{process_lines, L10N_LOCAL, RPE_TWEEN_MAP};
+use super::pgr::{parse_block_areas, PgrBlockArea};
 use crate::{
     core::{
-        Anim, AnimFloat, AnimVector, BezierTween, BpmList, Chart, ChartExtra, ChartSettings, ClampedTween, CtrlObject, GeneralIntTween, GifFrames,
-        HitSoundMap, IntClampedTween, IntStaticTween, JudgeLine, JudgeLineCache, JudgeLineKind, Keyframe, Note, NoteKind, Object, StaticTween,
-        Triple, TweenFunction, Tweenable, UIElement, EPS, HEIGHT_RATIO,
+        Anim, AnimFloat, AnimVector, BezierTween, BlockArea, BlockMoveEvent, BlockRotateEvent, BlockScaleEvent, BpmList, Chart, ChartExtra,
+        ChartSettings, ClampedTween, CtrlObject, GeneralIntTween, GifFrames, HitSoundMap, IntClampedTween, IntStaticTween, JudgeLine,
+        JudgeLineCache, JudgeLineKind, Keyframe, Note, NoteKind, Object, StaticTween, Triple, TweenFunction, Tweenable, UIElement, Vector,
+        EPS, HEIGHT_RATIO,
     },
     ext::{NotNanExt, SafeTexture},
     fs::FileSystem,
@@ -167,7 +169,6 @@ struct RPENote {
 #[serde(rename_all = "camelCase")]
 struct RPEJudgeLine {
 
-
     #[serde(rename = "Name")]
     name: String,
     #[serde(rename = "Texture")]
@@ -192,10 +193,10 @@ struct RPEJudgeLine {
     alpha_control: Vec<RPECtrlEvent>,
     #[serde(default)]
     y_control: Vec<RPECtrlEvent>,
-    /// BPM 倍率（per-line 滚动速度系数；缺失按 1.0）
+
     #[serde(default, rename = "bpmfactor")]
     bpm_factor: Option<f32>,
-    /// 纹理锚点 [x, y]（判定线纹理对齐点；缺失按居中）
+
     #[serde(default, rename = "anchor")]
     anchor: Option<[f32; 2]>,
 }
@@ -304,6 +305,88 @@ struct RPEChart {
     #[serde(rename = "BPMList")]
     bpm_list: Vec<RPEBpmItem>,
     judge_line_list: Vec<RPEJudgeLine>,
+    #[serde(default, alias = "BlockAreaList")]
+    block_area_list: Vec<serde_json::Value>,
+    #[serde(default)]
+    noise_area_options: NextNoiseOptions,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NextNoiseOptions {
+    #[serde(default)]
+    ignore_triple_inversion: bool,
+}
+
+#[derive(Deserialize, Default, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+struct RPEVec2 {
+    #[serde(default)]
+    x: f32,
+    #[serde(default)]
+    y: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RPEActiveInterval {
+    start_time: Triple,
+    end_time: Triple,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RPEMoveEvent {
+    start_time: Triple,
+    end_time: Triple,
+    start: f32,
+    end: f32,
+    #[serde(default)]
+    easing_type: i32,
+    #[serde(default)]
+    inst: i32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RPEBlockTransformEvent {
+    start_time: Triple,
+    end_time: Triple,
+    start: f32,
+    end: f32,
+    #[serde(default)]
+    easing_type: i32,
+    #[serde(default)]
+    inst: i32,
+    #[serde(default)]
+    anchor: RPEVec2,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RPEBlockArea {
+    #[serde(default)]
+    bottom_left: RPEVec2,
+    #[serde(default)]
+    top_right: RPEVec2,
+    #[serde(default)]
+    appear_time: Triple,
+    #[serde(default)]
+    disappear_time: Triple,
+    #[serde(default)]
+    active_intervals: Vec<RPEActiveInterval>,
+    #[serde(default)]
+    is_invert: bool,
+    #[serde(default)]
+    move_x_events: Vec<RPEMoveEvent>,
+    #[serde(default)]
+    move_y_events: Vec<RPEMoveEvent>,
+    #[serde(default)]
+    rotate_events: Vec<RPEBlockTransformEvent>,
+    #[serde(default)]
+    scale_x_events: Vec<RPEBlockTransformEvent>,
+    #[serde(default)]
+    scale_y_events: Vec<RPEBlockTransformEvent>,
 }
 
 type BezierMap = HashMap<(u16, i16, i16), Arc<dyn TweenFunction>>;
@@ -467,7 +550,6 @@ fn parse_speed_events_legacy(r: &mut BpmList, rpe: &[RPEEventLayer], max_time: f
         sani.set_time(now_time);
         let speed = sani.now();
 
-
         sani.set_time(end_time - 1e-4);
         let end_speed = sani.now();
         kfs.push(if (speed - end_speed).abs() < EPS as f32 {
@@ -514,7 +596,6 @@ fn parse_gif_events<V: Clone + Into<f32>>(r: &mut BpmList, rpe: &[RPEEvent<V>], 
         kfs.push(Keyframe::new(r.time(&e.end_time), e.end.clone().into(), 2));
         next_rep_time = (r.time(&e.end_time) * 1000. + gif.total_time() as f64 * (1. - e.end.clone().into()) as f64).round() as u128;
     }
-
 
     const GIF_MAX_TIME: f64 = 2000.;
     while GIF_MAX_TIME > next_rep_time as f64 / 1000. {
@@ -619,9 +700,6 @@ fn parse_ctrl_events(rpe: &[RPECtrlEvent], key: &str) -> AnimFloat {
         return AnimFloat::default();
     }
 
-
-
-
     let tweens: Vec<Arc<dyn TweenFunction>> = rpe
         .iter()
         .skip(1)
@@ -676,7 +754,7 @@ async fn parse_judge_line(
     }
     let bpmfactor = rpe.bpm_factor.unwrap_or(1.0);
     let mut height = if use_rpe_170_speed {
-        // BpmFactor：滚动速度按倍率缩放（缺省 1.0；0 视为 1.0）
+
         let bpmfactor = if bpmfactor > 0.0 { bpmfactor } else { 1.0 };
         parse_speed_events(r, &event_layers, bezier_map, max_time, speed_mode, bpmfactor)?
     } else {
@@ -700,7 +778,7 @@ async fn parse_judge_line(
                         .transpose()?
                         .unwrap_or_default();
                     if res.is_default() {
-                        // 没有 scale 事件时，默认 scale 为 1.0（乘以 factor）
+
                         return Ok(AnimFloat::fixed(factor));
                     }
                     res.map_value(|v| v * factor);
@@ -746,7 +824,7 @@ async fn parse_judge_line(
         },
         notes,
         kind: {
-            // 文本事件优先：有文本事件的判定线一律按 Text 渲染，隐藏纹理（即使配了贴图）
+
             if let Some(events) = rpe
                 .extended
                 .as_ref()
@@ -861,13 +939,398 @@ fn get_bezier_map(rpe: &RPEChart) -> BezierMap {
     let mut map = HashMap::new();
     for line in &rpe.judge_line_list {
         for event_layer in line.event_layers.iter().flatten() {
-            process_bezier!(event_layer, &mut map, alpha_events, move_x_events, move_y_events, rotate_events);
+            process_bezier!(event_layer, &mut map, alpha_events, move_x_events, move_y_events, rotate_events, speed_events);
         }
         if let Some(ext_layer) = &line.extended {
             process_bezier!(ext_layer, &mut map, paint_events, scale_x_events, scale_y_events, gif_events, incline_events, text_events, color_events);
         }
     }
     map
+}
+
+fn rpen_beat(v: &serde_json::Value) -> Option<f64> {
+    if let Some(n) = v.as_f64() {
+        return Some(n);
+    }
+    let a = v.as_array()?;
+    if a.len() != 3 {
+        return None;
+    }
+    Some(a[0].as_f64()? + a[1].as_f64()? / a[2].as_f64()?)
+}
+
+fn parse_rpen_effects(raw: &serde_json::Value, bpm: &mut BpmList) -> Vec<crate::core::Effect> {
+    let mut events: Vec<&serde_json::Value> = Vec::new();
+    for key in ["effects", "shaderEvents"] {
+        events.extend(raw[key].as_array().into_iter().flatten());
+    }
+    events.extend(raw["META"]["effects"].as_array().into_iter().flatten());
+    // 线内 paintEvents 需要按判定线作用域渲染；当前全局后处理无法正确承载，
+    // 全量转全屏效果会叠加大量 shader 导致帧率暴跌，先跳过。
+    let mut out = Vec::new();
+    for e in events {
+        let Some(name) = e
+            .get("shader")
+            .or_else(|| e.get("shaderType"))
+            .or_else(|| e.get("name"))
+            .and_then(|v| v.as_str())
+        else {
+            continue;
+        };
+        let base = name
+            .replace('\\', "/")
+            .rsplit('/')
+            .next()
+            .unwrap_or(name)
+            .trim_end_matches(".glsl")
+            .trim_end_matches(".frag")
+            .trim_end_matches("_pr")
+            .to_ascii_lowercase();
+        let source = crate::core::Effect::get_rpe_preset(&format!("{base}_pr"))
+            .or_else(|| crate::core::Effect::get_preset(&base));
+        let Some(source) = source else {
+            continue;
+        };
+        let start = e
+            .get("startTime")
+            .or_else(|| e.get("start"))
+            .and_then(rpen_beat)
+            .unwrap_or(0.);
+        let end = e
+            .get("endTime")
+            .or_else(|| e.get("end"))
+            .and_then(rpen_beat)
+            .unwrap_or(start);
+        if end <= start {
+            continue;
+        }
+        let range = bpm.time_beats(start)..bpm.time_beats(end);
+        let global = e
+            .get("global")
+            .and_then(|v| v.as_bool().or_else(|| v.as_i64().map(|n| n != 0)))
+            .unwrap_or(false);
+        let mut uniforms: Vec<Box<dyn crate::core::Uniform>> = Vec::new();
+        if let Some(vars) = e["vars"].as_object() {
+            for (key, value) in vars {
+                if ["time", "screenSize", "UVScale"].contains(&key.as_str()) {
+                    continue;
+                }
+                if let Some(n) = value.as_f64() {
+                    uniforms.push(Box::new((key.clone(), n as f32)));
+                } else if let Some(a) = value.as_array() {
+                    if a.first().is_some_and(|v| v.is_object()) {
+                        let mut kfs = Vec::new();
+                        for item in a {
+                            let Some(start) = item.get("startTime").and_then(rpen_beat) else { continue };
+                            let Some(end) = item.get("endTime").and_then(rpen_beat) else { continue };
+                            let start_v = item.get("start").and_then(|v| v.as_f64()).unwrap_or(0.) as f32;
+                            let end_v = item.get("end").and_then(|v| v.as_f64()).unwrap_or(start_v as f64) as f32;
+                            kfs.push(crate::core::Keyframe::new(bpm.time_beats(start), start_v, 0));
+                            kfs.push(crate::core::Keyframe::new(bpm.time_beats(end), end_v, 0));
+                        }
+                        if !kfs.is_empty() {
+                            uniforms.push(Box::new((key.clone(), crate::core::Anim::new(kfs))));
+                        }
+                    } else if a.len() == 2 {
+                        if let (Some(x), Some(y)) = (a[0].as_f64(), a[1].as_f64()) {
+                            uniforms.push(Box::new((key.clone(), macroquad::prelude::vec2(x as f32, y as f32))));
+                        }
+                    } else if a.len() == 4 {
+                        let values: Vec<f32> = a.iter().filter_map(|v| v.as_f64().map(|n| n as f32)).collect();
+                        if values.len() == 4 {
+                            uniforms.push(Box::new((
+                                key.clone(),
+                                macroquad::prelude::Color::new(values[0], values[1], values[2], values[3]),
+                            )));
+                        }
+                    }
+                } else if value.is_object() {
+                    // 简化：取事件终点作为静态 uniform。
+                    if let Some(n) = value.get("end").and_then(|v| v.as_f64()) {
+                        uniforms.push(Box::new((key.clone(), n as f32)));
+                    }
+                }
+            }
+        }
+        if let Ok(effect) = crate::core::Effect::new(range, source, uniforms, global) {
+            out.push(effect);
+        }
+    }
+    out
+}
+
+fn parse_embedded_blocks(
+    list: Vec<serde_json::Value>,
+    bpm: &[RPEBpmItem],
+    layer_order: &[String],
+) -> Result<(Vec<BlockArea>, Vec<crate::core::rpe_next_block::Area>)> {
+    use crate::core::rpe_next_block::{Area, AreaData, Tempo};
+    let mut native = Vec::new();
+    let mut next = Vec::new();
+    let mut tempo = None;
+    let mut layers: Vec<String> = Vec::new();
+    for (index, value) in list.into_iter().enumerate() {
+        let parse = || -> Result<_> {
+            let is_next = value.get("bottomLeft").is_some() || value.get("topRight").is_some();
+            let is_native = value.get("bottomLeftPercentage").is_some() || value.get("topRightPercentage").is_some();
+            anyhow::ensure!(is_next != is_native, "unknown or ambiguous block-area schema");
+            if is_next {
+                if tempo.is_none() {
+                    tempo = Some(Tempo::new(bpm.iter().map(|b| (b.start_time.beats(), b.bpm)))?);
+                }
+                let data: AreaData = serde_json::from_value(value)?;
+                let layer = data.layer_id.as_ref().map(|id| {
+                    layer_order
+                        .iter()
+                        .position(|s| s == id)
+                        .unwrap_or_else(|| {
+                            layers.iter().position(|s| s == id).unwrap_or_else(|| {
+                                layers.push(id.clone());
+                                layers.len() - 1
+                            })
+                        })
+                });
+                let mut area = Area::new(data, tempo.as_ref().unwrap())?;
+                if let Some(layer) = layer {
+                    area.set_layer(layer);
+                }
+                next.push(area);
+            } else {
+                native.push(serde_json::from_value::<PgrBlockArea>(value)?);
+            }
+            Ok(())
+        };
+        parse().with_context(|| format!("blockAreaList[{index}]"))?;
+    }
+    Ok((parse_block_areas(native), next))
+}
+
+fn rpe_block_axis_pct(v: f32, full: f32) -> f32 {
+    if v.abs() <= 1.0 {
+        (v + 1.) / 2.
+    } else {
+        0.5 + v / full
+    }
+}
+
+fn rpe_block_vec(v: RPEVec2) -> Vector {
+    Vector::new(
+        rpe_block_axis_pct(v.x, RPE_WIDTH),
+        rpe_block_axis_pct(v.y, RPE_HEIGHT),
+    )
+}
+
+fn rpe_block_base_px(bl: RPEVec2, tr: RPEVec2) -> Vector {
+    let span = |a: f32, b: f32, full: f32| {
+        if a.abs() <= 1.0 && b.abs() <= 1.0 {
+            full
+        } else {
+            (b - a).abs().max(1.)
+        }
+    };
+    Vector::new(
+        span(bl.x, tr.x, RPE_WIDTH),
+        span(bl.y, tr.y, RPE_HEIGHT),
+    )
+}
+
+fn block_axis_events(
+    r: &mut BpmList,
+    events: Vec<RPEMoveEvent>,
+    x: bool,
+    appear: f64,
+) -> Vec<BlockMoveEvent> {
+    let mut out = Vec::new();
+    let value = |v: f32| {
+        if x {
+            rpe_block_axis_pct(v, RPE_WIDTH)
+        } else {
+            rpe_block_axis_pct(v, RPE_HEIGHT)
+        }
+    };
+    if let Some(e) = events.first() {
+        let start = r.time(&e.start_time);
+        if start > appear {
+            out.push(BlockMoveEvent {
+                end: if x {
+                    Vector::new(value(e.start), 0.)
+                } else {
+                    Vector::new(0., value(e.start))
+                },
+                time: appear,
+                ease_x: 0,
+                ease_y: 0,
+            });
+        }
+    }
+    for e in events {
+        let start = r.time(&e.start_time);
+        let end = r.time(&e.end_time);
+        let ease = if e.inst != 0 { 14 } else { e.easing_type };
+        if end > start {
+            out.push(BlockMoveEvent {
+                end: if x {
+                    Vector::new(value(e.start), 0.)
+                } else {
+                    Vector::new(0., value(e.start))
+                },
+                time: start,
+                ease_x: ease,
+                ease_y: ease,
+            });
+        }
+        out.push(BlockMoveEvent {
+            end: if x {
+                Vector::new(value(e.end), 0.)
+            } else {
+                Vector::new(0., value(e.end))
+            },
+            time: end,
+            ease_x: ease,
+            ease_y: ease,
+        });
+    }
+    out.sort_by(|a, b| a.time.total_cmp(&b.time));
+    out
+}
+
+fn rpe_scale_raw(
+    r: &mut BpmList,
+    events: Vec<RPEBlockTransformEvent>,
+    _base: f32,
+) -> Vec<(f64, f64, f32, f32, i32)> {
+    events
+        .into_iter()
+        .map(|e| {
+            (
+                r.time(&e.start_time),
+                r.time(&e.end_time),
+                e.start,
+                e.end,
+                if e.inst != 0 { 14 } else { e.easing_type },
+            )
+        })
+        .collect()
+}
+
+fn sample_scale_raw(raw: &[(f64, f64, f32, f32, i32)], t: f64) -> f32 {
+    if raw.is_empty() {
+        return 1.;
+    }
+    if t <= raw[0].0 {
+        return raw[0].2;
+    }
+    let mut previous_end = raw[0].2;
+    for e in raw {
+        if t < e.0 {
+            return previous_end;
+        }
+        if t <= e.1 && e.1 > e.0 {
+            let p = ((t - e.0) / (e.1 - e.0)) as f32;
+            return e.2 + p * (e.3 - e.2);
+        }
+        previous_end = e.3;
+    }
+    previous_end
+}
+
+fn parse_rpe_block_areas(r: &mut BpmList, list: Vec<RPEBlockArea>) -> Vec<BlockArea> {
+    let mut out = Vec::new();
+    for b in list {
+        let top_right = rpe_block_vec(b.top_right);
+        let bottom_left = rpe_block_vec(b.bottom_left);
+        let base_px = rpe_block_base_px(b.bottom_left, b.top_right);
+        let scale_anchor = b
+            .scale_x_events
+            .first()
+            .or_else(|| b.scale_y_events.first())
+            .map(|e| rpe_block_vec(e.anchor))
+            .unwrap_or_else(|| Vector::new(0.5, 0.5));
+        let appear_time = r.time(&b.appear_time);
+        let disappear_time = r.time(&b.disappear_time);
+
+        let mut active_intervals = Vec::new();
+        for it in &b.active_intervals {
+            active_intervals.push((r.time(&it.start_time), r.time(&it.end_time)));
+        }
+        active_intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
+        active_intervals.retain(|&(start, end)| end > start);
+        let enable_time = active_intervals.first().map_or(appear_time, |it| it.0);
+        let disable_time = active_intervals.last().map_or(disappear_time, |it| it.1);
+
+        let mut rotate_events = Vec::new();
+        if let Some(e) = b.rotate_events.first() {
+            let start = r.time(&e.start_time);
+            if start > appear_time {
+                rotate_events.push(BlockRotateEvent {
+                    anchor: rpe_block_vec(e.anchor),
+                    time: appear_time,
+                    ease: 0,
+                    rotation: e.start,
+                });
+            }
+        }
+        for e in b.rotate_events {
+            let start = r.time(&e.start_time);
+            let end = r.time(&e.end_time);
+            let anchor = rpe_block_vec(e.anchor);
+            let ease = if e.inst != 0 { 14 } else { e.easing_type };
+            if end > start {
+                rotate_events.push(BlockRotateEvent {
+                    anchor,
+                    time: start,
+                    ease,
+                    rotation: e.start,
+                });
+            }
+            rotate_events.push(BlockRotateEvent {
+                anchor,
+                time: end,
+                ease,
+                rotation: e.end,
+            });
+        }
+        rotate_events.sort_by(|a, b| a.time.total_cmp(&b.time));
+
+        let raw_x = rpe_scale_raw(r, b.scale_x_events, base_px.x);
+        let raw_y = rpe_scale_raw(r, b.scale_y_events, base_px.y);
+        let mut scale_times = vec![appear_time];
+        for (start, end, _, _, _) in raw_x.iter().chain(raw_y.iter()) {
+            scale_times.push(*start);
+            scale_times.push(*end);
+        }
+        scale_times.sort_by(f64::total_cmp);
+        scale_times.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+        let scale_events = scale_times
+            .into_iter()
+            .map(|time| BlockScaleEvent {
+                anchor: scale_anchor,
+                time,
+                ease_x: 0,
+                ease_y: 0,
+                scale: Vector::new(sample_scale_raw(&raw_x, time), sample_scale_raw(&raw_y, time)),
+            })
+            .collect::<Vec<_>>();
+
+        out.push(BlockArea {
+            top_right,
+            bottom_left,
+            appear_time,
+            enable_time,
+            disable_time,
+            disappear_time,
+            is_subtract: b.is_invert,
+            rotate_events,
+            move_events: Vec::new(),
+            scale_events,
+            active_intervals,
+            absolute_scale: true,
+            base_px,
+            move_x_events: block_axis_events(r, b.move_x_events, true, appear_time),
+            move_y_events: block_axis_events(r, b.move_y_events, false, appear_time),
+        });
+    }
+    out
 }
 
 pub async fn parse_rpe(source: &str, fs: &mut dyn FileSystem, extra: ChartExtra, use_rpe_170_speed: bool) -> Result<Chart> {
@@ -878,7 +1341,16 @@ pub async fn parse_rpe(source: &str, fs: &mut dyn FileSystem, extra: ChartExtra,
         SpeedEasingMode::Legacy
     };
     let bezier_map = get_bezier_map(&rpe);
+    let raw_effects: serde_json::Value = serde_json::from_str(source).unwrap_or_default();
+    let layer_order: Vec<String> = raw_effects["noiseAreaLayers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|l| l["id"].as_str().map(str::to_owned))
+        .collect();
+    let (block_areas, next_block_areas) = parse_embedded_blocks(rpe.block_area_list, &rpe.bpm_list, &layer_order)?;
     let mut r = BpmList::new(rpe.bpm_list.into_iter().map(|it| (it.start_time.beats(), it.bpm)).collect());
+    let global_effects = parse_rpen_effects(&raw_effects, &mut r);
     fn vec<T>(v: &Option<Vec<T>>) -> impl Iterator<Item = &T> {
         v.iter().flat_map(|it| it.iter())
     }
@@ -943,7 +1415,39 @@ pub async fn parse_rpe(source: &str, fs: &mut dyn FileSystem, extra: ChartExtra,
         }
     }
     process_lines(&mut lines);
-    Ok(Chart::new(rpe.meta.offset as f32 / 1000.0, lines, r, ChartSettings::default(), extra, hitsounds))
+    let mut chart = Chart::new(rpe.meta.offset as f32 / 1000.0, lines, r, ChartSettings::default(), extra, hitsounds, block_areas);
+    chart.extra.effects.extend(global_effects);
+    // RPEN noise-skin：基础支持 main.glsl 全屏 pass；复杂多 target 皮肤仍按内置渲染。
+    if let Some(layers) = raw_effects["noiseAreaLayers"].as_array() {
+        for layer in layers {
+            let Some(root) = layer["skin"].as_str().filter(|s| !s.is_empty()) else { continue };
+            let Ok(bytes) = fs.load_file(&format!("{root}/main.glsl")).await else { continue };
+            let Ok(source) = String::from_utf8(bytes) else { continue };
+            let mut uniforms: Vec<Box<dyn crate::core::Uniform>> = Vec::new();
+            if let Some(params) = layer["parameters"].as_object() {
+                for (k, v) in params {
+                    if let Some(n) = v.as_f64() {
+                        uniforms.push(Box::new((k.clone(), n as f32)));
+                    } else if let Some(a) = v.as_array() {
+                        let vals: Vec<f32> = a.iter().filter_map(|x| x.as_f64().map(|n| n as f32)).collect();
+                        if vals.len() == 2 {
+                            uniforms.push(Box::new((k.clone(), macroquad::prelude::vec2(vals[0], vals[1]))));
+                        } else if vals.len() == 4 {
+                            uniforms.push(Box::new((
+                                k.clone(),
+                                macroquad::prelude::Color::new(vals[0], vals[1], vals[2], vals[3]),
+                            )));
+                        }
+                    }
+                }
+            }
+            if let Ok(effect) = crate::core::Effect::new(0.0..f64::INFINITY, &source, uniforms, false) {
+                chart.extra.effects.push(effect);
+            }
+        }
+    }
+    chart.set_next_block_areas(next_block_areas, rpe.noise_area_options.ignore_triple_inversion);
+    Ok(chart)
 }
 
 pub async fn lint(source: &str) -> Result<ParseWarnings> {
@@ -962,3 +1466,7 @@ pub async fn lint(source: &str) -> Result<ParseWarnings> {
         has_attach_ui,
     })
 }
+
+
+
+

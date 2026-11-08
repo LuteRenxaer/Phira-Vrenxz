@@ -462,6 +462,7 @@ impl Chart {
         zones.extend(
             self.next_block_samples(res.time, res.aspect_ratio)
                 .into_iter()
+                .filter(|sample| super::zone_on_screen_lim(&sample.zone, res.aspect_ratio, 1.))
                 .map(|sample| sample.zone),
         );
         res.apply_model_of(&Matrix::identity().append_nonuniform_scaling(&Vector::new(if flip_x { -1. } else { 1. }, -1.)), |res| {
