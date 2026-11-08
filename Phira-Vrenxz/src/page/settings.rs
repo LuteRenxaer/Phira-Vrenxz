@@ -1324,6 +1324,7 @@ impl Page for SettingsPage {
                                     r
                                 }
                                 SettingListType::Plugin => self.list_plugin.rows(),
+                                SettingListType::Replay => self.list_replay.rows(),
                                 _ => Vec::new(),
                             };
                             let custom_left = matches!(self.tab, SettingListType::Custom).then_some(CustomList::LEFT_ROWS);
