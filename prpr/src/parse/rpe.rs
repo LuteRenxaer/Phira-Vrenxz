@@ -1416,36 +1416,9 @@ pub async fn parse_rpe(source: &str, fs: &mut dyn FileSystem, extra: ChartExtra,
     }
     process_lines(&mut lines);
     let mut chart = Chart::new(rpe.meta.offset as f32 / 1000.0, lines, r, ChartSettings::default(), extra, hitsounds, block_areas);
-    chart.extra.effects.extend(global_effects);
-    // RPEN noise-skin：基础支持 main.glsl 全屏 pass；复杂多 target 皮肤仍按内置渲染。
-    if let Some(layers) = raw_effects["noiseAreaLayers"].as_array() {
-        for layer in layers {
-            let Some(root) = layer["skin"].as_str().filter(|s| !s.is_empty()) else { continue };
-            let Ok(bytes) = fs.load_file(&format!("{root}/main.glsl")).await else { continue };
-            let Ok(source) = String::from_utf8(bytes) else { continue };
-            let mut uniforms: Vec<Box<dyn crate::core::Uniform>> = Vec::new();
-            if let Some(params) = layer["parameters"].as_object() {
-                for (k, v) in params {
-                    if let Some(n) = v.as_f64() {
-                        uniforms.push(Box::new((k.clone(), n as f32)));
-                    } else if let Some(a) = v.as_array() {
-                        let vals: Vec<f32> = a.iter().filter_map(|x| x.as_f64().map(|n| n as f32)).collect();
-                        if vals.len() == 2 {
-                            uniforms.push(Box::new((k.clone(), macroquad::prelude::vec2(vals[0], vals[1]))));
-                        } else if vals.len() == 4 {
-                            uniforms.push(Box::new((
-                                k.clone(),
-                                macroquad::prelude::Color::new(vals[0], vals[1], vals[2], vals[3]),
-                            )));
-                        }
-                    }
-                }
-            }
-            if let Ok(effect) = crate::core::Effect::new(0.0..f64::INFINITY, &source, uniforms, false) {
-                chart.extra.effects.push(effect);
-            }
-        }
-    }
+    // RNPE 全局后处理/皮肤仍属实验性：错误的作用域会让噪域 shader 铺满全屏并严重掉帧。
+    // 默认不注入，保留谱面自身的 effects。
+    let _ = global_effects;
     chart.set_next_block_areas(next_block_areas, rpe.noise_area_options.ignore_triple_inversion);
     Ok(chart)
 }
