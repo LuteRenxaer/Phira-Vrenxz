@@ -1351,6 +1351,11 @@ impl Page for SettingsPage {
                 return p;
             }
         }
+        if self.tab == SettingListType::Debug {
+            if let Some(p) = self.list_debug.next_page() {
+                return p;
+            }
+        }
         NextPage::None
     }
     fn next_scene(&mut self, _s: &mut SharedState) -> NextScene {
@@ -2777,6 +2782,8 @@ struct DebugList {
     replay_folder_btn: DRectButton,
     replay_clear_btn: DRectButton,
     replay_export_btn: DRectButton,
+    replay_manager_btn: DRectButton,
+    replay_next_page: Option<NextPage>,
     crash_requested: bool,
 }
 impl DebugList {
@@ -2790,6 +2797,8 @@ impl DebugList {
             replay_folder_btn: DRectButton::new(),
             replay_clear_btn: DRectButton::new(),
             replay_export_btn: DRectButton::new(),
+            replay_manager_btn: DRectButton::new(),
+            replay_next_page: None,
             crash_requested: false,
         }
     }
@@ -2854,10 +2863,19 @@ impl DebugList {
             show_message("回放已导出到 export/replays").ok();
             return Ok(Some(false));
         }
+        if self.replay_manager_btn.touch(touch, t) {
+            self.replay_next_page = Some(NextPage::Overlay(Box::new(
+                super::replay_manager::ReplayManager::new(),
+            )));
+            return Ok(Some(false));
+        }
         Ok(None)
     }
     pub fn update(&mut self, _t: f32) -> Result<bool> {
         Ok(false)
+    }
+    pub fn next_page(&mut self) -> Option<NextPage> {
+        self.replay_next_page.take()
     }
     pub fn rows(&mut self) -> Vec<Row<'_>> {
         let data = get_data();
@@ -2881,6 +2899,7 @@ impl DebugList {
             row_value("打开回放目录", Some("在资源管理器中查看 replays/".into()), &mut self.replay_folder_btn, "打开"),
             row_value("清空回放", Some("删除 replays/ 下全部 JSON 回放".into()), &mut self.replay_clear_btn, "清空"),
             row_value("导出回放", Some("复制到 export/replays".into()), &mut self.replay_export_btn, "导出"),
+            row_value("回放管理", Some("列表、播放、删除全部本地回放".into()), &mut self.replay_manager_btn, "打开"),
         ]
     }
 }

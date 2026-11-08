@@ -1,11 +1,15 @@
+mod challenge;
+#[cfg(target_os = "windows")]
+mod challenge_web;
+pub use challenge::ChallengePage;
+
+/// 谱面合集 l10n 容器（合集页已移除，仅保留文案供 charts_view 占位卡片使用）
 pub mod coll;
-pub use coll::CollectionPage;
+pub mod replay_manager;
+pub use replay_manager::ReplayManager;
 
 mod event;
 pub use event::EventPage;
-
-mod achievement;
-pub use achievement::AchievementPage;
 
 mod extension;
 pub use extension::ExtensionPage;
@@ -25,11 +29,12 @@ pub use message::MessagePage;
 mod offset;
 pub use offset::OffsetPage;
 
+
 mod respack;
 pub use respack::{ResPackItem, ResPackPage};
 
 mod settings;
-// 首启向导复用设置页的开关控件（同一份画法，样式才不会两边不一致）
+
 pub(crate) use settings::render_switch;
 pub use settings::SettingsPage;
 use tokio::sync::Notify;
@@ -41,7 +46,7 @@ use crate::{
     images::Images,
     scene::{fs_from_path, open_builtin_level_zip},
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use image::DynamicImage;
 use macroquad::prelude::*;
 use prpr::{
@@ -64,25 +69,45 @@ use std::{
 use tracing::warn;
 
 pub fn thumbnail_path(path: &str) -> Result<PathBuf> {
-    Ok(format!("{}/{}", dir::cache_image_local()?, path.replace('/', "_")).into())
+    // `:`（builtin 谱面 local_path 形如 builtin:xxx/yyy.pez）在 Windows 路径中非法，
+    // 与 `/` 一并替换为 `_`，保证缓存文件名合法且与 serve_cover_cache 一致。
+    Ok(format!("{}/{}", dir::cache_image_local()?, path.replace('/', "_").replace(':', "_")).into())
 }
 
 pub fn illustration_task(notify: Arc<Notify>, path: String, full: bool) -> Task<Result<(DynamicImage, Option<DynamicImage>)>> {
     Task::new(async move {
         notify.notified().await;
-        let mut fs = fs_from_path(&path)?;
-        let info = fs::load_info(fs.deref_mut()).await?;
+        let mut fs = fs_from_path(&path)
+            .with_context(|| format!("[debug] fs_from_path failed: path={path:?}"))?;
+        let info = fs::load_info(fs.deref_mut())
+            .await
+            .with_context(|| format!("[debug] load_info failed: path={path:?}"))?;
+        let thumb_p = thumbnail_path(&path)
+            .with_context(|| format!("[debug] thumbnail_path failed: path={path:?}"))?;
         let mut img = None;
-        let thumbnail = Images::local_or_else(thumbnail_path(&path)?, async {
-            let image = image::load_from_memory(&fs.load_file(&info.illustration).await?)?;
+        let thumbnail = Images::local_or_else(thumb_p.clone(), async {
+            let image = image::load_from_memory(
+                &fs.load_file(&info.illustration)
+                    .await
+                    .with_context(|| format!("[debug] load illustration file failed: path={path:?}, illustration={:?}, thumb={:?}", info.illustration, thumb_p))?,
+            )
+            .with_context(|| format!("[debug] decode illustration failed: path={path:?}, illustration={:?}", info.illustration))?;
             let thumbnail = Images::thumbnail(&image);
             img = Some(image);
             Ok(thumbnail)
         })
-        .await?;
+        .await
+        .with_context(|| format!("[debug] local_or_else failed: thumb={thumb_p:?}"))?;
         if full {
             if img.is_none() {
-                img = Some(image::load_from_memory(&fs.load_file(&info.illustration).await?)?);
+                img = Some(
+                    image::load_from_memory(
+                        &fs.load_file(&info.illustration)
+                            .await
+                            .with_context(|| format!("[debug] full: load illustration file failed: path={path:?}, illustration={:?}", info.illustration))?,
+                    )
+                    .with_context(|| format!("[debug] full: decode illustration failed: path={path:?}, illustration={:?}", info.illustration))?,
+                );
             }
         } else {
             img = None;
@@ -119,10 +144,6 @@ pub fn load_local() -> Vec<ChartItem> {
         .collect()
 }
 
-/// 内置谱面列表。
-/// 内置谱面包不再解压：直接打开 `assets/Level.zip`（Android 为 `Expansion_package.zip`），
-/// 枚举 `Level/<谱师目录>/Level.json` 里列出的谱面，谱面信息同样从 zip 内的 `.pez` 解析。
-/// 压缩包缺失或损坏时返回空列表（并给出提示），不会 panic。
 pub fn load_builtin_task() -> Task<Result<Vec<ChartItem>>> {
     Task::new(async move {
         let tex = BLACK_TEXTURE.clone();
@@ -131,14 +152,14 @@ pub fn load_builtin_task() -> Task<Result<Vec<ChartItem>>> {
             Ok(it) => it,
             Err(err) => {
                 warn!("failed to open builtin level package: {err:#}");
-                // 压缩包存在却打不开（损坏）时给用户明确提示；只是缺失（开发环境）只记日志。
+
                 if crate::scene::builtin_level_zip_present() {
                     show_error(err);
                 }
                 return Ok(charts);
             }
         };
-        // 每个谱师一个目录；根目录下的散文件（如 提示.txt）不作为谱面
+
         for entry in zip.list_dir("") {
             let Some(file_name) = entry.strip_suffix('/').filter(|it| !it.is_empty()) else {
                 continue;
@@ -150,7 +171,7 @@ pub fn load_builtin_task() -> Task<Result<Vec<ChartItem>>> {
             let Ok(level_data) = serde_json::from_slice::<Vec<serde_json::Value>>(&content) else {
                 continue;
             };
-            // 解析谱师信息
+
             let author = level_data.iter().find_map(|v| {
                 let name = v.get("name")?.as_str()?;
                 let terrace = v.get("terrace")?.as_str()?;
@@ -161,7 +182,7 @@ pub fn load_builtin_task() -> Task<Result<Vec<ChartItem>>> {
                     link: link.to_string(),
                 })
             });
-            // 找到 level 字段
+
             let Some(level_str) = level_data.iter().find_map(|v| v.get("level").and_then(|l| l.as_str())) else {
                 continue;
             };
@@ -175,7 +196,7 @@ pub fn load_builtin_task() -> Task<Result<Vec<ChartItem>>> {
                         continue;
                     }
                 };
-                // 压缩包里的压缩包（.pez / .zip 谱面）
+
                 let mut inner = match ZipFileSystem::new(bytes) {
                     Ok(it) => it,
                     Err(err) => {
@@ -337,6 +358,7 @@ pub enum ChartType {
     Imported,
     Integrated,
     XCSim,
+    LocalServer,
 }
 
 pub struct Fader {
@@ -588,16 +610,6 @@ impl SharedState {
         let icons = Resource::load_icons().await?;
         // 多人房间页的「最好成绩」要用同一套等级图标（见 scene::TEX_RANK_ICONS）
         crate::scene::TEX_RANK_ICONS.with(|it| *it.borrow_mut() = Some(icons.clone()));
-        // 注入成就自定义图标（achievements_icon/1..20.png，按顺序对应成就；加载失败则回退 emoji）
-        for order in 1..=20u8 {
-            if let Ok(tex) = macroquad::texture::load_texture(&format!("achievements_icon/{order}.png")).await {
-                crate::achievement::set_achievement_icon(order, tex.into());
-            }
-        }
-        // 注入多成就汇总图标（加载失败则回退 emoji）
-        if let Ok(tex) = macroquad::texture::load_texture("achievements_icon/Many_achievements.png").await {
-            crate::achievement::set_many_icon(tex.into());
-        }
         Ok(Self {
             t: 0.,
             rt: 0.,
@@ -635,6 +647,11 @@ pub enum NextPage {
 pub trait Page {
     fn label(&self) -> Cow<'static, str>;
 
+    /// 按具体类型访问页面（默认不可 downcast；插件页等需要被主场景按类型请求行为时覆盖）
+    fn as_any_mut(&mut self) -> Option<&mut dyn Any> {
+        None
+    }
+
     fn can_play_bgm(&self) -> bool {
         true
     }
@@ -650,6 +667,10 @@ pub trait Page {
     fn render_top(&mut self, _ui: &mut Ui, _s: &mut SharedState) -> Result<()> {
         Ok(())
     }
+    /// 页面自己画左上角返回键时返回它的落点矩形（MainScene 据此设置点击区域，并不再画默认图标）
+    fn back_button_rect(&self, _ui: &Ui) -> Option<Rect> {
+        None
+    }
     fn pause(&mut self) -> Result<()> {
         Ok(())
     }
@@ -658,6 +679,10 @@ pub trait Page {
     }
     fn next_page(&mut self) -> NextPage {
         NextPage::None
+    }
+    /// 页面自己完成退出动画后请求 MainScene 弹栈。
+    fn take_pop_request(&mut self) -> bool {
+        false
     }
     fn next_scene(&mut self, _s: &mut SharedState) -> NextScene {
         NextScene::None

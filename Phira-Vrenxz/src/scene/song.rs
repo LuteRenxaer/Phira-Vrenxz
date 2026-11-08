@@ -30,11 +30,13 @@ use chrono::{DateTime, Utc};
 use core::f32;
 use futures_util::StreamExt;
 use inputbox::{InputBox, InputMode};
+// 剧情代码已注释（2026-10-05）：use super::StoryScene;
+use prpr::scene::{CrashCode, CrashScene};
 use macroquad::prelude::*;
 use once_cell::sync::Lazy;
 use phira_mp_common::{ClientCommand, CompactPos, JudgeEvent, TouchFrame};
 use prpr::{
-    config::Mods,
+    config::{HpMode, Mods},
     core::{Tweenable, BOLD_FONT},
     ext::{
         open_url, poll_future, rect_shadow, semi_black, semi_white, unzip_into, JoinToString, LocalTask, RectExt, SafeTexture, ScaleType,
@@ -42,9 +44,9 @@ use prpr::{
     },
     fs::{self},
     info::ChartInfo,
-    judge::{icon_index, Judge},
+    judge::{icon_index, Judge, PlayResult},
     scene::{
-        request_file, request_input, return_file, return_input, show_error, show_message, take_file, take_input, BasicPlayer, GameMode, LoadingScene,
+        request_file, request_input, return_file, return_input, show_error, show_message, take_file, take_input, BasicPlayer, EndingScene, GameMode, GameScene, LoadingScene,
         LocalSceneTask, NextScene, RecordUpdateState, SaveFn, Scene, SimpleRecord, UpdateFn, UploadFn, FinishedStats,
     },
     task::Task,
@@ -88,23 +90,20 @@ static CONFIRM_AUTOCOMPLETE: AtomicBool = AtomicBool::new(false);
 static SKIP_AUTOCOMPLETE: AtomicBool = AtomicBool::new(false);
 pub static RECORD_ID: AtomicI32 = AtomicI32::new(-1);
 
-/// 最近一局“自然完成且成绩有效”的结算（由引擎 SaveFn 在谱面正常打完时写入，
-/// 多人面板据此上报 client.played 而非误判 abort；单人游玩不会消费，保留不影响）。
 pub static LAST_MP_FINISH: Mutex<Option<prpr::scene::FinishedStats>> = Mutex::new(None);
 
-/// Matches any `@name#id (role)` or `@name#id` or `@name (role)` or `@name`.
-/// Parentheses may be ASCII `()` or fullwidth `（）`; whitespace before `(` is optional.
-/// Groups: 1=name, 2=id (optional), 3=role (optional)
-/// 选曲页「开始」按钮里，图标边长占按钮高度的比例（比原版小一圈）。
 const PLAY_ICON_RATIO: f32 = 0.38;
 
-/// 选曲页这边白闪最多兜底多久（加载页迟迟不出现时别一直白着）；
-/// 正常情况是加载页滑入完成后由它自己淡掉，见 [prpr::scene::LAUNCH_FLASH]。
 const LAUNCH_FLASH_MAX: f32 = 1.5;
 
-static MENTION_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"@([^\s#@(（]+)(?:#(\d+))?(?:\s*[（(]([^)）]+)[)）])?").unwrap());
+static MENTION_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"@([^\s#@(（]+)(?:#(\d+))?(?:\s*[（]?([^)）]+)[)）]?)?")
+        .unwrap_or_else(|e| {
+            eprintln!("[Debug] MENTION_RE regex compile failed: {e}");
+            Regex::new(r"(?!)").unwrap()
+        })
+});
 
-/// Parse all `@name#id` resolved collaborator mentions and return `(id, role)` pairs.
 fn parse_collaborators(intro: &str) -> BTreeMap<i32, Option<String>> {
     use std::collections::btree_map::Entry;
 
@@ -128,9 +127,6 @@ fn parse_collaborators(intro: &str) -> BTreeMap<i32, Option<String>> {
     result
 }
 
-/// Find all unresolved `@name` or `@name (role)` mentions (those missing `#id`).
-/// Returns `(start, end, name)` byte-offset pairs into `intro`.
-/// Processing right-to-left preserves earlier offsets during replacement.
 fn find_unresolved_mentions(intro: &str) -> Vec<(usize, usize, String)> {
     MENTION_RE
         .captures_iter(intro)
@@ -206,7 +202,7 @@ async fn load_local_tuple(local_path: &str, def_illu: SafeTexture, info: ChartIn
     if info.preview_end.unwrap_or(info.preview_start + 1.) > length {
         tl!(bail "edit-preview-invalid");
     }
-    // 钳制预览范围到有效区间，防止越界
+
     let preview_begin = info.preview_start.clamp(0., length.max(0.));
     let preview_end = info.preview_end.unwrap_or(preview_begin + 15.).clamp(preview_begin, length.max(preview_begin));
     let preview = with_effects((frames, sample_rate), Some((preview_begin, preview_end)))?;
@@ -245,11 +241,11 @@ impl Downloading {
         self.cancel_download_btn.render_text(ui, r, t, tl!("dl-cancel"), 0.6, true);
     }
 
-    /// 内联渲染（多人房间页的「谱面下载」状态行）：在给定矩形内画谱面名、状态文字、
-    /// 进度条与「取消」按钮，**不铺满全屏、不加暗色遮罩**。
+    /// 鍐呰仈娓叉煋锛堝浜烘埧闂撮〉鐨勩€岃氨闈笅杞姐€嶇姸鎬佽锛夛細鍦ㄧ粰瀹氱煩褰㈠唴鐢昏氨闈㈠悕銆佺姸鎬佹枃瀛椼€?
+    /// 杩涘害鏉′笌銆屽彇娑堛€嶆寜閽紝**涓嶉摵婊″叏灞忋€佷笉鍔犳殫鑹查伄缃?*銆?
     ///
-    /// 「取消」按钮的命中区就在本函数里登记（`cancel_download_btn`），因此
-    /// [`Self::touch`] 与该按钮的显示天然同源。
+    /// 銆屽彇娑堛€嶆寜閽殑鍛戒腑鍖哄氨鍦ㄦ湰鍑芥暟閲岀櫥璁帮紙`cancel_download_btn`锛夛紝鍥犳
+    /// [`Self::touch`] 涓庤鎸夐挳鐨勬樉绀哄ぉ鐒跺悓婧愩€?
     pub fn render_inline(&mut self, ui: &mut Ui, r: Rect, t: f32) {
         let accent = ui.accent();
         let status = self.status.lock().unwrap().clone();
@@ -270,7 +266,7 @@ impl Downloading {
             .size(0.31)
             .color(semi_white(0.6))
             .draw();
-        // 进度条（进度未知时画一条满宽的浅色底，靠状态文字表达“进行中”）
+        // 杩涘害鏉★紙杩涘害鏈煡鏃剁敾涓€鏉℃弧瀹界殑娴呰壊搴曪紝闈犵姸鎬佹枃瀛楄〃杈锯€滆繘琛屼腑鈥濓級
         let bar = Rect::new(r.x + 0.03, r.y + r.h * 0.82, text_w, 0.012);
         ui.fill_path(&bar.rounded(0.006), semi_black(0.35));
         if let Some(p) = *self.prog.lock().unwrap() {
@@ -281,7 +277,7 @@ impl Downloading {
             }
         }
         let cr = Rect::new(r.right() - 0.36, r.y + r.h * 0.18, 0.32, r.h * 0.64);
-        // 不带阴影：多人页的按钮一律是平底 + 描边（`build` 已经负责按压动画与命中区）
+        // 涓嶅甫闃村奖锛氬浜洪〉鐨勬寜閽竴寰嬫槸骞冲簳 + 鎻忚竟锛坄build` 宸茬粡璐熻矗鎸夊帇鍔ㄧ敾涓庡懡涓尯锛?
         self.cancel_download_btn.build(ui, t, cr, |ui, path| {
             ui.fill_path(&path, semi_black(0.4));
             ui.text(tl!("dl-cancel"))
@@ -367,6 +363,7 @@ pub struct SongScene {
 
     back_btn: RectButton,
     play_btn: DRectButton,
+    render_btn: RectButton,
 
     icons: Arc<Icons>,
 
@@ -399,9 +396,11 @@ pub struct SongScene {
     edit_scroll: Scroll,
 
     mods: Mods,
+    hp: HpMode, // [HP 血量模式] 谱面级 HP 档位（随谱面独立，不再全局生效）
     mod_btn: RectButton,
     mod_scroll: Scroll,
     mod_btns: Vec<(DRectButton, bool)>,
+    hp_mod_btn: DRectButton, // [HP 血量模式] 普通游玩 HP mod 档位按钮
 
     side_content: SideContent,
     side_enter_time: f32,
@@ -416,6 +415,9 @@ pub struct SongScene {
     ldb_fader: Fader,
     ldb_type_btn: DRectButton,
     ldb_std: bool,
+    ldb_srv_btn: DRectButton,
+    ldb_local: bool,
+    upload_chart_task: Option<Task<Result<()>>>,
 
     info_btn: RectButton,
     info_scroll: Scroll,
@@ -459,7 +461,6 @@ pub struct SongScene {
     open_web_btn: DRectButton,
     level_author_btn: DRectButton,
 
-
     overwrite_from: Option<String>,
     overwrite_task: Option<Task<Result<LocalTuple>>>,
 
@@ -482,11 +483,15 @@ pub struct SongScene {
 }
 
 impl SongScene {
-    pub fn new(mut chart: ChartItem, local_path: Option<String>, icons: Arc<Icons>, rank_icons: [SafeTexture; 8], mods: Mods) -> Self {
+    pub fn new(mut chart: ChartItem, local_path: Option<String>, icons: Arc<Icons>, rank_icons: [SafeTexture; 8], mods: Mods, hp: HpMode) -> Self {
         let is_xcsim = chart.chart_type == ChartType::XCSim;
+        let is_locsrv = chart.chart_type == ChartType::LocalServer;
         if let Some(path) = &local_path {
             if let Some(id_str) = path.strip_prefix("download/") {
-                let id_str = id_str.strip_prefix("xcsim_").unwrap_or(id_str);
+                let id_str = id_str
+                    .strip_prefix("xcsim_")
+                    .or_else(|| id_str.strip_prefix("loc_"))
+                    .unwrap_or(id_str);
                 if let Ok(id) = id_str.parse::<i32>() {
                     chart.info.id = Some(id);
                 }
@@ -517,6 +522,8 @@ impl SongScene {
                 } else {
                     chart.illu
                 }
+            } else if is_locsrv {
+                chart.illu
             } else {
                 Illustration {
                     texture: chart.illu.texture.clone(),
@@ -541,7 +548,7 @@ impl SongScene {
             .find(|it| Some(&it.local_path) == local_path.as_ref())
             .and_then(|it| it.record.clone())
             .or_else(|| local_path.as_ref().and_then(|path| get_data().local_records.get(path).cloned().flatten()));
-        let fetch_best_task = if !is_xcsim && get_data().me.is_some() {
+        let fetch_best_task = if !is_xcsim && !is_locsrv && get_data().me.is_some() {
             chart.info.id.map(|id| Task::new(Client::best_record(id)))
         } else {
             None
@@ -556,6 +563,7 @@ impl SongScene {
 
             back_btn: RectButton::new(),
             play_btn: DRectButton::new(),
+            render_btn: RectButton::new(),
 
             icons,
 
@@ -581,6 +589,8 @@ impl SongScene {
                         } else {
                             bail!(tl!("xcsim-no-preview").to_string());
                         }
+                    } else if is_locsrv {
+                        bail!(tl!("locsrv-no-preview").to_string());
                     } else {
                         let chart = Ptr::<Chart>::new(id.unwrap()).fetch().await?;
                         with_effects(AudioClip::decode(chart.preview.fetch().await?.to_vec())?, None)
@@ -616,9 +626,11 @@ impl SongScene {
             edit_scroll: Scroll::new(),
 
             mods,
+            hp,
             mod_btn: RectButton::new(),
             mod_scroll: Scroll::new(),
             mod_btns: Vec::new(),
+            hp_mod_btn: DRectButton::new(),
 
             side_content: SideContent::Edit,
             side_enter_time: f32::INFINITY,
@@ -633,6 +645,9 @@ impl SongScene {
             ldb_fader: Fader::new().with_distance(0.12),
             ldb_type_btn: DRectButton::new(),
             ldb_std: false,
+            ldb_srv_btn: DRectButton::new(),
+            ldb_local: false,
+            upload_chart_task: None,
 
             info_btn: RectButton::new(),
             info_scroll: Scroll::new(),
@@ -655,7 +670,7 @@ impl SongScene {
 
             should_update: Arc::default(),
 
-            my_rating_task: if offline_mode || is_xcsim {
+            my_rating_task: if offline_mode || is_xcsim || is_locsrv {
                 None
             } else {
                 id.map(|id| {
@@ -718,6 +733,11 @@ impl SongScene {
             self.downloading = Some(Self::global_start_download_xcsim(chart, self.local_path.clone())?);
             return Ok(());
         }
+        if self.chart_type == ChartType::LocalServer {
+            self.loading_last = 0.;
+            self.downloading = Some(Self::global_start_download_locsrv(chart, self.local_path.clone())?);
+            return Ok(());
+        }
         let Some(entity) = self.entity.clone() else {
             show_message(tl!("still-loading")).error();
             return Ok(());
@@ -725,6 +745,74 @@ impl SongScene {
         self.loading_last = 0.;
         self.downloading = Some(Self::global_start_download(chart, entity, self.local_path.clone())?);
         Ok(())
+    }
+
+    pub fn global_start_download_locsrv(chart: BriefChartInfo, local_path: Option<String>) -> Result<Downloading> {
+        let progress = Arc::new(Mutex::new(None));
+        let status = Arc::new(Mutex::new(Cow::Owned(tl!("xcsim-downloading").to_string())));
+        let status_shared = Arc::clone(&status);
+        let atomicity = Arc::new(Mutex::new(()));
+        Ok(Downloading {
+            info: chart.clone(),
+            local_path,
+            loading_last: 0.,
+            cancel_download_btn: DRectButton::new(),
+            prog: progress,
+            status: status_shared,
+            atomicity: atomicity.clone(),
+            task: Task::new({
+                let path = format!("{}/{}", dir::downloaded_charts()?, Uuid::new_v4());
+                async move {
+                    let path = std::path::Path::new(&path);
+                    tokio::fs::create_dir(path).await?;
+
+                    let id = chart.id.ok_or_else(|| anyhow::anyhow!(tl!("xcsim-missing-id").to_string()))?;
+                    *status.lock().unwrap() = Cow::Owned(tl!("xcsim-downloading-from").to_string());
+                    let resp = crate::client::recv_raw(crate::client::Client::get_to(
+                        crate::score_upload::UPLOAD_BASE,
+                        format!("/chart/download/{id}"),
+                    ))
+                    .await?;
+                    let bytes = resp.bytes().await?;
+                    let dir = prpr::dir::Dir::new(path)?;
+                    prpr::ext::unzip_into(std::io::Cursor::new(bytes), &dir, false)?;
+
+                    *status.lock().unwrap() = Cow::Owned(tl!("xcsim-saving").to_string());
+                    let mut info: ChartInfo = serde_yaml::from_reader(dir.open("info.yml")?)?;
+                    info.id = Some(id);
+                    serde_yaml::to_writer(dir.create("info.yml")?, &info)?;
+
+                    let local_path = format!("download/loc_{}", id);
+                    let to_path = format!("{}/{local_path}", dir::charts()?);
+                    let to_path = Path::new(&to_path);
+                    {
+                        let _guard = atomicity.lock().unwrap();
+                        if to_path.exists() {
+                            if to_path.is_file() {
+                                std::fs::remove_file(to_path)?;
+                            } else {
+                                std::fs::remove_dir_all(to_path)?;
+                            }
+                        }
+                        std::fs::rename(path, to_path)?;
+                    }
+
+                    let tuple = load_local_tuple(&local_path, BLACK_TEXTURE.clone(), info).await?;
+
+                    Ok((
+                        LocalChart {
+                            info: chart,
+                            local_path,
+                            record: None,
+                            mods: Mods::default(),
+                            hp: HpMode::Off,
+                            played_unlock: false,
+                        },
+                        tuple,
+                    ))
+                }
+            }),
+        })
     }
 
     pub fn global_start_download_xcsim(chart: BriefChartInfo, local_path: Option<String>) -> Result<Downloading> {
@@ -780,6 +868,7 @@ impl SongScene {
                             local_path,
                             record: None,
                             mods: Mods::default(),
+                            hp: HpMode::Off,
                             played_unlock: false,
                         },
                         tuple,
@@ -887,6 +976,7 @@ impl SongScene {
                             local_path,
                             record: None,
                             mods: Mods::default(),
+                            hp: HpMode::Off,
                             played_unlock: false,
                         },
                         tuple,
@@ -897,14 +987,26 @@ impl SongScene {
     }
 
     fn load_ldb(&mut self) {
-        if get_data().config.offline_mode || self.chart_type == ChartType::XCSim {
+        if get_data().config.offline_mode || self.chart_type == ChartType::XCSim || self.chart_type == ChartType::LocalServer {
             return;
         }
         let Some(id) = self.info.id else { return };
         self.ldb = None;
         let std = self.ldb_std;
+        let local = self.ldb_local;
+        // 本地穿透服务器为自签证书，先兜底开启忽略证书校验并重建 client（与上传路径一致）
+        if local && !get_data().accept_invalid_cert {
+            get_data_mut().accept_invalid_cert = true;
+            let _ = save_data();
+            let _ = crate::client::set_access_token_sync(CLIENT_TOKEN.load().as_ref().clone().as_deref());
+        }
         self.ldb_task = Some(Task::new(async move {
-            Ok(recv_raw(Client::get(format!("/record/list15/{id}")).query(&[("std", std)]))
+            let req = if local {
+                Client::get_to(crate::score_upload::UPLOAD_BASE, format!("/record/list15/{id}"))
+            } else {
+                Client::get(format!("/record/list15/{id}"))
+            };
+            Ok(recv_raw(req.query(&[("std", std)]))
                 .await?
                 .json()
                 .await?)
@@ -947,12 +1049,20 @@ impl SongScene {
         if self.local_path.as_ref().is_some_and(|it| !it.starts_with(':')) {
             self.menu_options.push("delete");
         }
-        if self.info.id.is_some() && self.chart_type != ChartType::XCSim {
+        if self.info.id.is_some()
+            && self.chart_type != ChartType::XCSim
+            && self.chart_type != ChartType::LocalServer
+        {
             self.menu_options.push("rate");
         }
         if let Some(local_path) = &self.local_path {
             self.menu_options.push("exercise");
             self.menu_options.push("offset");
+            self.menu_options.push("reveal");
+            if prpr::replay::latest_for_name(&self.info.name).is_some() {
+                self.menu_options.push("replay");
+                self.menu_options.push("replay-delete");
+            }
             if get_data()
                 .charts
                 .iter()
@@ -1012,7 +1122,7 @@ impl SongScene {
         let is_xcsim = self.chart_type == ChartType::XCSim;
 
         self.scene_task =
-            Self::global_launch(self.info.id, local_path, self.mods, mode, None, Some(self.background.clone()), self.record.clone(), is_unlock, is_xcsim)?;
+            Self::global_launch(self.info.id, local_path, self.mods, self.hp, mode, None, Some(self.background.clone()), self.record.clone(), is_unlock, is_xcsim)?;
 
         Ok(())
     }
@@ -1023,6 +1133,7 @@ impl SongScene {
         id: Option<i32>,
         local_path: &str,
         mods: Mods,
+        hp: HpMode,
         mode: GameMode,
         client: Option<Arc<phira_mp_client::Client>>,
         background_output: Option<Arc<Mutex<Option<SafeTexture>>>>,
@@ -1034,6 +1145,7 @@ impl SongScene {
             id,
             local_path,
             mods,
+            hp,
             mode,
             client,
             background_output,
@@ -1042,19 +1154,159 @@ impl SongScene {
             is_xcsim,
             false,
             None,
+            false,
+            None,
         )
     }
 
-    /// 与 [`SongScene::global_launch`] 相同的启动流程，但以“谱面预览”模式播放（autoplay 试听等）：
-    /// `preview_mode` 下谱面自然播完不进入结算页（引擎层直接弹回）；`interrupt` 为外部写入的
-    /// 打断信号（如多人模式房主点了开始），置位后预览立即结束。普通游玩请用
-    /// [`SongScene::global_launch`]（等价于 `preview_mode = false, interrupt = None`）。
+    /// HUD 编辑：结算场景示例预览。直接构造真实 EndingScene：用第一个本地谱面的插图做背景，
+    /// 曲名/难度/成绩均为示例值，供 HUD 拖拽布局；不写记录、不上传。
+    pub fn global_launch_ending_preview(local_path: &str) -> Result<LocalSceneTask> {
+        let mut fs = fs_from_path(local_path)?;
+        Ok(Some(Box::pin(async move {
+            let mut info = fs::load_info(fs.as_mut()).await?;
+            info.name = "示例谱面".to_owned();
+            info.difficulty = 15.0;
+            info.level = "IN 15".to_owned();
+            info.charter = "Demo".to_owned();
+            info.composer = "Demo".to_owned();
+            info.illustrator = "Demo".to_owned();
+            let config = get_data().config.clone();
+            let background = match async {
+                let image = image::load_from_memory(&fs.load_file(&info.illustration).await?)
+                    .context("Failed to decode image")?;
+                let (w, h) = (image.width(), image.height());
+                let size = w as usize * h as usize;
+                let rgba = image.to_rgba8();
+                let mut blurred = Vec::with_capacity(size * 4);
+                for pixel in rgba.chunks_exact(4) {
+                    blurred.extend_from_slice(&pixel[0..3]);
+                    blurred.push(255);
+                }
+                Ok::<_, anyhow::Error>(SafeTexture::from(Texture2D::from_image(&Image {
+                    width: w as _,
+                    height: h as _,
+                    bytes: blurred,
+                })))
+            }
+            .await
+            {
+                Ok(bg) => bg,
+                Err(err) => {
+                    warn!("Failed to load ending preview background: {:?}", err);
+                    BLACK_TEXTURE.clone()
+                }
+            };
+            let result = PlayResult {
+                score: 9876543,
+                accuracy: 99.61,
+                max_combo: 1234,
+                num_of_notes: 1240,
+                counts: [1000, 200, 30, 10],
+                early: 1,
+                late: 2,
+                std: 0.,
+                early_kind: [0; 4],
+                late_kind: [0; 4],
+                perfect_plus: 0,
+                great: 0,
+                ok: 0,
+                meh: 0,
+                diffs: Vec::new(),
+            };
+            EndingScene::new(
+                background.clone(),
+                background.clone(),
+                BLACK_TEXTURE.clone(),
+                std::array::from_fn(|_| BLACK_TEXTURE.clone()),
+                BLACK_TEXTURE.clone(),
+                BLACK_TEXTURE.clone(),
+                BLACK_TEXTURE.clone(),
+                std::array::from_fn(|_| BLACK_TEXTURE.clone()),
+                info,
+                result,
+                &config,
+                AudioClip::from_raw(Vec::new(), 48000),
+                None,
+                None,
+                0,
+                None,
+                None,
+                None,
+                None,
+            )
+            .map(|it| NextScene::Overlay(Box::new(it)))
+        })))
+    }
+
+    /// HUD 编辑：加载页示例预览。不加载任何谱面、不进入游戏，直接用示例数据构造 LoadingScene，
+    /// 停在加载页供编辑器拖拽布局（loading/info、loading/tip、loading/loading 槽位）。
+    pub fn global_launch_loading_preview() -> Result<LocalSceneTask> {
+        Ok(Some(Box::pin(async move {
+            Ok(NextScene::Overlay(Box::new(LoadingScene::hud_preview())))
+        })))
+    }
+
+    /// HUD 编辑：游玩场景示例预览。纯示例数据停在游玩页，不加载谱面、不播放音乐。
+    pub fn global_launch_game_hud_preview() -> Result<LocalSceneTask> {
+        Ok(Some(Box::pin(async move {
+            let mut info = ChartInfo::default();
+            info.name = "示例谱面".to_owned();
+            info.difficulty = 15.0;
+            info.level = "IN 15".to_owned();
+            info.charter = "Demo".to_owned();
+            info.composer = "Demo".to_owned();
+            info.illustrator = "Demo".to_owned();
+            let config = get_data().config.clone();
+            let scene = GameScene::new_preview(
+                GameMode::Normal,
+                info,
+                config,
+                fs_from_path(":demo:demo")?,
+                None,
+                BLACK_TEXTURE.clone(),
+                BLACK_TEXTURE.clone(),
+                None,
+                None,
+                None,
+                true,
+                None,
+                true,
+                None,
+            )
+            .await?;
+            Ok(NextScene::Overlay(Box::new(scene)))
+        })))
+    }
+
+    /// HUD 编辑：加载/游玩场景示例预览。用第一个本地谱面做真实载体，但曲名/难度等文本替换为示例，
+    /// preview_mode 保证不写记录、播完直接退出；槽位键名与真实场景一致，保存后可直接作用于实玩。
+    pub fn global_launch_hud_preview(local_path: &str) -> Result<LocalSceneTask> {
+        Self::global_launch_preview(
+            None,
+            local_path,
+            Mods::empty(),
+            HpMode::Off,
+            GameMode::Normal,
+            None,
+            None,
+            None,
+            false,
+            false,
+            true,
+            None,
+            true,
+            None,
+        )
+    }
+
     #[must_use = "futures do nothing unless you `.await` or poll them"]
     #[allow(clippy::too_many_arguments)]
     pub fn global_launch_preview(
         id: Option<i32>,
         local_path: &str,
         mods: Mods,
+        hp: HpMode,
         mode: GameMode,
         client: Option<Arc<phira_mp_client::Client>>,
         background_output: Option<Arc<Mutex<Option<SafeTexture>>>>,
@@ -1063,13 +1315,17 @@ impl SongScene {
         is_xcsim: bool,
         preview_mode: bool,
         interrupt: Option<Arc<AtomicBool>>,
+        hud_preview: bool,
+        challenge: Option<prpr::scene::ChallengeConfig>,
     ) -> Result<LocalSceneTask> {
+        prpr::replay::set_chart_path(local_path);
         let mut fs = fs_from_path(local_path)?;
         let can_rated = id.is_some() || local_path.starts_with(':');
         #[cfg(feature = "video")]
         let local_path = local_path.to_owned();
-        // 全局禁用成绩上传
-        let rated = false;
+
+        let cfg = &get_data().config;
+        let rated = cfg.upload_score_enabled && !cfg.arcaea_judgement && !cfg.fnf_judgement && !cfg.full_screen_judge;
         if !rated && can_rated && mode == GameMode::Normal {
             show_message(tl!("warn-unrated")).warn();
         }
@@ -1178,9 +1434,7 @@ impl SongScene {
         let save_fn: Option<SaveFn> = Some(Box::new({
             let local_path = local_path.to_string();
             move |stats: FinishedStats| -> Result<()> {
-                // 自然完成且成绩有效（引擎仅在 record 有效时调用本回调）：
-                // 记录本局成绩供多人模式上报读取（每局开局清空、取走后置空），
-                // 使“正常打完”上报 client.played 而非被误判为 abort。
+
                 *LAST_MP_FINISH.lock().unwrap() = Some(stats);
                 let new_rec = SimpleRecord {
                     score: stats.score as i32,
@@ -1210,6 +1464,15 @@ impl SongScene {
             let mut info = fs::load_info(fs.as_mut()).await?;
             info.id = id;
             info.arcaea_judgement = is_xcsim;
+            if hud_preview {
+                // HUD 编辑场景预览：文本与难度显示为示例，其余（谱面/插图/音乐）用真实载体。
+                info.name = "示例谱面".to_owned();
+                info.difficulty = 15.0;
+                info.level = "IN 15".to_owned();
+                info.charter = "Demo".to_owned();
+                info.composer = "Demo".to_owned();
+                info.illustrator = "Demo".to_owned();
+            }
             let mut config = get_data().config.clone();
             config.player_name = get_data()
                 .me
@@ -1226,6 +1489,7 @@ impl SongScene {
             };
             let chart_updated = info.chart_updated;
             config.mods = mods;
+            config.hp = hp; // [HP 血量模式] 谱面级 HP 档位注入，不再全局生效
 
             if let Some(output) = &background_output {
                 let background = match async {
@@ -1257,7 +1521,17 @@ impl SongScene {
                 rks: it.rks,
                 historic_best: record.map_or(0, |it| it.score as u32),
             });
-            let upload_fn: Option<UploadFn> = None;
+            let upload_fn: Option<UploadFn> = if config.upload_score_enabled
+                && !config.arcaea_judgement
+                && !config.fnf_judgement
+                && !config.full_screen_judge
+            {
+                Some(Arc::new(move |data: Vec<u8>| {
+                    crate::score_upload::submit_score(data, id.unwrap_or(0), chart_updated)
+                }))
+            } else {
+                None
+            };
 
             if is_unlock {
                 #[cfg(not(feature = "video"))]
@@ -1276,6 +1550,7 @@ impl SongScene {
                         None,
                         preview_mode,
                         interrupt,
+                        challenge.clone(),
                     )
                     .await
                     .map(|it| NextScene::Overlay(Box::new(it)))
@@ -1316,6 +1591,7 @@ impl SongScene {
                     None,
                     preview_mode,
                     interrupt,
+                    challenge.clone(),
                 )
                 .await
                 .map(|it| NextScene::Overlay(Box::new(it)))
@@ -1341,7 +1617,7 @@ impl SongScene {
         let online = self.info.id.is_some();
         let vpad = 0.02;
         let hpad = 0.01;
-        let dx = width / if is_owner { 3. } else { 2. };
+        let dx = width / if is_owner { 4. } else { 3. };
         let mut r = Rect::new(hpad, ui.top * 2. - h + vpad, dx - hpad * 2., h - vpad * 2.);
         if ui.button("cancel", r, tl!("edit-cancel")) {
             if self.info_edit.as_ref().is_some_and(|it| it.updated) {
@@ -1393,6 +1669,56 @@ impl SongScene {
             }
         }
         r.x += dx;
+        if ui.button("upload_chart", r, tl!("upload-chart")) {
+            let path = self.local_path.clone();
+            if get_data().tokens.is_none() {
+                show_message(tl!("upload-login-first")).error();
+            } else if path.as_deref().map_or(true, |p| p.starts_with(':')) {
+                show_message(tl!("upload-builtin")).error();
+            } else {
+                self.upload_chart_task = Some(Task::new(async move {
+                    let path = path.unwrap();
+                    let root = format!("{}/{path}", dir::charts()?);
+                    let root = Path::new(&root);
+                    let mut chart_bytes = Vec::new();
+                    compress_folder(root, &mut Cursor::new(&mut chart_bytes))?;
+                    // 本地穿透服务器为自签证书，先兜底开启忽略证书校验并重建 client（与上传成绩路径一致）
+                    if !get_data().accept_invalid_cert {
+                        get_data_mut().accept_invalid_cert = true;
+                        save_data()?;
+                        crate::client::set_access_token_sync(CLIENT_TOKEN.load().as_ref().clone().as_deref())?;
+                    }
+                    // 1) 上传文件：POST /upload/{name} raw body，返回 {id}
+                    let resp = recv_raw(Client::post_raw(
+                        crate::score_upload::UPLOAD_BASE,
+                        "/upload/chart.zip",
+                        chart_bytes,
+                    ))
+                    .await
+                    .context("upload file failed")?;
+                    let val: serde_json::Value = resp.json().await?;
+                    let file_id = val["id"]
+                        .as_str()
+                        .ok_or_else(|| Error::msg("upload response missing id"))?
+                        .to_string();
+                    // 2) 登记谱面：POST /chart/upload {file: id}，返回 {id, created}
+                    let resp = recv_raw(Client::post_to(
+                        crate::score_upload::UPLOAD_BASE,
+                        "/chart/upload",
+                        &json!({ "file": file_id }),
+                    ))
+                    .await
+                    .context("chart upload failed")?;
+                    let chart: serde_json::Value = resp.json().await?;
+                    if chart["created"].as_bool().unwrap_or(false) {
+                        Ok(())
+                    } else {
+                        bail!("chart upload rejected by server")
+                    }
+                }));
+            }
+        }
+        r.x += dx;
         if ui.button("save", r, tl!("edit-save")) {
             self.try_save_with_autocomplete();
         }
@@ -1425,6 +1751,14 @@ impl SongScene {
         let pad = 0.03;
         let width = self.side_content.width() - pad;
         ui.dy(0.03);
+        self.ldb_srv_btn.render_text(
+            ui,
+            Rect::new(width - 0.49, 0.01, 0.23, 0.08),
+            rt,
+            if self.ldb_local { tl!("ldb-srv-local") } else { tl!("ldb-srv-official") },
+            0.6,
+            true,
+        );
         self.ldb_type_btn.render_text(
             ui,
             Rect::new(width - 0.24, 0.01, 0.23, 0.08),
@@ -1479,7 +1813,7 @@ impl SongScene {
                 }};
             }
             let mw = width - pad * 3.;
-            if self.info.id.is_some() && self.chart_type != ChartType::XCSim {
+            if self.info.id.is_some() && self.chart_type != ChartType::XCSim && self.chart_type != ChartType::LocalServer {
                 let r = Rect::new(0.03, 0., mw, 0.12).nonuniform_feather(-0.03, -0.01);
                 self.open_web_btn.render_text(ui, r, rt, ttl!("open-in-web"), 0.6, true);
                 dy!(r.h + 0.04);
@@ -1531,11 +1865,11 @@ impl SongScene {
 
             if let Some(author) = &self.level_author {
                 dy!(ui.text(tl!("info-charter")).size(0.4).color(semi_white(0.7)).draw().h + 0.02);
-                // 谱师名字
+
                 dy!(ui.text(&author.name).pos(pad, 0.).size(0.7).color(WHITE).draw().h + 0.01);
-                // 平台
+
                 dy!(ui.text(tl!("author-platform", "platform" => author.terrace.as_str())).pos(pad, 0.).size(0.45).color(semi_white(0.7)).draw().h + 0.01);
-                // 链接按钮
+
                 let link_r = Rect::new(pad, 0., mw, 0.08);
                 self.level_author_btn.render_text(ui, link_r, rt, tl!("author-view-profile"), 0.5, true);
                 dy!(link_r.h + 0.03);
@@ -1664,12 +1998,46 @@ impl SongScene {
             item(tl!("mods-instant-death-fc"), Some(tl!("mods-instant-death-fc-sub")), Mods::INSTANT_DEATH_FC);
             item(tl!("mods-no-shader"), Some(tl!("mods-no-shader-sub")), Mods::NO_SHADER);
 
-            // 花样 mod
             item(tl!("mods-ghost"), Some(tl!("mods-ghost-sub")), Mods::GHOST);
             item(tl!("mods-random-x"), Some(tl!("mods-random-x-sub")), Mods::RANDOM_X);
             item(tl!("mods-fx-tv"), Some(tl!("mods-fx-tv-sub")), Mods::FX_TV);
             item(tl!("mods-fx-scanline"), Some(tl!("mods-fx-scanline-sub")), Mods::FX_SCANLINE);
             item(tl!("mods-fx-glitch"), Some(tl!("mods-fx-glitch-sub")), Mods::FX_GLITCH);
+
+            // [HP 血量模式] 普通游玩 HP mod：档位循环 Off -> 1 -> 20 -> 50 -> 100 -> 200
+            {
+                use prpr::config::HpMode;
+                const HP_LEFT: f32 = 0.03;
+                const HP_TITLE_SIZE: f32 = 0.6;
+                let cur = self.hp;
+                let hp_txt = match cur {
+                    HpMode::Off => "HP 血量: 关",
+                    HpMode::Hp1 => "HP 血量: 1 (非Perfect-1)",
+                    HpMode::Hp20 => "HP 血量: 20 (非Perfect-1)",
+                    HpMode::Hp50 => "HP 血量: 50 (非Perfect-1)",
+                    HpMode::Hp100 => "HP 血量: 100 (Bad/Miss-1)",
+                    HpMode::Hp200 => "HP 血量: 200 (Bad/Miss-1)",
+                    HpMode::Custom => "HP 血量: 自定义",
+                };
+                ui.text(hp_txt)
+                    .pos(HP_LEFT, ITEM_HEIGHT / 2.)
+                    .anchor(0., 0.5)
+                    .no_baseline()
+                    .size(HP_TITLE_SIZE)
+                    .draw();
+                let on = !matches!(cur, HpMode::Off);
+                self.hp_mod_btn.build(ui, rt, rr, |ui, path| {
+                    ui.fill_path(&path, if on { WHITE } else { ui.background() });
+                    ui.text(if on { ttl!("switch-on") } else { ttl!("switch-off") })
+                        .pos(rr.center().x, rr.center().y)
+                        .anchor(0.5, 0.5)
+                        .no_baseline()
+                        .size(0.5)
+                        .color(if on { Color::new(0.3, 0.3, 0.3, 1.) } else { WHITE })
+                        .draw();
+                });
+                dy!(ITEM_HEIGHT);
+            }
 
             (width, h + 0.2)
         });
@@ -1678,7 +2046,6 @@ impl SongScene {
     fn save_edit(&mut self) {
         let Some(edit) = &self.info_edit else { unreachable!() };
         let info = edit.info.clone();
-
 
         {
             let mut texts = vec![
@@ -1747,7 +2114,6 @@ impl SongScene {
         self.autocomplete_task = Some(Task::new(async move {
             let unresolved = find_unresolved_mentions(&intro);
 
-
             let mut resolved: Vec<(usize, usize, String)> = Vec::new();
             for (start, end, name) in unresolved {
                 let name_owned = name.clone();
@@ -1756,7 +2122,6 @@ impl SongScene {
                 let Some(user) = matched else {
                     bail!(tl!("collab-autocomplete-failed", "name" => name));
                 };
-
 
                 let suffix = &intro[start + 1 + name.len()..end];
                 let new_text = format!("@{}#{}{}", name, user.id, suffix);
@@ -1851,11 +2216,30 @@ impl Scene for SongScene {
         let res = match res.downcast::<SimpleRecord>() {
             Err(res) => res,
             Ok(rec) => {
+                // 剧情代码已注释（2026-10-05）：Story trigger: Act Beloved accuracy >= 85% (A rank)
+                // if self.info.name == "Act Beloved" && rec.accuracy >= 0.85 {
+                //     let mut crash = CrashScene::new_full(
+                //         CrashCode::Custom {
+                //             code: 404,
+                //             reason: "建议:404".to_string(),
+                //         },
+                //         "游戏发生意外崩溃".to_string(),
+                //         true,
+                //         Some(NextScene::Replace(Box::new(crate::scene::StoryScene::new(
+                //             Arc::clone(&self.icons),
+                //             self.rank_icons.clone(),
+                //         )))),
+                //     );
+                //     // 退出卡住4秒后进入崩溃界面
+                //     crash.set_black_duration(4.0);
+                //     self.next_scene = Some(NextScene::Replace(Box::new(crash)));
+                //     return Ok(());
+                // }
                 self.fade_start = tm.now() as f32 + fade_in_time().unwrap_or_default();
                 if self.my_rate_score == Some(0) && thread_rng().gen_ratio(2, 5) {
                     self.rate_dialog.enter(tm.real_time() as _);
                 }
-                // 提前取出成就所需数据，避免 rec 被移动
+
                 let (ach_score, ach_accuracy, ach_full_combo) = (
                     rec.score.max(0) as u64,
                     rec.accuracy,
@@ -1867,19 +2251,18 @@ impl Scene for SongScene {
                     self.record = Some(*rec);
                 }
                 self.load_ldb();
-                // 记录成就进度（游玩次数、分数、准确率、难度、全连）
-                // 反作弊：联网谱面传入服务端权威元数据，本地被篡改的难度/标签不参与判定
+
                 let authority = self.entity.as_ref().map(|e| (e.difficulty, e.level.clone()));
-                if let Err(err) = crate::achievement::record_play(
-                    ach_score,
-                    &self.info.level,
-                    self.info.difficulty,
-                    ach_accuracy,
-                    ach_full_combo,
-                    authority,
-                ) {
-                    warn!(?err, "记录成就进度失败");
-                }
+//                 if let Err(err) = crate::achievement::record_play(
+//                     ach_score,
+//                     &self.info.level,
+//                     self.info.difficulty,
+//                     ach_accuracy,
+//                     ach_full_combo,
+//                     authority,
+//                 ) {
+//                     warn!(?err, "璁板綍鎴愬氨杩涘害澶辫触");
+//                 }
                 return Ok(());
             }
         };
@@ -1940,6 +2323,10 @@ impl Scene for SongScene {
     }
 
     fn enter(&mut self, tm: &mut TimeManager, _target: Option<RenderTarget>) -> Result<()> {
+// // 娴嬭瘯锛氱洿鎺ヨ烦杞埌鍋囧穿婧冨満鏅?
+// self.next_scene = Some(NextScene::Replace(Box::new(FakeCrashScene::new())));
+// return Ok(());
+
         if self.first_in {
             self.first_in = false;
             tm.seek_to(-fade_in_time().unwrap_or_default() as _);
@@ -1999,8 +2386,9 @@ impl Scene for SongScene {
                     if matches!(self.side_content, SideContent::Mods) {
                         if let Some(index) = get_data().find_chart_by_path(self.local_path.as_deref().unwrap()) {
                             let chart = &mut get_data_mut().charts[index];
-                            if chart.mods != self.mods {
+                            if chart.mods != self.mods || chart.hp != self.hp {
                                 chart.mods = self.mods;
+                                chart.hp = self.hp;
                                 save_data()?;
                             }
                         }
@@ -2021,6 +2409,12 @@ impl Scene for SongScene {
                     SideContent::Leaderboard => {
                         if self.ldb_type_btn.touch(touch, rt) {
                             self.ldb_std ^= true;
+                            self.ldb_scroll.y_scroller.offset = 0.;
+                            self.load_ldb();
+                            return Ok(true);
+                        }
+                        if self.ldb_srv_btn.touch(touch, rt) {
+                            self.ldb_local ^= true;
                             self.ldb_scroll.y_scroller.offset = 0.;
                             self.load_ldb();
                             return Ok(true);
@@ -2073,6 +2467,21 @@ impl Scene for SongScene {
                                 return Ok(true);
                             }
                         }
+                        // [HP 血量模式] 普通游玩 HP mod：点击切换档位并保存
+                        if self.hp_mod_btn.touch(touch, rt) {
+                            use prpr::config::HpMode;
+                            let next = match self.hp {
+                                HpMode::Off => HpMode::Hp1,
+                                HpMode::Hp1 => HpMode::Hp20,
+                                HpMode::Hp20 => HpMode::Hp50,
+                                HpMode::Hp50 => HpMode::Hp100,
+                                HpMode::Hp100 => HpMode::Hp200,
+                                HpMode::Hp200 => HpMode::Custom,
+                                HpMode::Custom => HpMode::Off,
+                            };
+                            self.hp = next;
+                            return Ok(true);
+                        }
                     }
                 }
             }
@@ -2081,6 +2490,18 @@ impl Scene for SongScene {
         if self.back_btn.touch(touch) {
             back_sound();
             self.next_scene = Some(NextScene::PopWithResult(Box::new(false)));
+            return Ok(true);
+        }
+        if self.scene_task.is_none() && self.next_scene.is_none() && self.render_btn.touch(touch) {
+            play_sound();
+            if self.local_path.is_some() {
+                crate::recorder::set_render_on_next_play(true);
+                self.mods.insert(prpr::config::Mods::AUTOPLAY);
+                *prpr::scene::LAUNCH_FLASH.lock().unwrap() = Some(t as f64);
+                self.launch(GameMode::Normal, false)?;
+            } else {
+                self.start_download()?;
+            }
             return Ok(true);
         }
         if self.scene_task.is_none() && self.next_scene.is_none() && self.play_btn.touch(touch, t) {
@@ -2132,7 +2553,11 @@ impl Scene for SongScene {
                 return Ok(true);
             }
         }
-        if self.info.id.is_some() && self.chart_type != ChartType::XCSim && self.ldb_btn.touch(touch) {
+        if self.info.id.is_some()
+            && self.chart_type != ChartType::XCSim
+            && self.chart_type != ChartType::LocalServer
+            && self.ldb_btn.touch(touch)
+        {
             button_hit();
             self.side_content = SideContent::Leaderboard;
             self.side_enter_time = tm.real_time() as _;
@@ -2357,8 +2782,25 @@ impl Scene for SongScene {
                     *prpr::scene::LAUNCH_FLASH.lock().unwrap() = Some(t as f64);
                     self.launch(GameMode::TweakOffset, false)?;
                 }
-                "unlock" => {
+                "reveal" => {
                     *prpr::scene::LAUNCH_FLASH.lock().unwrap() = Some(t as f64);
+                    self.launch(GameMode::Reveal, false)?;
+                }
+                "replay" => {
+                    if let Some(replay) = prpr::replay::latest_for_name(&self.info.name) {
+                        prpr::replay::set_pending(replay);
+                        *prpr::scene::LAUNCH_FLASH.lock().unwrap() = Some(t as f64);
+                        self.launch(GameMode::Replay, false)?;
+                    }
+                }
+                "replay-delete" => {
+                    if prpr::replay::delete_latest(&self.info.name) {
+                        show_message("回放已删除").ok();
+                        self.update_menu();
+                    }
+                }
+                "unlock" => {
+                    // 解锁动画以黑屏开始，不设置 LAUNCH_FLASH，避免进入时闪白
                     self.launch(GameMode::Normal, true)?;
                 }
                 "review-approve" => {
@@ -2554,6 +2996,19 @@ impl Scene for SongScene {
                     }
                 }
                 self.upload_task = None;
+            }
+        }
+        if let Some(task) = &mut self.upload_chart_task {
+            if let Some(res) = task.take() {
+                match res {
+                    Err(err) => {
+                        show_error(err.context(tl!("upload-chart-failed")));
+                    }
+                    Ok(()) => {
+                        show_message(tl!("upload-chart-success")).ok();
+                    }
+                }
+                self.upload_chart_task = None;
             }
         }
         match self.side_content {
@@ -2768,6 +3223,54 @@ impl Scene for SongScene {
                         false
                     })
                     .show();
+            } else if id == "upload_chart" {
+                let path = file;
+                if !path.to_lowercase().ends_with(".zip") {
+                    show_message(tl!("upload-chart-invalid")).error();
+                } else if get_data().tokens.is_none() {
+                    show_message(tl!("upload-login-first")).error();
+                } else {
+                    self.upload_chart_task = Some(Task::new(async move {
+                        let bytes = std::fs::read(&path).context("cannot read chart file")?;
+                        let name = Path::new(&path)
+                            .file_name()
+                            .map(|s| s.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "chart.zip".to_string());
+                        // 本地穿透服务器为自签证书，先兜底开启忽略证书校验并重建 client（与上传成绩路径一致）
+                        if !get_data().accept_invalid_cert {
+                            get_data_mut().accept_invalid_cert = true;
+                            save_data()?;
+                            crate::client::set_access_token_sync(CLIENT_TOKEN.load().as_ref().clone().as_deref())?;
+                        }
+                        // 1) 上传文件：POST /upload/{name} raw body，返回 {id}
+                        let resp = recv_raw(Client::post_raw(
+                            crate::score_upload::UPLOAD_BASE,
+                            format!("/upload/{name}"),
+                            bytes,
+                        ))
+                        .await
+                        .context("upload file failed")?;
+                        let val: serde_json::Value = resp.json().await?;
+                        let file_id = val["id"]
+                            .as_str()
+                            .ok_or_else(|| Error::msg("upload response missing id"))?
+                            .to_string();
+                        // 2) 登记谱面：POST /chart/upload {file: id}，返回 {id, created}
+                        let resp = recv_raw(Client::post_to(
+                            crate::score_upload::UPLOAD_BASE,
+                            "/chart/upload",
+                            &json!({ "file": file_id }),
+                        ))
+                        .await
+                        .context("chart upload failed")?;
+                        let chart: serde_json::Value = resp.json().await?;
+                        if chart["created"].as_bool().unwrap_or(false) {
+                            Ok(())
+                        } else {
+                            bail!("chart upload rejected by server")
+                        }
+                    }));
+                }
             } else {
                 return_file(id, file);
             }
@@ -2923,20 +3426,21 @@ impl Scene for SongScene {
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
-        // 背景使用原始比例，不随 UI 比例缩放
+
         set_camera(&ui.bg_camera());
         let t = tm.now() as f32;
-        ui.fill_rect(ui.screen_rect(), (*self.illu.texture.1, ui.screen_rect()));
-        ui.fill_rect(ui.screen_rect(), semi_black(0.55));
+        let alpha = fade_in_time().map_or(1., |tt| ((t - self.fade_start) / tt).clamp(-1., 0.) + 1.);
+        ui.alpha(alpha, |ui| {
+            ui.fill_rect(ui.screen_rect(), (*self.illu.texture.1, ui.screen_rect()));
+            ui.fill_rect(ui.screen_rect(), semi_black(0.55));
+        });
 
-        // UI 使用带比例的 camera
         set_camera(&ui.camera());
 
         let r = ui.back_rect();
         self.back_btn.set(ui, r);
         ui.fill_rect(r, (*self.icons.back, r, ScaleType::Fit));
 
-        let alpha = fade_in_time().map_or(1., |tt| ((t - self.fade_start) / tt).clamp(-1., 0.) + 1.);
         ui.alpha::<Result<()>>(alpha, |ui| {
             let title_size = 1.2;
             let subtitle_size = 0.5;
@@ -2986,7 +3490,10 @@ impl Scene for SongScene {
                 .color(semi_white(0.7))
                 .draw();
 
-            if self.info.id.is_some() && self.chart_type != ChartType::XCSim {
+            if self.info.id.is_some()
+                && self.chart_type != ChartType::XCSim
+                && self.chart_type != ChartType::LocalServer
+            {
                 let h = 0.09;
                 let mut ldb_r = Rect::new(score_r.x, score_r.y - h, h, h);
                 let ldb_bg = ldb_r.feather(-0.01);
@@ -3021,16 +3528,12 @@ impl Scene for SongScene {
                 self.ldb_btn.set(ui, ldb_r);
             }
 
-            // 开始按钮：白色平行四边形，压在右上角、右边裁平 ——
-            // 左边留斜边（上边右移），右边的两个角去掉（右边缘是贴着屏边的直边）。
             let w = 0.42;
             let h = 0.26;
             let lean = h * 0.22;
             let play_r = Rect::new(1. - w, ui.top - h, w, h);
             self.play_btn.inner.set(ui, play_r);
-            // 按下反馈：按住期间整块压暗（不缩放 —— 缩放会让图标跟着一起动，看着晃）。
-            // 注意 DRectButton::progress 是「1 = 没按、0 = 按住并已稳定」，所以取 1 - progress
-            // 才是按下程度：按住不放会一路降到 0.84 并停在那儿，松手再回到纯白。
+
             let pressed = 1. - self.play_btn.progress(t);
             let shade = 1. - 0.16 * pressed;
             let mut builder = lyon::path::Path::builder();
@@ -3040,14 +3543,12 @@ impl Scene for SongScene {
             builder.line_to(lyon::math::point(play_r.x, play_r.bottom()));
             builder.close();
             ui.fill_path(&builder.build(), Color::new(shade, shade, shade, 1.));
-            // 图标：先按贴图比例算出居中的方框再画。`ScaleType::Fit` 是「拉满整个矩形」，
-            // 直接把一个宽扁的矩形交给它，▶ 会被拉长；所以要自己算等比尺寸。
-            // 白底上用深色图标，否则白图压白底看不见。
+
             let tex = if self.local_path.is_some() { *self.icons.play } else { *self.icons.download };
             let ratio = tex.width() / tex.height();
             let side = (play_r.h * PLAY_ICON_RATIO).min(play_r.w * 0.28);
             let (iw, ih) = if ratio > 1. { (side, side / ratio) } else { (side * ratio, side) };
-            // 平行四边形重心在矩形中心右移 lean/2：图标跟着往右挪一点才居中
+
             let icon_r = Rect::new(
                 play_r.center().x + lean * 0.5 - iw * 0.5,
                 play_r.center().y - ih * 0.5,
@@ -3163,6 +3664,9 @@ impl Scene for SongScene {
         if self.upload_task.is_some() {
             ui.full_loading(tl!("uploading"), t);
         }
+        if self.upload_chart_task.is_some() {
+            ui.full_loading(tl!("uploading"), t);
+        }
         if self.review_task.is_some() {
             ui.full_loading(tl!("review-doing"), t);
         }
@@ -3197,8 +3701,6 @@ impl Scene for SongScene {
 
         self.sf.render(ui, t);
 
-        // 「开始」一按下就白闪，一直白到加载页滑进来为止（那之后由加载页接着白并淡掉）。
-        // 加载页要先把谱面准备好才出现，这段时间人已经在等了，先白着才不显得卡。
         if let Some(t0) = *prpr::scene::LAUNCH_FLASH.lock().unwrap() {
             let e = t as f64 - t0;
             if e >= LAUNCH_FLASH_MAX as f64 {
