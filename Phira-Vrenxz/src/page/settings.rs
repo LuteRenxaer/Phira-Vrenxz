@@ -147,10 +147,11 @@ enum SettingListType {
     Visual,
     Custom,
     Debug,
+    Replay,
     Plugin,
     About,
 }
-const SETTING_TABS: [(SettingListType, &str); 9] = [
+const SETTING_TABS: [(SettingListType, &str); 10] = [
     (SettingListType::General, "通用"),
     (SettingListType::Account, "账号"),
     (SettingListType::Audio, "音频"),
@@ -158,6 +159,7 @@ const SETTING_TABS: [(SettingListType, &str); 9] = [
     (SettingListType::Visual, "谱面UI"),
     (SettingListType::Custom, "自定义"),
     (SettingListType::Debug, "调试"),
+    (SettingListType::Replay, "回放"),
     (SettingListType::Plugin, "插件"),
     (SettingListType::About, "关于"),
 ];
@@ -168,6 +170,7 @@ pub struct SettingsPage {
     list_visual: VisualList,
     list_custom: CustomList,
     list_debug: DebugList,
+    list_replay: ReplayList,
     list_plugin: PluginList,
     tab: SettingListType,
     /// 当前页内容总高度（给滚动条用）
@@ -998,6 +1001,7 @@ impl SettingsPage {
             list_visual: VisualList::new(),
             list_custom: CustomList::new(),
             list_debug: DebugList::new(),
+            list_replay: ReplayList::new(),
             list_plugin: PluginList::new(),
             tab: SettingListType::General,
             content_h: 1.,
@@ -1160,6 +1164,7 @@ impl Page for SettingsPage {
             SettingListType::Visual => self.list_visual.touch(touch, t)?,
             SettingListType::Custom => self.list_custom.touch(touch, t)?,
             SettingListType::Debug => self.list_debug.touch(touch, t)?,
+            SettingListType::Replay => self.list_replay.touch(touch, t)?,
             SettingListType::Plugin => self.list_plugin.touch(touch, t)?,
             _ => None,
         };
@@ -1233,6 +1238,7 @@ impl Page for SettingsPage {
             SettingListType::Visual => self.list_visual.update(t)?,
             SettingListType::Custom => self.list_custom.update(t)?,
             SettingListType::Debug => self.list_debug.update(t)?,
+            SettingListType::Replay => self.list_replay.update(t)?,
             SettingListType::Plugin => self.list_plugin.update(t)?,
             _ => false,
         };
@@ -1386,6 +1392,9 @@ impl Page for SettingsPage {
         NextPage::None
     }
     fn next_scene(&mut self, _s: &mut SharedState) -> NextScene {
+        if let Some(scene) = self.list_replay.take_scene() {
+            return scene;
+        }
         if let Some(scene) = self.list_general.take_lan_scene() {
             return scene;
         }
@@ -2800,6 +2809,149 @@ impl VisualList {
         self.palette.render(ui, t);
     }
 }
+struct ReplayItem {
+    path: PathBuf,
+    replay: prpr::replay::Replay,
+}
+
+struct ReplayList {
+    items: Vec<ReplayItem>,
+    play_btns: Vec<DRectButton>,
+    del_btns: Vec<DRectButton>,
+    play_task: LocalTask<Result<NextScene>>,
+    ready: Option<NextScene>,
+}
+
+impl ReplayList {
+    fn new() -> Self {
+        let mut this = Self {
+            items: Vec::new(),
+            play_btns: Vec::new(),
+            del_btns: Vec::new(),
+            play_task: None,
+            ready: None,
+        };
+        this.reload();
+        this
+    }
+
+    fn reload(&mut self) {
+        self.items.clear();
+        if let Ok(files) = fs::read_dir("replays") {
+            for file in files.flatten() {
+                let path = file.path();
+                if path.extension().is_some_and(|e| e == "json") {
+                    if let Some(replay) = prpr::replay::load(&path) {
+                        self.items.push(ReplayItem { path, replay });
+                    }
+                }
+            }
+        }
+        self.items.sort_by_key(|i| std::cmp::Reverse(i.replay.recorded_at));
+        self.play_btns = (0..self.items.len()).map(|_| DRectButton::new()).collect();
+        self.del_btns = (0..self.items.len()).map(|_| DRectButton::new()).collect();
+    }
+
+    fn play(&mut self, index: usize) {
+        let Some(item) = self.items.get(index) else { return };
+        let local_path = item.replay.local_path.clone().or_else(|| {
+            get_data()
+                .charts
+                .iter()
+                .find(|c| c.info.name == item.replay.name)
+                .map(|c| c.local_path.clone())
+        });
+        let Some(local_path) = local_path else {
+            show_error(anyhow::anyhow!("找不到回放对应谱面，请重新导入"));
+            return;
+        };
+        prpr::replay::set_pending(item.replay.clone());
+        let root = match dir::charts() {
+            Ok(v) => v,
+            Err(e) => {
+                show_error(e);
+                return;
+            }
+        };
+        let full = format!("{}/{}", root, local_path.replace('\\', "/"));
+        self.play_task = Some(Box::pin(async move {
+            let mut fs = crate::scene::fs_from_path(&full)?;
+            let info = prpr::fs::load_info(fs.as_mut()).await?;
+            let config = get_data().config.clone();
+            let scene = prpr::scene::LoadingScene::new(
+                prpr::scene::GameMode::Replay,
+                info,
+                config,
+                fs,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await?;
+            Ok(NextScene::Overlay(Box::new(scene)))
+        }));
+    }
+
+    fn top_touch(&mut self, _touch: &Touch, _t: f32) -> bool { false }
+
+    fn touch(&mut self, touch: &Touch, t: f32) -> Result<Option<bool>> {
+        for i in 0..self.items.len() {
+            if self.play_btns[i].touch(touch, t) {
+                self.play(i);
+                return Ok(Some(false));
+            }
+            if self.del_btns[i].touch(touch, t) {
+                let _ = fs::remove_file(&self.items[i].path);
+                self.reload();
+                show_message("回放已删除").ok();
+                return Ok(Some(true));
+            }
+        }
+        Ok(None)
+    }
+
+    fn update(&mut self, _t: f32) -> Result<bool> {
+        if let Some(task) = &mut self.play_task {
+            if let Some(result) = poll_future(task.as_mut()) {
+                self.play_task = None;
+                match result {
+                    Ok(scene) => self.ready = Some(scene),
+                    Err(err) => show_error(err),
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    fn take_scene(&mut self) -> Option<NextScene> {
+        self.ready.take()
+    }
+
+    fn rows(&mut self) -> Vec<Row<'_>> {
+        let mut v = Vec::new();
+        let items = &self.items;
+        let plays = &mut self.play_btns;
+        let dels = &mut self.del_btns;
+        for ((item, play), del) in items.iter().zip(plays.iter_mut()).zip(dels.iter_mut()) {
+            let sub = format!(
+                "{:.2}x  P/G/B/M {}/{}/{}/{}",
+                item.replay.speed,
+                item.replay.stats().0,
+                item.replay.stats().1,
+                item.replay.stats().2,
+                item.replay.stats().3
+            );
+            v.push(row_value(item.replay.name.clone(), Some(sub.into()), play, "播放"));
+            v.push(row_value(format!("删除：{}", item.replay.name), None, del, "删除"));
+        }
+        v
+    }
+}
+
 struct DebugList {
     chart_debug_btn: DRectButton,
     touch_debug_btn: DRectButton,
@@ -2926,7 +3078,6 @@ impl DebugList {
             row_value("打开回放目录", Some("在资源管理器中查看 replays/".into()), &mut self.replay_folder_btn, "打开"),
             row_value("清空回放", Some("删除 replays/ 下全部 JSON 回放".into()), &mut self.replay_clear_btn, "清空"),
             row_value("导出回放", Some("复制到 export/replays".into()), &mut self.replay_export_btn, "导出"),
-            row_value("回放管理", Some("列表、播放、删除全部本地回放".into()), &mut self.replay_manager_btn, "打开"),
         ]
     }
 }
