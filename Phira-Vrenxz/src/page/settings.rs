@@ -595,6 +595,44 @@ pub(crate) fn draw_settings_content_panel(ui: &mut Ui) -> Rect {
     )
 }
 
+pub(crate) fn draw_settings_action_button(ui: &mut Ui, r: Rect, label: &str, btn: &mut DRectButton) {
+    btn.inner.set(ui, r);
+    let skew = r.h * 0.34;
+    fill_slant(ui, r, skew, WHITE);
+    stroke_slant(ui, r, skew, 0.0012, semi_white(0.35));
+    ui.text(label)
+        .pos(r.center().x, r.center().y)
+        .anchor(0.5, 0.5)
+        .size(0.34)
+        .color(BLACK)
+        .draw();
+}
+
+pub(crate) fn draw_settings_subpage_header(ui: &mut Ui, title: &str) {
+    let top = ui.top;
+    let y0 = fy(ui, TAB_Y0);
+    let y1 = fy(ui, tab_y1(top));
+    let r = Rect::new(fx(TAB_X0), y0, 0.42, y1 - y0);
+    let sk = slant(ui, tab_y1(top) - TAB_Y0);
+    fill_quad(
+        ui,
+        [
+            (r.x + sk, r.y),
+            (r.right() + sk, r.y),
+            (r.right(), r.bottom()),
+            (r.x, r.bottom()),
+        ],
+        WHITE,
+    );
+    ui.text(title)
+        .pos(r.x + r.w * 0.5, r.center().y)
+        .anchor(0.5, 0.5)
+        .size(0.46)
+        .color(BLACK)
+        .draw();
+    draw_settings_back(ui, 0.);
+}
+
 fn switch_smooth(r: Rect, on: bool) -> f32 {
     let key = ((r.center().x * 512.) as i32, (r.center().y * 512.) as i32);
     let target = if on { 1.0 } else { 0.0 };

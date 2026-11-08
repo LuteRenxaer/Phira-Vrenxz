@@ -203,9 +203,8 @@ impl ReplayEditPage {
         ui.fill_rect(r, Color::new(0.055, 0.060, 0.075, 0.78));
         ui.text(label).pos(r.x + 0.02, r.center().y).anchor(0., 0.5).size(0.38).draw();
         ui.text(value).pos(r.right() - 0.20, r.center().y).anchor(1., 0.5).size(0.32).draw();
-        let b = Rect::new(r.right() - 0.18, r.y + 0.012, 0.16, 0.05);
-        btn.inner.set(ui, b);
-        ui.text(action).pos(b.center().x, b.center().y).anchor(0.5, 0.5).size(0.28).draw();
+        let b = Rect::new(r.right() - 0.22, r.y + 0.010, 0.20, 0.055);
+        super::settings::draw_settings_action_button(ui, b, action, btn);
     }
 }
 
@@ -325,7 +324,7 @@ impl Page for ReplayEditPage {
 
     fn render(&mut self, ui: &mut Ui, _s: &mut SharedState) -> Result<()> {
         let area = super::settings::draw_settings_content_panel(ui);
-        super::settings::draw_settings_back(ui, 0.);
+        super::settings::draw_settings_subpage_header(ui, "编辑回放");
         let top = ui.top;
         ui.text(&self.replay.name)
             .pos(area.x, -top + 0.13)
