@@ -230,11 +230,8 @@ impl LoadingScene {
                 None
             }
         };
-        let random = preload
-            .map(|(ill, back, _)| (ill, back))
-            .or_else(|| random_local_chart_art().map(|t| (t.clone(), t)));
-        let (illustration, background): (SafeTexture, SafeTexture) = random
-            .or_else(|| background.map(|(ill, back)| (ill.into(), back.into())))
+        let (illustration, background): (SafeTexture, SafeTexture) = background
+            .map(|(ill, back)| (ill.into(), back.into()))
             .unwrap_or_else(|| (BLACK_TEXTURE.clone(), BLACK_TEXTURE.clone()));
         let _get_size_fn = get_size_fn.unwrap_or_else(|| Rc::new(|| (screen_width() as u32, screen_height() as u32)));
         if info.tip.is_none() {
@@ -432,6 +429,87 @@ impl Scene for LoadingScene {
             gl.push_model_matrix(Mat4::from_translation(vec3(panel_off, 0., 0.)));
         }
         let a = panel_p;
+
+        let vo = -top / 10.;
+        let r = draw_illustration(*self.illustration, 0.38, vo, 1., 1., fade(WHITE, cover_p));
+        let h = r.h / 3.6;
+        let main = Rect::new(-0.88, vo - h / 2. - top / 10., 0.78, h);
+        draw_parallelogram(main, None, fade(semi_black(0.7), a), false);
+
+        let p = (main.x + main.w * 0.09, main.y + main.h * 0.36);
+        let mut text = ui.text(&self.info.name).pos(p.0, p.1).anchor(0., 0.5).size(0.7).color(fade(WHITE, a));
+        if text.measure().w <= main.w * 0.6 {
+            text.draw();
+        } else {
+            drop(text);
+            ui.text(&self.info.name)
+                .pos(p.0, p.1)
+                .anchor(0., 0.5)
+                .max_width(main.w * 0.6)
+                .size(0.5)
+                .color(fade(WHITE, a))
+                .draw();
+        }
+
+        ui.text(&self.info.composer)
+            .pos(main.x + main.w * 0.09, main.y + main.h * 0.73)
+            .anchor(0., 0.5)
+            .size(0.36)
+            .color(fade(WHITE, a))
+            .draw();
+
+        let ext = 0.06;
+        let sub = Rect::new(main.x + main.w * 0.71, main.y - main.h * ext, main.w * 0.26, main.h * (1. + ext * 2.));
+        let mut ct = sub.center();
+        ct.x += sub.w * 0.02;
+        draw_parallelogram(sub, None, fade(WHITE, a), false);
+        ui.text(&(self.info.difficulty as u32).to_string())
+            .pos(ct.x, ct.y + sub.h * 0.05)
+            .anchor(0.5, 1.)
+            .size(0.88)
+            .color(fade(BLACK, a))
+            .draw();
+        ui.text(self.info.level.split_whitespace().next().unwrap_or_default())
+            .pos(ct.x, ct.y + sub.h * 0.09)
+            .anchor(0.5, 0.)
+            .size(0.34)
+            .color(fade(BLACK, a))
+            .draw();
+
+        let t = ui.text("Chart")
+            .pos(main.x + main.w / 6., main.y + main.h * 1.2)
+            .anchor(0., 0.)
+            .size(0.3)
+            .color(fade(WHITE, a))
+            .draw();
+        ui.text(&self.charter)
+            .pos(t.x, t.y + top / 20.)
+            .anchor(0., 0.)
+            .size(0.47)
+            .color(fade(WHITE, a))
+            .draw();
+        let w = 0.027;
+        let t = ui.text("Illustration")
+            .pos(t.x - w, t.y + w / 0.13 / 13. * 5.)
+            .anchor(0., 0.)
+            .size(0.3)
+            .color(fade(WHITE, a))
+            .draw();
+        ui.text(&self.info.illustrator)
+            .pos(t.x, t.y + top / 20.)
+            .anchor(0., 0.)
+            .size(0.47)
+            .color(fade(WHITE, a))
+            .draw();
+
+        if let Some(tip) = &self.info.tip {
+            ui.text(tip)
+                .pos(-0.91, top * 0.92)
+                .anchor(0., 1.)
+                .size(0.47)
+                .color(fade(WHITE, a))
+                .draw();
+        }
 
         let load_text = "Loading...";
         let m = ui.text(load_text).size(0.44).measure();
