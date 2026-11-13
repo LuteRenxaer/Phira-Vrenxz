@@ -29,6 +29,7 @@ pub struct PhigrosLibraryPage {
     play_task: LocalTask<Result<NextScene>>,
     ready: Option<NextScene>,
     mirror: bool,
+    mirror_rect: Rect,
 }
 
 impl PhigrosLibraryPage {
@@ -45,6 +46,7 @@ impl PhigrosLibraryPage {
             play_task: None,
             ready: None,
             mirror: false,
+            mirror_rect: Rect::new(0., 0., 0., 0.),
         };
         this.reload();
         this
@@ -157,10 +159,7 @@ impl Page for PhigrosLibraryPage {
             self.play();
             return Ok(true);
         }
-        let top = screen_height() / screen_width();
-        let list_bottom = (-top + 0.105 + 0.14) + (top * 2. - 0.36);
-        let mr = Rect::new(-0.66, list_bottom - 0.055, 0.20, 0.05);
-        if mr.contains(touch.position) {
+        if self.mirror_rect.contains(touch.position) {
             self.mirror = !self.mirror;
             return Ok(true);
         }
@@ -174,15 +173,15 @@ impl Page for PhigrosLibraryPage {
     }
 
     fn render(&mut self, ui: &mut Ui, _s: &mut SharedState) -> Result<()> {
-        let top = ui.top;
-        let top_y = -top + 0.02;
+        let area = ui.content_rect();
+        let top_y = area.y;
         // 顶部排序栏
         ui.text("排序方式").pos(-0.58, top_y).size(0.28).color(Color::new(1., 1., 1., 0.55)).draw();
         ui.text("默认").pos(-0.58, top_y + 0.035).size(0.40).draw();
         ui.text("随机").pos(0.02, top_y + 0.015).anchor(0.5, 0.).size(0.30).draw();
         ui.text("设置").pos(0.14, top_y + 0.015).anchor(0.5, 0.).size(0.30).draw();
         // 两行标签（5 + 2）
-        let tab_y = -top + 0.105;
+        let tab_y = area.y + 0.075;
         let tab_w = 0.175;
         for i in 0..7 {
             let (x, y) = if i < 5 {
@@ -201,7 +200,7 @@ impl Page for PhigrosLibraryPage {
                 .draw();
         }
         // 左侧列表
-        let list = Rect::new(-0.66, tab_y + 0.14, 0.64, top * 2. - 0.36);
+        let list = Rect::new(-0.66, tab_y + 0.14, 0.64, area.h - 0.24);
         let row_h = 0.095;
         let rows = ((list.h / row_h) as usize).max(1);
         let start = self.selected.saturating_sub(rows / 2).min(self.charts.len().saturating_sub(rows));
@@ -234,10 +233,11 @@ impl Page for PhigrosLibraryPage {
         }
         // Mirror 按钮
         let mr = Rect::new(list.x, list.bottom() - 0.055, 0.20, 0.05);
+        self.mirror_rect = mr;
         ui.fill_rect(mr, if self.mirror { WHITE } else { Color::new(0.08, 0.09, 0.11, 0.95) });
         ui.text("Mirror").pos(mr.center().x, mr.center().y).anchor(0.5, 0.5).size(0.26).color(if self.mirror { BLACK } else { WHITE }).draw();
         // 右侧详情
-        let detail = Rect::new(0.03, tab_y + 0.14, 0.55, top * 2. - 0.36);
+        let detail = Rect::new(0.03, tab_y + 0.14, 0.55, area.h - 0.24);
         let selected_chart = self.charts.get(self.selected).cloned();
         let selected_cover = self.cover(self.selected);
         if let Some(chart) = selected_chart {
@@ -295,11 +295,11 @@ impl Page for PhigrosLibraryPage {
             }
         }
         // 功能区
-        let func = Rect::new(0.62, tab_y + 0.14, 0.10, top * 2. - 0.36);
+        let func = Rect::new(0.62, tab_y + 0.14, 0.10, area.h - 0.24);
         ui.fill_rect(func, Color::new(0.04, 0.045, 0.055, 0.55));
         ui.text("功能区").pos(func.center().x, func.y + 0.05).anchor(0.5, 0.).size(0.26).draw();
         // 播放
-        let pr = Rect::new(0.75, top - 0.16, 0.18, 0.11);
+        let pr = Rect::new(0.75, area.bottom() - 0.13, 0.18, 0.11);
         self.play_btn.inner.set(ui, pr);
         ui.fill_rect(pr, WHITE);
         ui.text("▶").pos(pr.center().x, pr.center().y).anchor(0.5, 0.5).size(0.60).color(BLACK).draw();
