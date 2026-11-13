@@ -1318,10 +1318,16 @@ impl Main {
                 }
                 ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 0.35 * a.clamp(0., 1.)));
                 ui.text("Loading...")
-                    .pos(0.85, 0.85)
-                    .anchor(1., 1.)
-                    .size(0.44)
+                    .pos(0., 0.)
+                    .anchor(0.5, 0.5)
+                    .size(0.62)
                     .color(Color::new(1., 1., 1., a.clamp(0., 1.)))
+                    .draw();
+                ui.text("加载中")
+                    .pos(0., -0.08)
+                    .anchor(0.5, 0.5)
+                    .size(0.30)
+                    .color(Color::new(1., 1., 1., 0.7 * a.clamp(0., 1.)))
                     .draw();
             }
         }
