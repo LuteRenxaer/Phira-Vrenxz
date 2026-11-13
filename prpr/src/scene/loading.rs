@@ -62,6 +62,11 @@ fn random_local_chart_art() -> Option<SafeTexture> {
     }
     walk(root, &mut files);
     if files.is_empty() { return None; }
+    let preferred: Vec<_> = files.iter().filter(|p| {
+        let n = p.file_name().and_then(|x| x.to_str()).unwrap_or_default().to_ascii_lowercase();
+        n.contains("illustration") || n.contains("background")
+    }).cloned().collect();
+    let files = if preferred.is_empty() { files } else { preferred };
     let idx = (macroquad::rand::gen_range(0, files.len() as i32)) as usize;
     let data = std::fs::read(&files[idx]).ok()?;
     let img = image::load_from_memory(&data).ok()?.to_rgba8();
