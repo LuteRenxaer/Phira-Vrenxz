@@ -9,11 +9,20 @@ use crate::{
 use anyhow::Result;
 use macroquad::prelude::*;
 use prpr::{
-    ext::{poll_future, LocalTask, SafeTexture, ScaleType},
+    ext::{draw_parallelogram, poll_future, LocalTask, RectExt, SafeTexture, ScaleType},
     scene::{NextScene, GameMode},
     ui::{DRectButton, Scroll, Ui},
 };
 use std::{borrow::Cow, collections::HashMap, path::PathBuf};
+
+
+fn load_ui_icon(name: &str) -> Option<SafeTexture> {
+    let path = std::path::Path::new("assets/challenge_web").join(name);
+    let bytes = std::fs::read(path).ok()?;
+    let img = image::load_from_memory(&bytes).ok()?.to_rgba8();
+    let (w, h) = img.dimensions();
+    Some(Texture2D::from_rgba8(w as u16, h as u16, &img).into())
+}
 
 const TABS: [&str; 7] = ["本地", "上架", "特殊", "未上架", "热门", "XC-SIM", "内置"];
 
@@ -30,6 +39,10 @@ pub struct PhigrosLibraryPage {
     ready: Option<NextScene>,
     mirror: bool,
     mirror_rect: Rect,
+    icon_sort: Option<SafeTexture>,
+    icon_random: Option<SafeTexture>,
+    icon_setting: Option<SafeTexture>,
+    icon_play: Option<SafeTexture>,
 }
 
 impl PhigrosLibraryPage {
@@ -47,6 +60,10 @@ impl PhigrosLibraryPage {
             ready: None,
             mirror: false,
             mirror_rect: Rect::new(0., 0., 0., 0.),
+            icon_sort: load_ui_icon("sort.png"),
+            icon_random: load_ui_icon("Random.png"),
+            icon_setting: load_ui_icon("setting.png"),
+            icon_play: load_ui_icon("play.png"),
         };
         this.reload();
         this
@@ -174,14 +191,31 @@ impl Page for PhigrosLibraryPage {
 
     fn render(&mut self, ui: &mut Ui, _s: &mut SharedState) -> Result<()> {
         let area = ui.content_rect();
-        let top_y = area.y + 0.055;
+        let top_y = area.y + 0.005;
         // 顶部排序栏
-        ui.text("排序方式").pos(-0.60, top_y).size(0.28).color(Color::new(1., 1., 1., 0.55)).draw();
-        ui.text("默认").pos(-0.60, top_y + 0.035).size(0.40).draw();
-        ui.text("随机").pos(0.02, top_y + 0.015).anchor(0.5, 0.).size(0.30).draw();
-        ui.text("设置").pos(0.14, top_y + 0.015).anchor(0.5, 0.).size(0.30).draw();
+        let sort_bar = Rect::new(-0.64, top_y - 0.004, 0.82, 0.065);
+        draw_parallelogram(sort_bar, None, Color::new(0.02, 0.025, 0.035, 0.9), false);
+        if let Some(tex) = &self.icon_sort {
+            let r = Rect::new(-0.60, top_y + 0.005, 0.055, 0.055);
+            ui.fill_rect(r, (tex.clone().into_inner(), r, ScaleType::Fit, WHITE));
+            ui.text("排序方式").pos(-0.53, top_y - 0.002).size(0.19).color(Color::new(1., 1., 1., 0.6)).draw();
+            ui.text("默认").pos(-0.53, top_y + 0.026).size(0.32).draw();
+        } else {
+            ui.text("排序方式").pos(-0.55, top_y).size(0.24).draw();
+            ui.text("默认").pos(-0.55, top_y + 0.035).size(0.36).draw();
+        }
+        if let Some(tex) = &self.icon_random {
+            let r = Rect::new(-0.03, top_y + 0.005, 0.05, 0.05);
+            ui.fill_rect(r, (tex.clone().into_inner(), r, ScaleType::Fit, WHITE));
+        }
+        ui.text("随机").pos(0.025, top_y + 0.020).anchor(0.5, 0.).size(0.25).draw();
+        if let Some(tex) = &self.icon_setting {
+            let r = Rect::new(0.105, top_y + 0.005, 0.05, 0.05);
+            ui.fill_rect(r, (tex.clone().into_inner(), r, ScaleType::Fit, WHITE));
+        }
+        ui.text("设置").pos(0.16, top_y + 0.020).anchor(0.5, 0.).size(0.25).draw();
         // 两行标签（5 + 2）
-        let tab_y = area.y + 0.14;
+        let tab_y = area.y + 0.09;
         let tab_w = 0.175;
         for i in 0..7 {
             let (x, y) = if i < 5 {
@@ -191,7 +225,7 @@ impl Page for PhigrosLibraryPage {
             };
             let r = Rect::new(x, y, tab_w * if i < 5 { 1. } else { 1.55 } - 0.01, 0.06);
             self.tab_btns[i].inner.set(ui, r);
-            ui.fill_rect(r, if i == self.tab { WHITE } else { Color::new(0.05, 0.06, 0.08, 0.92) });
+            draw_parallelogram(r, None, if i == self.tab { WHITE } else { Color::new(0.05, 0.06, 0.08, 0.92) }, false);
             ui.text(TABS[i])
                 .pos(r.center().x, r.center().y)
                 .anchor(0.5, 0.5)
@@ -208,7 +242,7 @@ impl Page for PhigrosLibraryPage {
             let r = Rect::new(list.x, list.y + n as f32 * row_h, list.w, row_h);
             self.row_btns[i].inner.set(ui, r);
             let active = i == self.selected;
-            ui.fill_rect(r, if active { Color::new(0.10, 0.11, 0.14, 0.98) } else { Color::new(0.02, 0.025, 0.035, 0.35) });
+            draw_parallelogram(r, None, if active { Color::new(0.10, 0.11, 0.14, 0.98) } else { Color::new(0.02, 0.025, 0.035, 0.35) }, false);
             let c = &self.charts[i];
             ui.text(&c.info.name)
                 .pos(r.x + 0.015, r.y + 0.022)
@@ -225,11 +259,22 @@ impl Page for PhigrosLibraryPage {
             let score = c.record.as_ref().map_or(0, |r| r.score);
             let rank = if score >= 1_000_000 { "Phi" } else if score >= 960_000 { "V" } else if score >= 920_000 { "S" } else if score >= 880_000 { "A" } else if score >= 820_000 { "B" } else if score >= 700_000 { "C" } else { "F" };
             ui.text(rank).pos(r.right() - 0.09, r.y + 0.020).anchor(1., 0.).size(0.34).color(Color::new(0.55, 0.75, 1., 1.)).draw();
-            ui.text(format!("{:.0}", c.info.difficulty))
-                .pos(r.right() - 0.01, r.center().y)
-                .anchor(1., 0.5)
-                .size(0.40)
-                .draw();
+            if active {
+                let dr = Rect::new(r.right() - 0.115, r.y + 0.005, 0.10, r.h - 0.01);
+                draw_parallelogram(dr, None, WHITE, false);
+                ui.text(format!("{:.0}", c.info.difficulty))
+                    .pos(dr.center().x, dr.center().y)
+                    .anchor(0.5, 0.5)
+                    .size(0.38)
+                    .color(BLACK)
+                    .draw();
+            } else {
+                ui.text(format!("{:.0}", c.info.difficulty))
+                    .pos(r.right() - 0.01, r.center().y)
+                    .anchor(1., 0.5)
+                    .size(0.40)
+                    .draw();
+            }
         }
         // Mirror 按钮
         let mr = Rect::new(list.x, list.bottom() - 0.055, 0.20, 0.05);
@@ -241,9 +286,9 @@ impl Page for PhigrosLibraryPage {
         let selected_chart = self.charts.get(self.selected).cloned();
         let selected_cover = self.cover(self.selected);
         if let Some(chart) = selected_chart {
-            let art = Rect::new(detail.x, detail.y, detail.w, detail.h * 0.66);
+            let art = Rect::new(detail.x, detail.y, detail.w, detail.h * 0.72);
             if let Some(tex) = selected_cover {
-                ui.fill_rect(art, (*tex, art, ScaleType::CropCenter, WHITE));
+                draw_parallelogram(art, Some((tex.clone().into_inner(), Rect::new(0., 0., 1., 1.))), WHITE, false);
             } else {
                 ui.fill_rect(art, Color::new(0.06, 0.07, 0.09, 1.));
             }
@@ -270,7 +315,7 @@ impl Page for PhigrosLibraryPage {
             let current = if chart.info.level.starts_with("AT") { 3 } else if chart.info.level.starts_with("IN") { 2 } else if chart.info.level.starts_with("HD") { 1 } else { 0 };
             for i in 0..4 {
                 let r = Rect::new(detail.x + i as f32 * 0.105, by, 0.10, 0.085);
-                ui.fill_rect(r, if i == current { Color::new(0.75, 0.10, 0.14, 1.) } else { Color::new(0.92, 0.92, 0.94, 1.) });
+                draw_parallelogram(r, None, if i == current { Color::new(0.75, 0.10, 0.14, 1.) } else { Color::new(0.92, 0.92, 0.94, 1.) }, false);
                 ui.text(labels[i]).pos(r.center().x, r.y + 0.020).anchor(0.5, 0.).size(0.22).color(if i == current { WHITE } else { BLACK }).draw();
                 let nums = [3, 8, chart.info.difficulty.round() as i32, 15];
                 ui.text(format!("{}", nums[i]))
@@ -305,8 +350,13 @@ impl Page for PhigrosLibraryPage {
         // 播放
         let pr = Rect::new(0.84, area.bottom() - 0.13, 0.14, 0.11);
         self.play_btn.inner.set(ui, pr);
-        ui.fill_rect(pr, WHITE);
-        ui.text("▶").pos(pr.center().x, pr.center().y).anchor(0.5, 0.5).size(0.60).color(BLACK).draw();
+        draw_parallelogram(pr, None, WHITE, false);
+        if let Some(tex) = &self.icon_play {
+            let ir = pr.feather(-0.025);
+            ui.fill_rect(ir, (tex.clone().into_inner(), ir, ScaleType::Fit, WHITE));
+        } else {
+            ui.text("▶").pos(pr.center().x, pr.center().y).anchor(0.5, 0.5).size(0.60).color(BLACK).draw();
+        }
         Ok(())
     }
 
