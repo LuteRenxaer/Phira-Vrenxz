@@ -1611,24 +1611,7 @@ impl Scene for MainScene {
                 0.
             };
             if a > 0. {
-                if let Some(tex) = self.page_fade_art.as_ref() {
-                    prpr::scene::draw_loading_art(tex.clone());
-                } else {
-                    ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., a.clamp(0., 1.)));
-                }
-                ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 0.35 * a.clamp(0., 1.)));
-                ui.text("Loading...")
-                    .pos(0., 0.)
-                    .anchor(0.5, 0.5)
-                    .size(0.62)
-                    .color(Color::new(1., 1., 1., a.clamp(0., 1.)))
-                    .draw();
-                ui.text("加载中")
-                    .pos(0., -0.08)
-                    .anchor(0.5, 0.5)
-                    .size(0.30)
-                    .color(Color::new(1., 1., 1., 0.7 * a.clamp(0., 1.)))
-                    .draw();
+                prpr::scene::draw_transition_loading(ui, self.page_fade_art.as_ref(), s.t, a.clamp(0., 1.));
             }
         }
         // TEMP-SHOT-HOOK: 本机核对用，交付前移除 —— PHIRA_SHOT=<路径> 时每 120 帧把帧缓冲写成 PNG

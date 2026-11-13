@@ -1311,24 +1311,8 @@ impl Main {
                 0.
             };
             if a > 0. {
-                if let Some(tex) = self.fade_art.as_ref() {
-                    draw_background(tex.clone().into_inner());
-                } else {
-                    ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., a.clamp(0., 1.)));
-                }
-                ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 0.35 * a.clamp(0., 1.)));
-                ui.text("Loading...")
-                    .pos(0., 0.)
-                    .anchor(0.5, 0.5)
-                    .size(0.62)
-                    .color(Color::new(1., 1., 1., a.clamp(0., 1.)))
-                    .draw();
-                ui.text("加载中")
-                    .pos(0., -0.08)
-                    .anchor(0.5, 0.5)
-                    .size(0.30)
-                    .color(Color::new(1., 1., 1., 0.7 * a.clamp(0., 1.)))
-                    .draw();
+                let time = self.tm.now() as f32;
+                draw_transition_loading(&mut ui, self.fade_art.as_ref(), time, a.clamp(0., 1.));
             }
         }
         if let Some(pos) = crate::gamepad::cursor_pos() {
@@ -1420,6 +1404,43 @@ pub fn random_loading_art() -> Option<SafeTexture> {
 
 pub fn draw_loading_art(tex: SafeTexture) {
     draw_background(tex.clone().into_inner());
+}
+
+/// 与谱面加载页一致的 Loading 文案 + 进度条（不含封面/谱面信息）。
+pub fn draw_transition_loading(ui: &mut Ui, art: Option<&SafeTexture>, time: f32, a: f32) {
+    if let Some(tex) = art {
+        draw_background(tex.clone().into_inner());
+    }
+    let top = 1. / screen_aspect();
+    ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., (1. - a).clamp(0., 1.)));
+    let load_text = "Loading...";
+    let m = ui.text(load_text).size(0.44).measure();
+    let slot = Rect::new(0.87 - m.w, top * 0.92 - 0.2, m.w, 0.2);
+    let t = ui
+        .text(load_text)
+        .pos(slot.right(), slot.bottom())
+        .anchor(1., 1.)
+        .size(0.44)
+        .color(Color::new(1., 1., 1., a))
+        .draw();
+    let we = 0.2;
+    let he = 0.5;
+    let r = Rect::new(t.x - t.w * we, t.y - t.h * he, t.w * (1. + we * 2.), t.h * (1. + he * 2.));
+    let p = 0.6;
+    let s = 0.2;
+    let t_val = ((time - 0.3).max(0.) % (p * 2. + s)) / p;
+    let st = (t_val - 1.).clamp(0., 1.).powi(3);
+    let en = 1. - (1. - t_val.min(1.)).powi(3);
+    let progress_r = Rect::new(r.x + r.w * st, r.y, r.w * (en - st), r.h);
+    ui.fill_rect(progress_r, Color::new(1., 1., 1., a));
+    ui.scissor(progress_r, |ui| {
+        ui.text(load_text)
+            .pos(slot.right(), slot.bottom())
+            .anchor(1., 1.)
+            .size(0.44)
+            .color(Color::new(0., 0., 0., a))
+            .draw();
+    });
 }
 
 pub(crate) fn draw_background(tex: Texture2D) {
