@@ -151,7 +151,7 @@ enum SettingListType {
     Plugin,
     About,
 }
-const SETTING_TABS: [(SettingListType, &str); 10] = [
+const SETTING_TABS: [(SettingListType, &str); 9] = [
     (SettingListType::General, "通用"),
     (SettingListType::Account, "账号"),
     (SettingListType::Audio, "音频"),
@@ -159,7 +159,6 @@ const SETTING_TABS: [(SettingListType, &str); 10] = [
     (SettingListType::Visual, "谱面UI"),
     (SettingListType::Custom, "自定义"),
     (SettingListType::Debug, "调试"),
-    (SettingListType::Replay, "回放"),
     (SettingListType::Plugin, "插件"),
     (SettingListType::About, "关于"),
 ];
@@ -3147,7 +3146,6 @@ impl DebugList {
             row_value("打开回放目录", Some("在资源管理器中查看 replays/".into()), &mut self.replay_folder_btn, "打开"),
             row_value("清空回放", Some("删除 replays/ 下全部 JSON 回放".into()), &mut self.replay_clear_btn, "清空"),
             row_value("导出回放", Some("复制到 export/replays".into()), &mut self.replay_export_btn, "导出"),
-            row_value("回放管理", Some("搜索、筛选、播放、删除本地回放".into()), &mut self.replay_manager_btn, "打开"),
         ]
     }
 }

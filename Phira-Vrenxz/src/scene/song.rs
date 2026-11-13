@@ -1060,8 +1060,7 @@ impl SongScene {
             self.menu_options.push("offset");
             self.menu_options.push("reveal");
             if prpr::replay::latest_for_name(&self.info.name).is_some() {
-                self.menu_options.push("replay");
-                self.menu_options.push("replay-delete");
+                // 回放功能暂时隐藏
             }
             if get_data()
                 .charts
