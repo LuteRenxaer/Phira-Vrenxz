@@ -28,6 +28,7 @@ pub struct PhigrosLibraryPage {
     covers: HashMap<String, SafeTexture>,
     play_task: LocalTask<Result<NextScene>>,
     ready: Option<NextScene>,
+    mirror: bool,
 }
 
 impl PhigrosLibraryPage {
@@ -43,6 +44,7 @@ impl PhigrosLibraryPage {
             covers: HashMap::new(),
             play_task: None,
             ready: None,
+            mirror: false,
         };
         this.reload();
         this
@@ -89,11 +91,17 @@ impl PhigrosLibraryPage {
     }
 
     fn play(&mut self) {
-        let Some(chart) = self.charts.get(self.selected) else { return };
+        let Some(chart) = self.charts.get(self.selected).cloned() else { return };
+        let mut mods = chart.mods;
+        if self.mirror {
+            mods.insert(prpr::config::Mods::FLIP_X);
+        } else {
+            mods.remove(prpr::config::Mods::FLIP_X);
+        }
         let task = SongScene::global_launch_preview(
             chart.info.id,
             &chart.local_path,
-            chart.mods,
+            mods,
             chart.hp,
             GameMode::Normal,
             None,
@@ -149,6 +157,13 @@ impl Page for PhigrosLibraryPage {
             self.play();
             return Ok(true);
         }
+        let top = screen_height() / screen_width();
+        let list_bottom = (-top + 0.105 + 0.14) + (top * 2. - 0.36);
+        let mr = Rect::new(-0.66, list_bottom - 0.055, 0.20, 0.05);
+        if mr.contains(touch.position) {
+            self.mirror = !self.mirror;
+            return Ok(true);
+        }
         for i in 0..self.charts.len() {
             if self.row_btns[i].touch(touch, t) {
                 self.selected = i;
@@ -160,110 +175,134 @@ impl Page for PhigrosLibraryPage {
 
     fn render(&mut self, ui: &mut Ui, _s: &mut SharedState) -> Result<()> {
         let top = ui.top;
-        let full = Rect::new(-0.96, -top + 0.03, 1.92, top * 2. - 0.06);
-        // 顶部标签
-        let tab_y = -top + 0.12;
-        let tw = 1.85 / 7.;
+        let top_y = -top + 0.02;
+        // 顶部排序栏
+        ui.text("排序方式").pos(-0.58, top_y).size(0.28).color(Color::new(1., 1., 1., 0.55)).draw();
+        ui.text("默认").pos(-0.58, top_y + 0.035).size(0.40).draw();
+        ui.text("随机").pos(0.02, top_y + 0.015).anchor(0.5, 0.).size(0.30).draw();
+        ui.text("设置").pos(0.14, top_y + 0.015).anchor(0.5, 0.).size(0.30).draw();
+        // 两行标签（5 + 2）
+        let tab_y = -top + 0.105;
+        let tab_w = 0.175;
         for i in 0..7 {
-            let r = Rect::new(-0.93 + i as f32 * tw, tab_y, tw - 0.01, 0.075);
+            let (x, y) = if i < 5 {
+                (-0.66 + i as f32 * tab_w, tab_y)
+            } else {
+                (-0.66 + (i - 5) as f32 * tab_w * 1.6, tab_y + 0.065)
+            };
+            let r = Rect::new(x, y, tab_w * if i < 5 { 1. } else { 1.55 } - 0.01, 0.06);
             self.tab_btns[i].inner.set(ui, r);
-            ui.fill_rect(r, if i == self.tab { WHITE } else { Color::new(0.06, 0.07, 0.09, 0.9) });
+            ui.fill_rect(r, if i == self.tab { WHITE } else { Color::new(0.05, 0.06, 0.08, 0.92) });
             ui.text(TABS[i])
                 .pos(r.center().x, r.center().y)
                 .anchor(0.5, 0.5)
-                .size(0.34)
+                .size(0.28)
                 .color(if i == self.tab { BLACK } else { WHITE })
                 .draw();
         }
         // 左侧列表
-        let list = Rect::new(-0.93, tab_y + 0.10, 0.92, top * 2. - 0.28);
-        ui.fill_rect(list, Color::new(0.035, 0.04, 0.05, 0.72));
-        let row_h = 0.085;
+        let list = Rect::new(-0.66, tab_y + 0.14, 0.64, top * 2. - 0.36);
+        let row_h = 0.095;
         let rows = ((list.h / row_h) as usize).max(1);
-        let start = (self.selected.saturating_sub(rows / 2)).min(self.charts.len().saturating_sub(rows));
+        let start = self.selected.saturating_sub(rows / 2).min(self.charts.len().saturating_sub(rows));
         for (n, i) in (start..self.charts.len()).take(rows).enumerate() {
             let r = Rect::new(list.x, list.y + n as f32 * row_h, list.w, row_h);
             self.row_btns[i].inner.set(ui, r);
             let active = i == self.selected;
-            ui.fill_rect(r, if active { Color::new(0.16, 0.18, 0.22, 0.95) } else { Color::new(0.02, 0.025, 0.035, 0.45) });
+            ui.fill_rect(r, if active { Color::new(0.10, 0.11, 0.14, 0.98) } else { Color::new(0.02, 0.025, 0.035, 0.35) });
             let c = &self.charts[i];
             ui.text(&c.info.name)
-                .pos(r.x + 0.03, r.y + 0.025)
-                .size(0.46)
+                .pos(r.x + 0.015, r.y + 0.022)
+                .size(0.40)
                 .color(WHITE)
-                .max_width(r.w - 0.2)
+                .max_width(r.w - 0.14)
                 .draw();
             ui.text(&c.info.composer)
-                .pos(r.x + 0.03, r.y + 0.06)
-                .size(0.26)
+                .pos(r.x + 0.015, r.y + 0.060)
+                .size(0.24)
                 .color(Color::new(1., 1., 1., 0.55))
-                .max_width(r.w - 0.2)
+                .max_width(r.w - 0.14)
                 .draw();
+            let score = c.record.as_ref().map_or(0, |r| r.score);
+            let rank = if score >= 1_000_000 { "Phi" } else if score >= 960_000 { "V" } else if score >= 920_000 { "S" } else if score >= 880_000 { "A" } else if score >= 820_000 { "B" } else if score >= 700_000 { "C" } else { "F" };
+            ui.text(rank).pos(r.right() - 0.09, r.y + 0.020).anchor(1., 0.).size(0.34).color(Color::new(0.55, 0.75, 1., 1.)).draw();
             ui.text(format!("{:.0}", c.info.difficulty))
-                .pos(r.right() - 0.03, r.center().y)
+                .pos(r.right() - 0.01, r.center().y)
                 .anchor(1., 0.5)
-                .size(0.44)
+                .size(0.40)
                 .draw();
         }
+        // Mirror 按钮
+        let mr = Rect::new(list.x, list.bottom() - 0.055, 0.20, 0.05);
+        ui.fill_rect(mr, if self.mirror { WHITE } else { Color::new(0.08, 0.09, 0.11, 0.95) });
+        ui.text("Mirror").pos(mr.center().x, mr.center().y).anchor(0.5, 0.5).size(0.26).color(if self.mirror { BLACK } else { WHITE }).draw();
         // 右侧详情
-        let detail = Rect::new(0.01, tab_y + 0.10, 0.92, top * 2. - 0.28);
-        ui.fill_rect(detail, Color::new(0.03, 0.035, 0.045, 0.72));
+        let detail = Rect::new(0.03, tab_y + 0.14, 0.55, top * 2. - 0.36);
         let selected_chart = self.charts.get(self.selected).cloned();
         let selected_cover = self.cover(self.selected);
         if let Some(chart) = selected_chart {
+            let art = Rect::new(detail.x, detail.y, detail.w, detail.h * 0.66);
             if let Some(tex) = selected_cover {
-                let art = Rect::new(detail.x + 0.02, detail.y + 0.02, detail.w - 0.04, detail.h * 0.60);
                 ui.fill_rect(art, (*tex, art, ScaleType::CropCenter, WHITE));
+            } else {
+                ui.fill_rect(art, Color::new(0.06, 0.07, 0.09, 1.));
             }
-            let cy = detail.y + detail.h * 0.64;
+            let info_h = 0.16;
+            ui.fill_rect(Rect::new(art.x, art.bottom() - info_h, art.w, info_h), Color::new(0., 0., 0., 0.55));
             ui.text(&chart.info.name)
-                .pos(detail.x + 0.04, cy)
-                .size(0.58)
-                .max_width(detail.w - 0.08)
+                .pos(art.x + 0.02, art.bottom() - 0.075)
+                .size(0.44)
+                .max_width(art.w - 0.04)
                 .draw();
-            ui.text(format!("{}  ·  {}", chart.info.composer, chart.info.charter))
-                .pos(detail.x + 0.04, cy + 0.055)
-                .size(0.30)
-                .color(Color::new(1., 1., 1., 0.7))
-                .max_width(detail.w - 0.08)
+            ui.text(format!("♪ {}", chart.info.composer))
+                .pos(art.x + 0.02, art.bottom() - 0.030)
+                .size(0.24)
+                .color(Color::new(1., 1., 1., 0.75))
                 .draw();
-            let d = chart.info.difficulty;
-            let diff_r = Rect::new(detail.x + 0.04, cy + 0.11, 0.22, 0.09);
-            ui.fill_rect(diff_r, Color::new(0.8, 0.12, 0.16, 1.));
-            ui.text(format!("{:.0}", d))
-                .pos(diff_r.center().x, diff_r.center().y)
-                .anchor(0.5, 0.5)
-                .size(0.52)
+            ui.text(format!("made by {}", chart.info.charter))
+                .pos(art.x + 0.02, art.bottom() - 0.012)
+                .size(0.20)
+                .color(Color::new(1., 1., 1., 0.55))
                 .draw();
-            ui.text(&chart.info.level)
-                .pos(diff_r.right() + 0.03, diff_r.center().y)
-                .anchor(0., 0.5)
-                .size(0.30)
-                .color(Color::new(1., 1., 1., 0.7))
+            // 难度条
+            let by = art.bottom() + 0.03;
+            let labels = ["EZ", "HD", "IN", "AT"];
+            let current = if chart.info.level.starts_with("AT") { 3 } else if chart.info.level.starts_with("IN") { 2 } else if chart.info.level.starts_with("HD") { 1 } else { 0 };
+            for i in 0..4 {
+                let r = Rect::new(detail.x + i as f32 * 0.105, by, 0.10, 0.085);
+                ui.fill_rect(r, if i == current { Color::new(0.75, 0.10, 0.14, 1.) } else { Color::new(0.92, 0.92, 0.94, 1.) });
+                ui.text(labels[i]).pos(r.center().x, r.y + 0.020).anchor(0.5, 0.).size(0.22).color(if i == current { WHITE } else { BLACK }).draw();
+                ui.text(if i == current { format!("{:.0}", chart.info.difficulty) } else { "-".into() })
+                    .pos(r.center().x, r.y + 0.050)
+                    .anchor(0.5, 0.)
+                    .size(0.34)
+                    .color(if i == current { WHITE } else { BLACK })
+                    .draw();
+            }
+            let score = chart.record.as_ref().map_or(0, |r| r.score);
+            ui.text(format!("{:07}", score))
+                .pos(detail.right() - 0.02, by + 0.02)
+                .anchor(1., 0.)
+                .size(0.50)
                 .draw();
             if let Some(rec) = &chart.record {
-                ui.text(format!("{:07}", rec.score))
-                    .pos(detail.right() - 0.04, cy + 0.10)
-                    .anchor(1., 0.)
-                    .size(0.58)
-                    .draw();
                 ui.text(format!("{:.2}%", rec.accuracy))
-                    .pos(detail.right() - 0.04, cy + 0.16)
+                    .pos(detail.right() - 0.02, by + 0.075)
                     .anchor(1., 0.)
-                    .size(0.28)
+                    .size(0.24)
                     .color(Color::new(1., 1., 1., 0.7))
                     .draw();
             }
         }
-        let pr = Rect::new(0.55, top - 0.15, 0.35, 0.10);
+        // 功能区
+        let func = Rect::new(0.62, tab_y + 0.14, 0.10, top * 2. - 0.36);
+        ui.fill_rect(func, Color::new(0.04, 0.045, 0.055, 0.55));
+        ui.text("功能区").pos(func.center().x, func.y + 0.05).anchor(0.5, 0.).size(0.26).draw();
+        // 播放
+        let pr = Rect::new(0.75, top - 0.16, 0.18, 0.11);
         self.play_btn.inner.set(ui, pr);
         ui.fill_rect(pr, WHITE);
-        ui.text("▶")
-            .pos(pr.center().x, pr.center().y)
-            .anchor(0.5, 0.5)
-            .size(0.52)
-            .color(BLACK)
-            .draw();
+        ui.text("▶").pos(pr.center().x, pr.center().y).anchor(0.5, 0.5).size(0.60).color(BLACK).draw();
         Ok(())
     }
 
