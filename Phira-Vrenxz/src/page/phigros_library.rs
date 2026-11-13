@@ -49,7 +49,7 @@ impl PhigrosLibraryPage {
     pub fn new() -> Self {
         let mut this = Self {
             charts: Vec::new(),
-            selected: 0,
+            selected: 2,
             tab: 0,
             scroll: Scroll::new(),
             row_btns: Vec::new(),
@@ -74,7 +74,7 @@ impl PhigrosLibraryPage {
         self.charts.sort_by(|a, b| b.info.name.cmp(&a.info.name));
         self.row_btns = (0..self.charts.len()).map(|_| DRectButton::new()).collect();
         if self.selected >= self.charts.len() {
-            self.selected = 0;
+            self.selected = self.charts.len().saturating_sub(1);
         }
     }
 
@@ -190,11 +190,11 @@ impl Page for PhigrosLibraryPage {
     }
 
     fn render(&mut self, ui: &mut Ui, _s: &mut SharedState) -> Result<()> {
-        let area = ui.content_rect();
-        let top_y = area.y + 0.005;
+        let area = ui.screen_rect();
+        let top_y = area.y + 0.035;
         // 顶部排序栏
         let sort_bar = Rect::new(-0.82, top_y - 0.004, 0.72, 0.065);
-        draw_parallelogram(sort_bar, None, Color::new(0.02, 0.025, 0.035, 0.9), false);
+        draw_parallelogram(sort_bar, None, Color::new(0.02, 0.025, 0.035, 0.75), false);
         if let Some(tex) = &self.icon_sort {
             let r = Rect::new(-0.78, top_y + 0.005, 0.055, 0.055);
             ui.fill_rect(r, (tex.clone().into_inner(), r, ScaleType::Fit, WHITE));
@@ -215,28 +215,28 @@ impl Page for PhigrosLibraryPage {
         }
         ui.text("设置").pos(0.16, top_y + 0.020).anchor(0.5, 0.).size(0.25).draw();
         // 两行标签（5 + 2）
-        let tab_y = area.y + 0.09;
-        let tab_w = 0.135;
+        let tab_y = area.y + 0.105;
+        let tab_w = 0.16;
         for i in 0..7 {
             let (x, y) = if i < 5 {
-                (-0.80 + i as f32 * tab_w, tab_y)
+                (-0.86 + i as f32 * tab_w, tab_y)
             } else {
-                (-0.80 + (i - 5) as f32 * tab_w * 1.6, tab_y + 0.06)
+                (-0.86 + (i - 5) as f32 * tab_w * 1.6, tab_y + 0.065)
             };
-            let r = Rect::new(x, y, tab_w * if i < 5 { 1. } else { 1.55 } - 0.01, 0.07);
+            let r = Rect::new(x, y, tab_w * if i < 5 { 1. } else { 1.55 } - 0.01, 0.075);
             self.tab_btns[i].inner.set(ui, r);
             draw_parallelogram(r, None, if i == self.tab { WHITE } else { Color::new(0.05, 0.06, 0.08, 0.92) }, false);
             ui.text(TABS[i])
                 .pos(r.center().x, r.center().y)
                 .anchor(0.5, 0.5)
-                .size(0.31)
+                .size(0.34)
                 .color(if i == self.tab { BLACK } else { WHITE })
                 .draw();
         }
         // 左侧列表
-        let list = Rect::new(-0.82, tab_y + 0.14, 0.50, area.h - 0.24);
-        draw_parallelogram(Rect::new(list.x - 0.04, list.y - 0.01, list.w + 0.08, list.h + 0.02), None, Color::new(0., 0., 0., 0.45), false);
-        let row_h = 0.125;
+        let list = Rect::new(-0.86, tab_y + 0.14, 0.56, area.h - 0.30);
+        let row_h = 0.135;
+        ui.fill_rect(Rect::new(list.x - 0.04, list.y - 0.02, list.w + 0.10, list.h + 0.04), Color::new(0., 0., 0., 0.55));
         let rows = ((list.h / row_h) as usize).max(1);
         let start = self.selected.saturating_sub(rows / 2).min(self.charts.len().saturating_sub(rows));
         for (n, i) in (start..self.charts.len()).take(rows).enumerate() {
@@ -250,14 +250,14 @@ impl Page for PhigrosLibraryPage {
             }
             ui.text(&c.info.name)
                 .pos(r.x + 0.03, r.y + 0.025)
-                .size(0.44)
+                .size(0.50)
                 .color(WHITE)
-                .max_width(r.w - 0.13)
+                .max_width(r.w - 0.15)
                 .draw();
             ui.text(&c.info.composer)
                 .pos(r.x + 0.03, r.y + 0.072)
-                .size(0.23)
-                .color(Color::new(1., 1., 1., 0.55))
+                .size(0.27)
+                .color(Color::new(1., 1., 1., 0.62))
                 .max_width(r.w - 0.13)
                 .draw();
             let dr = Rect::new(r.right() - 0.075, r.y + 0.012, 0.12, r.h - 0.024);
@@ -289,11 +289,11 @@ impl Page for PhigrosLibraryPage {
         ui.fill_rect(mr, if self.mirror { WHITE } else { Color::new(0.08, 0.09, 0.11, 0.95) });
         ui.text("Mirror").pos(mr.center().x, mr.center().y).anchor(0.5, 0.5).size(0.26).color(if self.mirror { BLACK } else { WHITE }).draw();
         // 右侧详情
-        let detail = Rect::new(-0.30, tab_y + 0.14, 0.66, area.h - 0.24);
+        let detail = Rect::new(-0.30, tab_y - 0.02, 0.78, area.h - 0.16);
         let selected_chart = self.charts.get(self.selected).cloned();
         let selected_cover = self.cover(self.selected);
         if let Some(chart) = selected_chart {
-            let art = Rect::new(detail.x, detail.y, detail.w, detail.h * 0.72);
+            let art = Rect::new(detail.x, detail.y, detail.w, detail.h * 0.80);
             if let Some(tex) = selected_cover {
                 draw_parallelogram(art, Some((tex.clone().into_inner(), Rect::new(0., 0., 1., 1.))), WHITE, false);
             } else {
@@ -351,11 +351,11 @@ impl Page for PhigrosLibraryPage {
             ui.text(rank).pos(detail.right() - 0.02, by - 0.01).anchor(1., 0.).size(0.72).color(Color::new(0.55, 0.75, 1., 1.)).draw();
         }
         // 功能区
-        let func = Rect::new(0.70, tab_y + 0.14, 0.08, area.h - 0.24);
+        let func = Rect::new(0.74, tab_y + 0.14, 0.08, area.h - 0.30);
         ui.fill_rect(func, Color::new(0.04, 0.045, 0.055, 0.55));
         ui.text("功能区").pos(func.center().x, func.y + 0.05).anchor(0.5, 0.).size(0.26).draw();
         // 播放
-        let pr = Rect::new(0.80, area.bottom() - 0.13, 0.16, 0.11);
+        let pr = Rect::new(0.82, area.bottom() - 0.13, 0.16, 0.11);
         self.play_btn.inner.set(ui, pr);
         draw_parallelogram(pr, None, WHITE, false);
         if let Some(tex) = &self.icon_play {
