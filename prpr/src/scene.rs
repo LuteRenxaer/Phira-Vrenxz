@@ -1404,9 +1404,10 @@ pub fn draw_loading_art(tex: SafeTexture) {
 
 /// 与谱面加载页一致的 Loading 文案 + 进度条（不含封面/谱面信息）。
 pub fn draw_transition_loading(ui: &mut Ui, art: Option<&SafeTexture>, time: f32, elapsed: f32) {
-    let art_a = (elapsed / 0.25).clamp(0., 1.);
-    let black_a = if elapsed < 0.25 {
-        1.
+    let intro = (elapsed / 0.4).clamp(0., 1.);
+    let intro = 1. - (1. - intro).powi(3);
+    let black_a = if elapsed < 0.4 {
+        1. - intro
     } else if elapsed < 1.25 {
         0.
     } else {
@@ -1414,18 +1415,11 @@ pub fn draw_transition_loading(ui: &mut Ui, art: Option<&SafeTexture>, time: f32
     };
     if let Some(tex) = art {
         draw_background(tex.clone().into_inner());
-        ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 1. - art_a));
     } else {
         ui.fill_rect(ui.screen_rect(), Color::new(0.02, 0.025, 0.035, 1.));
     }
     ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., black_a));
-    let text_a = if elapsed < 0.25 {
-        0.
-    } else if elapsed < 1.25 {
-        1.
-    } else {
-        (1. - (elapsed - 1.25) / 0.35).clamp(0., 1.)
-    };
+    let text_a = if elapsed < 1.25 { intro } else { (1. - (elapsed - 1.25) / 0.35).clamp(0., 1.) };
     let load_text = "Loading...";
     let m = ui.text(load_text).size(0.44).measure();
     let top = 1. / screen_aspect();
