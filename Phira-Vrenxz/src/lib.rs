@@ -370,6 +370,9 @@ async fn the_main() -> Result<()> {
                         if let Err(err) = std::env::set_current_dir(&cur) {
                             error!("failed to set current dir to {root_s}: {err:?}");
                         }
+                        if let Ok(cwd) = std::env::current_dir() {
+                            prpr::scene::set_loading_art_root(cwd.join("data/charts"));
+                        }
                         break 'outer;
                     }
                     seen.insert(data_dir);

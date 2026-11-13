@@ -1300,19 +1300,11 @@ impl Main {
         draw_fps_overlay(&mut ui);
         if let Some(start) = self.fade_start {
             let e = (self.tm.now() - start) as f32;
-            let a = if e < 0.25 {
-                e / 0.25
-            } else if e < 1.25 {
-                1.
-            } else if e < 1.6 {
-                1. - (e - 1.25) / 0.35
+            if e < 1.6 {
+                let time = self.tm.now() as f32;
+                draw_transition_loading(&mut ui, self.fade_art.as_ref(), time, e);
             } else {
                 self.fade_start = None;
-                0.
-            };
-            if a > 0. {
-                let time = self.tm.now() as f32;
-                draw_transition_loading(&mut ui, self.fade_art.as_ref(), time, a.clamp(0., 1.));
             }
         }
         if let Some(pos) = crate::gamepad::cursor_pos() {
@@ -1398,6 +1390,10 @@ impl Main {
     }
 }
 
+pub fn set_loading_art_root(path: std::path::PathBuf) {
+    loading::set_loading_art_root(path);
+}
+
 pub fn random_loading_art() -> Option<SafeTexture> {
     loading::random_local_chart_art()
 }
@@ -1407,21 +1403,39 @@ pub fn draw_loading_art(tex: SafeTexture) {
 }
 
 /// 与谱面加载页一致的 Loading 文案 + 进度条（不含封面/谱面信息）。
-pub fn draw_transition_loading(ui: &mut Ui, art: Option<&SafeTexture>, time: f32, a: f32) {
+pub fn draw_transition_loading(ui: &mut Ui, art: Option<&SafeTexture>, time: f32, elapsed: f32) {
+    let art_a = (elapsed / 0.25).clamp(0., 1.);
+    let black_a = if elapsed < 0.25 {
+        1.
+    } else if elapsed < 1.25 {
+        0.
+    } else {
+        ((elapsed - 1.25) / 0.35).clamp(0., 1.)
+    };
     if let Some(tex) = art {
         draw_background(tex.clone().into_inner());
+        ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 1. - art_a));
+    } else {
+        ui.fill_rect(ui.screen_rect(), Color::new(0.02, 0.025, 0.035, 1.));
     }
-    let top = 1. / screen_aspect();
-    ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., (1. - a).clamp(0., 1.)));
+    ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., black_a));
+    let text_a = if elapsed < 0.25 {
+        0.
+    } else if elapsed < 1.25 {
+        1.
+    } else {
+        (1. - (elapsed - 1.25) / 0.35).clamp(0., 1.)
+    };
     let load_text = "Loading...";
     let m = ui.text(load_text).size(0.44).measure();
+    let top = 1. / screen_aspect();
     let slot = Rect::new(0.87 - m.w, top * 0.92 - 0.2, m.w, 0.2);
     let t = ui
         .text(load_text)
         .pos(slot.right(), slot.bottom())
         .anchor(1., 1.)
         .size(0.44)
-        .color(Color::new(1., 1., 1., a))
+        .color(Color::new(1., 1., 1., text_a))
         .draw();
     let we = 0.2;
     let he = 0.5;
@@ -1432,13 +1446,13 @@ pub fn draw_transition_loading(ui: &mut Ui, art: Option<&SafeTexture>, time: f32
     let st = (t_val - 1.).clamp(0., 1.).powi(3);
     let en = 1. - (1. - t_val.min(1.)).powi(3);
     let progress_r = Rect::new(r.x + r.w * st, r.y, r.w * (en - st), r.h);
-    ui.fill_rect(progress_r, Color::new(1., 1., 1., a));
+    ui.fill_rect(progress_r, Color::new(1., 1., 1., text_a));
     ui.scissor(progress_r, |ui| {
         ui.text(load_text)
             .pos(slot.right(), slot.bottom())
             .anchor(1., 1.)
             .size(0.44)
-            .color(Color::new(0., 0., 0., a))
+            .color(Color::new(0., 0., 0., text_a))
             .draw();
     });
 }

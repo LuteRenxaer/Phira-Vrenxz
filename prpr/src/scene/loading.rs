@@ -44,8 +44,17 @@ fn fade(c: Color, a: f32) -> Color {
 }
 
 
+static LOADING_ART_ROOT: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
+
+pub fn set_loading_art_root(path: std::path::PathBuf) {
+    if let Ok(mut v) = LOADING_ART_ROOT.lock() {
+        *v = Some(path);
+    }
+}
+
 pub(crate) fn random_local_chart_art() -> Option<SafeTexture> {
-    let root = std::path::Path::new("data/charts");
+    let root_buf = LOADING_ART_ROOT.lock().ok().and_then(|v| v.clone()).unwrap_or_else(|| std::path::PathBuf::from("data/charts"));
+    let root = root_buf.as_path();
     let mut files = Vec::new();
     fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         let Ok(rd) = std::fs::read_dir(dir) else { return };

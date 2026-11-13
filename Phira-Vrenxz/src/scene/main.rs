@@ -1600,18 +1600,10 @@ impl Scene for MainScene {
 
         if let Some(start) = self.page_fade {
             let e = s.t - start;
-            let a = if e < 0.25 {
-                e / 0.25
-            } else if e < 1.25 {
-                1.
-            } else if e < 1.6 {
-                1. - (e - 1.25) / 0.35
+            if e < 1.6 {
+                prpr::scene::draw_transition_loading(ui, self.page_fade_art.as_ref(), s.t, e);
             } else {
                 self.page_fade = None;
-                0.
-            };
-            if a > 0. {
-                prpr::scene::draw_transition_loading(ui, self.page_fade_art.as_ref(), s.t, a.clamp(0., 1.));
             }
         }
         // TEMP-SHOT-HOOK: 本机核对用，交付前移除 —— PHIRA_SHOT=<路径> 时每 120 帧把帧缓冲写成 PNG
