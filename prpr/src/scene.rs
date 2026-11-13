@@ -1173,7 +1173,7 @@ impl Main {
             return Ok(());
         }
         let next = self.scenes.last_mut().unwrap().next_scene(&mut self.tm);
-        let transiting = !matches!(next, NextScene::None);
+        let transiting = !matches!(next, NextScene::None | NextScene::Replace(_));
         match next {
             NextScene::None => {}
             NextScene::Pop => {

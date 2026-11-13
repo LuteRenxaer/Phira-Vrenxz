@@ -1,10 +1,13 @@
 prpr_l10n::tl_file!("loading");
 
-use super::{draw_background, ending::RecordUpdateState, game::GameMode, GameScene, NextScene, Scene};
+use super::{challenge::ChallengeConfig, draw_background, ending::RecordUpdateState, game::GameMode, GameScene, NextScene, Scene};
 use crate::{
-    config::Config,
-    core::Resource,
-    ext::{draw_parallelogram, poll_future, screen_aspect, semi_black, LocalTask, SafeTexture, BLACK_TEXTURE},
+    config::{Config, DynamicBackgroundMode},
+    core::{DynamicBackground, Resource},
+    ext::{
+        draw_parallelogram, get_viewport, poll_future, screen_aspect, semi_black, LocalTask,
+        SafeTexture, BLACK_TEXTURE,
+    },
     fs::FileSystem,
     info::ChartInfo,
     judge::Judge,
@@ -26,20 +29,44 @@ const BEFORE_TIME: f32 = 1.0;
 const TRANSITION_TIME: f32 = 1.4;
 const WAIT_TIME: f32 = 0.4;
 
-/// 进场编排时长（秒）：背景先推入 → 面板左偏淡入 → 封面单独淡入，三段错开。
 const ENTER_BG_TIME: f32 = 0.30;
 const ENTER_PANEL_DELAY: f32 = 0.08;
 const ENTER_PANEL_TIME: f32 = 0.34;
 const ENTER_COVER_DELAY: f32 = 0.16;
 const ENTER_COVER_TIME: f32 = 0.30;
-/// 面板进场时相对最终位置的横向偏移（负数 = 从左边偏一点点滑进来）。
+
 const PANEL_IN_OFFSET: f32 = -0.06;
-/// 白闪在整页滑入完成后淡掉的时间。
+
 const FLASH_FADE_TIME: f32 = 0.45;
 
-/// 原生 quad_gl 的绘制没有 ui.alpha 那一套，进场淡入只能自己乘进颜色里。
 fn fade(c: Color, a: f32) -> Color {
     Color { a: c.a * a, ..c }
+}
+
+
+fn random_local_chart_art() -> Option<SafeTexture> {
+    let root = std::path::Path::new("data/charts");
+    let mut files = Vec::new();
+    fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else if p.extension().and_then(|x| x.to_str()).is_some_and(|x| {
+                matches!(x.to_ascii_lowercase().as_str(), "png" | "jpg" | "jpeg" | "webp")
+            }) {
+                out.push(p);
+            }
+        }
+    }
+    walk(root, &mut files);
+    if files.is_empty() { return None; }
+    let idx = (macroquad::rand::gen_range(0, files.len() as i32)) as usize;
+    let data = std::fs::read(&files[idx]).ok()?;
+    let img = image::load_from_memory(&data).ok()?.to_rgba8();
+    let (w, h) = img.dimensions();
+    Some(Texture2D::from_rgba8(w as u16, h as u16, &img).into())
 }
 
 fn draw_illustration(tex: Texture2D, x: f32, y: f32, w: f32, h: f32, color: Color) -> Rect {
@@ -62,7 +89,7 @@ fn draw_illustration(tex: Texture2D, x: f32, y: f32, w: f32, h: f32, color: Colo
 
 pub type UploadFn = Arc<dyn Fn(Vec<u8>) -> Task<Result<RecordUpdateState>>>;
 pub type UpdateFn = Box<dyn FnMut(f64, &mut Resource, &mut Judge) + Send>;
-/// 一局完整游玩的有效结算（非跳过、非 UNRATED 等）。
+
 #[derive(Clone, Copy, Debug)]
 pub struct FinishedStats {
     pub score: u32,
@@ -76,6 +103,7 @@ pub struct FinishedStats {
 }
 pub type SaveFn = Box<dyn Fn(FinishedStats) -> Result<()> + Send>;
 
+#[derive(Clone)]
 pub struct BasicPlayer {
     pub avatar: Option<SafeTexture>,
     pub id: i32,
@@ -90,13 +118,7 @@ pub struct LoadingScene {
     pub load_task: LocalTask<Result<GameScene>>,
     next_scene: Option<NextScene>,
     finish_time: f32,
-    /// 进入本场景那一刻的 `tm.now()`。
-    ///
-    /// 这个 TimeManager 是场景栈共享的、切场景不会重置（需要场景自己 `tm.reset()`），
-    /// 所以进场动画必须用自己的进入时刻做基准，否则 `tm.now()` 一上手就是几十秒，
-    /// `seg()` 直接算成 1 —— 动画一次都不会播。
-    /// 用 `Option` 而不是 0：万一 `enter` 还没跑，基准未知也必须当作「动画刚开始」，
-    /// 否则第一帧会按「早已到位」画满一屏，闪一下再滑进来。
+
     enter_time: Option<f32>,
     target: Option<RenderTarget>,
     charter: String,
@@ -116,7 +138,8 @@ impl LoadingScene {
         upload_fn: Option<UploadFn>,
         update_fn: Option<UpdateFn>,
         save_fn: Option<SaveFn>,
-        _preload: Option<(SafeTexture, SafeTexture, crate::core::Color)>,
+        preload: Option<(SafeTexture, SafeTexture, crate::core::Color)>,
+        challenge: Option<ChallengeConfig>,
     ) -> Result<Self> {
         Self::new_preview(
             mode,
@@ -128,15 +151,14 @@ impl LoadingScene {
             upload_fn,
             update_fn,
             save_fn,
-            _preload,
+            preload,
             false,
             None,
+            challenge,
         )
         .await
     }
 
-    /// 与 [`LoadingScene::new`] 相同的加载场景，但以“谱面预览”模式启动谱面：
-    /// `preview_mode` 下 GameScene 自然播完不结算，`interrupt` 置位（如多人房主开始游戏）立即退出。
     #[allow(clippy::too_many_arguments)]
     pub async fn new_preview(
         mode: GameMode,
@@ -148,39 +170,49 @@ impl LoadingScene {
         upload_fn: Option<UploadFn>,
         update_fn: Option<UpdateFn>,
         save_fn: Option<SaveFn>,
-        _preload: Option<(SafeTexture, SafeTexture, crate::core::Color)>,
+        preload: Option<(SafeTexture, SafeTexture, crate::core::Color)>,
         preview_mode: bool,
         interrupt: Option<Arc<std::sync::atomic::AtomicBool>>,
+        challenge: Option<ChallengeConfig>,
     ) -> Result<Self> {
+        if config.dynamic_background != DynamicBackgroundMode::Off {
+            info.dynamic_background = config.dynamic_background.as_u8();
+        }
         async fn load(fs: &mut Box<dyn FileSystem>, path: &str) -> Result<(Texture2D, Texture2D)> {
             let image = image::load_from_memory(&fs.load_file(path).await?).context("Failed to decode image")?;
             let (w, h) = (image.width(), image.height());
-            let size = w as usize * h as usize;
 
-            let original_rgba = image.to_rgba8();
+            let max_w = 1920.0;
+            let scale = (max_w / w as f32).min(1.0);
+            let (sw, sh) = ((w as f32 * scale) as u32, (h as f32 * scale) as u32);
+            let scaled = image.resize_exact(sw, sh, image::imageops::FilterType::Triangle);
+            let original_rgba = scaled.to_rgba8();
 
-            let blurred_rgb = image.to_rgb8();
+            let blur_scale = (1280.0 / sw as f32).min(1.0);
+            let (bw, bh) = ((sw as f32 * blur_scale) as u32, (sh as f32 * blur_scale) as u32);
+            let blurred = scaled.resize_exact(bw, bh, image::imageops::FilterType::Triangle);
+            let blurred_rgb = blurred.to_rgb8();
             let mut pixel_data: Vec<[u8; 3]> = blurred_rgb
                 .chunks_exact(3)
                 .map(|chunk| [chunk[0], chunk[1], chunk[2]])
                 .collect();
-            fastblur::gaussian_blur(&mut pixel_data, w as _, h as _, 50.0);
+            fastblur::gaussian_blur(&mut pixel_data, bw as _, bh as _, 50.0);
             let blurred_rgb_u8: Vec<u8> = pixel_data
                 .into_iter()
                 .flat_map(|pixel| pixel.to_vec())
                 .collect();
 
-            let mut blurred_rgba = Vec::with_capacity(size * 4);
+            let mut blurred_rgba = Vec::with_capacity(bw as usize * bh as usize * 4);
             for chunk in blurred_rgb_u8.chunks_exact(3) {
                 blurred_rgba.extend_from_slice(chunk);
                 blurred_rgba.push(255);
             }
 
             Ok((
-                Texture2D::from_rgba8(w as _, h as _, &original_rgba),
+                Texture2D::from_rgba8(sw as _, sh as _, &original_rgba),
                 Texture2D::from_image(&Image {
-                    width: w as _,
-                    height: h as _,
+                    width: bw as u16,
+                    height: bh as u16,
                     bytes: blurred_rgba,
                 }),
             ))
@@ -193,27 +225,68 @@ impl LoadingScene {
                 None
             }
         };
-        let (illustration, background): (SafeTexture, SafeTexture) = background
-            .map(|(ill, back)| (ill.into(), back.into()))
+        let random = preload
+            .map(|(ill, back, _)| (ill, back))
+            .or_else(|| random_local_chart_art().map(|t| (t.clone(), t)));
+        let (illustration, background): (SafeTexture, SafeTexture) = random
+            .or_else(|| background.map(|(ill, back)| (ill.into(), back.into())))
             .unwrap_or_else(|| (BLACK_TEXTURE.clone(), BLACK_TEXTURE.clone()));
         let _get_size_fn = get_size_fn.unwrap_or_else(|| Rc::new(|| (screen_width() as u32, screen_height() as u32)));
         if info.tip.is_none() {
             info.tip = Some(crate::config::TIPS.choose(&mut thread_rng()).unwrap().to_owned());
         }
-        let future = Box::pin(GameScene::new_preview(
-            mode,
-            info.clone(),
-            config,
-            fs,
-            player,
-            background.clone(),
-            illustration.clone(),
-            upload_fn,
-            update_fn,
-            save_fn,
-            preview_mode,
-            interrupt,
-        ));
+        let dynamic_bg = if info.dynamic_background > 0 {
+            match fs.load_file(&info.illustration).await {
+                Ok(bytes) => match image::load_from_memory(&bytes) {
+                    Ok(image) => match DynamicBackground::new(
+                        info.dynamic_background,
+                        &image,
+                        info.background_dim,
+                        get_viewport(),
+                    ) {
+                        Ok(dbg) => Some(dbg),
+                        Err(err) => {
+                            warn!("failed to create dynamic background: {err:?}");
+                            None
+                        }
+                    },
+                    Err(err) => {
+                        warn!("failed to decode dynamic background image: {err:?}");
+                        None
+                    }
+                },
+                Err(err) => {
+                    warn!("failed to load dynamic background image: {err:?}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let info_for_scene = info.clone();
+        let background_for_scene = background.clone();
+        let illustration_for_scene = illustration.clone();
+        let future = Box::pin(async move {
+            let mut scene = GameScene::new_preview(
+                mode,
+                info_for_scene,
+                config,
+                fs,
+                player,
+                background_for_scene,
+                illustration_for_scene,
+                upload_fn,
+                update_fn,
+                save_fn,
+                preview_mode,
+                interrupt,
+                false,
+                challenge,
+            )
+            .await?;
+            scene.dynamic_bg = dynamic_bg;
+            Ok(scene)
+        });
         let charter = Regex::new(r"\[!:[0-9]+:([^:]*)\]").unwrap().replace_all(&info.charter, "$1").to_string();
         Ok(Self {
             info,
@@ -227,6 +300,31 @@ impl LoadingScene {
             charter,
         })
     }
+
+    /// HUD 编辑：加载页示例预览。不加载任何谱面、不进入游戏，纯示例数据供编辑器拖拽布局；
+    /// load_task 置空后场景会一直停留在加载页（finish_time 无穷），点返回即回主菜单。
+    pub fn hud_preview() -> Self {
+        let mut info = ChartInfo::default();
+        info.name = "示例谱面".to_owned();
+        info.difficulty = 15.0;
+        info.level = "IN 15".to_owned();
+        info.charter = "Demo".to_owned();
+        info.composer = "Demo".to_owned();
+        info.illustrator = "Demo".to_owned();
+        info.tip = Some(crate::config::TIPS.choose(&mut thread_rng()).unwrap().to_owned());
+        let charter = Regex::new(r"\[!:[0-9]+:([^:]*)\]").unwrap().replace_all(&info.charter, "$1").to_string();
+        Self {
+            info,
+            background: BLACK_TEXTURE.clone(),
+            illustration: BLACK_TEXTURE.clone(),
+            load_task: None,
+            next_scene: None,
+            finish_time: f32::INFINITY,
+            enter_time: None,
+            target: None,
+            charter,
+        }
+    }
 }
 
 impl Scene for LoadingScene {
@@ -236,7 +334,23 @@ impl Scene for LoadingScene {
         Ok(())
     }
 
+    fn touch(&mut self, _tm: &mut TimeManager, touch: &Touch) -> Result<bool> {
+        if crate::hud::edit_active() {
+            crate::hud::editor_touch(touch);
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
+        if crate::hud::edit_active() {
+            if let Some(p) = crate::hud::take_goto() {
+                if p != crate::hud::PageId::Loading {
+                    crate::hud::request_goto(p);
+                    self.next_scene = Some(NextScene::Pop);
+                }
+            }
+        }
         if let Some(future) = self.load_task.as_mut() {
             loop {
                 match poll_future(future.as_mut()) {
@@ -247,6 +361,7 @@ impl Scene for LoadingScene {
                         std::thread::yield_now();
                     }
                     Some(game_scene) => {
+
                         self.load_task = None;
                         self.next_scene =
                             Some(game_scene.map_or_else(|e| NextScene::PopWithResult(Box::new(e)), |it| NextScene::Replace(Box::new(it))));
@@ -270,14 +385,9 @@ impl Scene for LoadingScene {
             render_target: self.target,
             ..Default::default()
         });
-        // 进场编排：三段错开、全部 ease-out ——
-        //   背景：整块从屏幕右侧推入（最先动，先把后面盖住）
-        //   面板：从左边偏一点点滑到位，同时淡入（卡片、文字、进度线都算面板）
-        //   封面：只做透明度渐变，比面板再晚一点
-        // LoadingScene 是 Overlay 进来的，底下就是选曲页，所以背景推入时能看见它。
-        // 开了「减少动态效果」则三段直接到位。
-        // 进场进度用「进入本场景之后过了多久」，不是 tm.now() 的绝对值；
-        // 基准未知时当作 0（宁可从头播，也不能按「早已到位」画一帧满屏）
+        crate::hud::set_cur_page(crate::hud::PageId::Loading);
+        crate::hud::begin_frame();
+
         let enter = (now - self.enter_time.unwrap_or(now)).max(0.);
         let ease = |p: f32| 1. - (1. - p).powi(3);
         let seg = |delay: f32, dur: f32| {
@@ -293,13 +403,8 @@ impl Scene for LoadingScene {
         let panel_off = PANEL_IN_OFFSET * (1. - panel_p);
         let cover_p = seg(ENTER_COVER_DELAY, ENTER_COVER_TIME);
 
-        // —— 底：随推入进度压一层黑 ——
-        // 底下的选曲页是亮的（曲绘铺满整屏），背景直接扫过去会看着「白闪一下」；
-        // 铺一层跟着进度加深的黑纱，滑入过程就干净了（背景到位后完全盖住，看不见它）。
-        // 起步就有 0.25：第一帧背景还在屏幕外，底下的选曲页不能亮着跳一下。
         ui.fill_rect(Rect::new(-1., -top, 2., top * 2.), semi_black(0.25 + 0.65 * bg_p));
 
-        // —— 背景层：整块从右边推入 ——
         if bg_off != 0. {
             gl.push_model_matrix(Mat4::from_translation(vec3(bg_off, 0., 0.)));
         }
@@ -307,7 +412,6 @@ impl Scene for LoadingScene {
         if bg_off != 0. {
             gl.pop_model_matrix();
         }
-
 
         let dx = if now > self.finish_time {
             let p = ((now - self.finish_time) / TRANSITION_TIME).min(1.);
@@ -318,96 +422,18 @@ impl Scene for LoadingScene {
         if dx != 0. {
             gl.push_model_matrix(Mat4::from_translation(vec3(dx, 0., 0.)));
         }
-        // —— 面板 + 文字层：从左边偏一点点进来 + 透明度渐变 ——
+
         if panel_off != 0. {
             gl.push_model_matrix(Mat4::from_translation(vec3(panel_off, 0., 0.)));
         }
         let a = panel_p;
 
-        let vo = -top / 10.;
-        let r = draw_illustration(*self.illustration, 0.38, vo, 1., 1., fade(WHITE, cover_p));
-        let h = r.h / 3.6;
-        let main = Rect::new(-0.88, vo - h / 2. - top / 10., 0.78, h);
-        draw_parallelogram(main, None, fade(semi_black(0.7), a), false);
-
-        let p = (main.x + main.w * 0.09, main.y + main.h * 0.36);
-        let mut text = ui.text(&self.info.name).pos(p.0, p.1).anchor(0., 0.5).size(0.7).color(fade(WHITE, a));
-        if text.measure().w <= main.w * 0.6 {
-            text.draw();
-        } else {
-            drop(text);
-            ui.text(&self.info.name)
-                .pos(p.0, p.1)
-                .anchor(0., 0.5)
-                .max_width(main.w * 0.6)
-                .size(0.5)
-                .color(fade(WHITE, a))
-                .draw();
-        }
-
-        ui.text(&self.info.composer)
-            .pos(main.x + main.w * 0.09, main.y + main.h * 0.73)
-            .anchor(0., 0.5)
-            .size(0.36)
-            .color(fade(WHITE, a))
-            .draw();
-
-        let ext = 0.06;
-        let sub = Rect::new(main.x + main.w * 0.71, main.y - main.h * ext, main.w * 0.26, main.h * (1. + ext * 2.));
-        let mut ct = sub.center();
-        ct.x += sub.w * 0.02;
-        draw_parallelogram(sub, None, fade(WHITE, a), false);
-        ui.text(&(self.info.difficulty as u32).to_string())
-            .pos(ct.x, ct.y + sub.h * 0.05)
-            .anchor(0.5, 1.)
-            .size(0.88)
-            .color(fade(BLACK, a))
-            .draw();
-        ui.text(self.info.level.split_whitespace().next().unwrap_or_default())
-            .pos(ct.x, ct.y + sub.h * 0.09)
-            .anchor(0.5, 0.)
-            .size(0.34)
-            .color(fade(BLACK, a))
-            .draw();
-
-        let t = ui.text("Chart")
-            .pos(main.x + main.w / 6., main.y + main.h * 1.2)
-            .anchor(0., 0.)
-            .size(0.3)
-            .color(fade(WHITE, a))
-            .draw();
-        ui.text(&self.charter)
-            .pos(t.x, t.y + top / 20.)
-            .anchor(0., 0.)
-            .size(0.47)
-            .color(fade(WHITE, a))
-            .draw();
-        let w = 0.027;
-        let t = ui.text("Illustration")
-            .pos(t.x - w, t.y + w / 0.13 / 13. * 5.)
-            .anchor(0., 0.)
-            .size(0.3)
-            .color(fade(WHITE, a))
-            .draw();
-        ui.text(&self.info.illustrator)
-            .pos(t.x, t.y + top / 20.)
-            .anchor(0., 0.)
-            .size(0.47)
-            .color(fade(WHITE, a))
-            .draw();
-
-        if let Some(tip) = &self.info.tip {
-            ui.text(tip)
-                .pos(-0.91, top * 0.92)
-                .anchor(0., 1.)
-                .size(0.47)
-                .color(fade(WHITE, a))
-                .draw();
-        }
-
         let load_text = "Loading...";
+        let m = ui.text(load_text).size(0.44).measure();
+        // HUD 自定义：加载进度文本（可移动；默认矩形基于原位置）。
+        let load_slot = crate::hud::slot_or(ui, "loading", "loading", crate::hud::Cap(true, false, false), Rect::new(0.87 - m.w, top * 0.92 - 0.2, m.w, 0.2));
         let t = ui.text(load_text)
-            .pos(0.87, top * 0.92)
+            .pos(load_slot.right(), load_slot.bottom())
             .anchor(1., 1.)
             .size(0.44)
             .color(fade(WHITE, a))
@@ -427,7 +453,7 @@ impl Scene for LoadingScene {
         progress_r.x += dx;
         ui.scissor(progress_r, |ui| {
             ui.text(load_text)
-                .pos(0.87, top * 0.92)
+                .pos(load_slot.right(), load_slot.bottom())
                 .anchor(1., 1.)
                 .size(0.44)
                 .color(fade(BLACK, a))
@@ -441,10 +467,6 @@ impl Scene for LoadingScene {
             gl.pop_model_matrix();
         }
 
-        // —— 白闪：图层最高 ——
-        // 画在所有 model matrix 还原之后、所有 UI 之上：整屏白盖住一切。
-        // 按下「开始」起一直白着，等这页滑入完成（面板就位）再线性淡掉并清掉全局状态。
-        // 开「减少动态效果」时不画（这种闪屏正是那类设置要挡的东西）。
         {
             let mut flash = *crate::scene::LAUNCH_FLASH.lock().unwrap();
             if flash.is_some() {
@@ -467,10 +489,19 @@ impl Scene for LoadingScene {
             }
         }
 
+        if crate::hud::edit_active() {
+            crate::hud::editor_render(ui);
+        }
+
         Ok(())
     }
 
     fn next_scene(&mut self, tm: &mut TimeManager) -> NextScene {
+        if crate::hud::edit_active() {
+            if let Some(scene) = self.next_scene.take() {
+                return scene;
+            }
+        }
         if matches!(self.next_scene, Some(NextScene::PopWithResult(_))) {
             return self.next_scene.take().unwrap();
         }
