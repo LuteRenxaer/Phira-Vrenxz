@@ -176,8 +176,8 @@ impl Page for PhigrosLibraryPage {
         let area = ui.content_rect();
         let top_y = area.y + 0.055;
         // 顶部排序栏
-        ui.text("排序方式").pos(-0.64, top_y).size(0.28).color(Color::new(1., 1., 1., 0.55)).draw();
-        ui.text("默认").pos(-0.64, top_y + 0.035).size(0.40).draw();
+        ui.text("排序方式").pos(-0.60, top_y).size(0.28).color(Color::new(1., 1., 1., 0.55)).draw();
+        ui.text("默认").pos(-0.60, top_y + 0.035).size(0.40).draw();
         ui.text("随机").pos(0.02, top_y + 0.015).anchor(0.5, 0.).size(0.30).draw();
         ui.text("设置").pos(0.14, top_y + 0.015).anchor(0.5, 0.).size(0.30).draw();
         // 两行标签（5 + 2）
