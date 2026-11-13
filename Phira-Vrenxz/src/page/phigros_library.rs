@@ -193,130 +193,112 @@ impl Page for PhigrosLibraryPage {
         let top = ui.top;
         let x = |f: f32| -1. + 2. * f;
         let y = |f: f32| -top + 2. * top * f;
-        // 左侧整体压暗，贴近参考图的左侧暗场
-        ui.fill_rect(Rect::new(-1., -top, x(0.35) + 1., top * 2.), Color::new(0., 0., 0., 0.42));
-        // 顶部排序栏
-        ui.text("排序方式").pos(x(0.135), y(0.035)).size(0.22).color(Color::new(1., 1., 1., 0.55)).draw();
-        ui.text("默认").pos(x(0.135), y(0.065)).size(0.36).draw();
+        // 对应 challenge_ui.html: list-bg
+        ui.fill_rect(Rect::new(-1., -top, x(0.458) + 1., top * 2.), Color::new(0., 0., 0., 0.50));
+        // 顶部 main-panel
+        let panel = Rect::new(x(0.094), y(0.0185), x(0.536) - x(0.094), y(0.1296) - y(0.0185));
+        draw_parallelogram(panel, None, Color::new(0., 0., 0., 0.75), false);
+        ui.text("Sort by").pos(x(0.125), y(0.040)).size(0.20).color(Color::new(0.42, 0.45, 0.50, 1.)).draw();
+        if let Some(tex) = &self.icon_sort {
+            let r = Rect::new(x(0.125), y(0.060), 0.035, 0.035);
+            ui.fill_rect(r, (tex.clone().into_inner(), r, ScaleType::Fit, WHITE));
+        }
+        ui.text("Difficulty").pos(x(0.170), y(0.066)).size(0.26).draw();
         if let Some(tex) = &self.icon_random {
-            let r = Rect::new(x(0.345), y(0.035), 0.05, 0.05);
+            let r = Rect::new(x(0.330), y(0.045), 0.040, 0.040);
             ui.fill_rect(r, (tex.clone().into_inner(), r, ScaleType::Fit, WHITE));
         }
-        ui.text("随机").pos(x(0.375), y(0.060)).anchor(0.5, 0.).size(0.24).draw();
+        ui.text("Random").pos(x(0.345), y(0.068)).size(0.20).draw();
         if let Some(tex) = &self.icon_setting {
-            let r = Rect::new(x(0.41), y(0.035), 0.05, 0.05);
+            let r = Rect::new(x(0.425), y(0.045), 0.040, 0.040);
             ui.fill_rect(r, (tex.clone().into_inner(), r, ScaleType::Fit, WHITE));
         }
-        ui.text("设置").pos(x(0.44), y(0.060)).anchor(0.5, 0.).size(0.24).draw();
-        // 标签：第一行 5 个，第二行 2 个
-        let tabs = [(0.11, 0.10), (0.17, 0.10), (0.23, 0.10), (0.29, 0.10), (0.35, 0.10), (0.11, 0.145), (0.20, 0.145)];
+        ui.text("Settings").pos(x(0.440), y(0.068)).size(0.20).draw();
+        // 分类标签
+        let tabs = [(0.100, 0.115), (0.160, 0.115), (0.220, 0.115), (0.280, 0.115), (0.340, 0.115), (0.100, 0.165), (0.190, 0.165)];
         for i in 0..7 {
             let (fx, fy) = tabs[i];
-            let r = Rect::new(x(fx), y(fy), x(0.062) - x(0.), y(0.045) - y(0.));
+            let r = Rect::new(x(fx), y(fy), x(0.058) - x(0.), y(0.043) - y(0.));
             self.tab_btns[i].inner.set(ui, r);
-            draw_parallelogram(r, None, if i == self.tab { WHITE } else { Color::new(0.05, 0.06, 0.08, 0.92) }, false);
-            ui.text(TABS[i])
-                .pos(r.center().x, r.center().y)
-                .anchor(0.5, 0.5)
-                .size(0.32)
-                .color(if i == self.tab { BLACK } else { WHITE })
-                .draw();
+            draw_parallelogram(r, None, if i == self.tab { WHITE } else { Color::new(0., 0., 0., 0.55) }, false);
+            ui.text(TABS[i]).pos(r.center().x, r.center().y).anchor(0.5, 0.5).size(0.30).color(if i == self.tab { BLACK } else { Color::new(0.62, 0.62, 0.62, 1.) }).draw();
         }
-        // 列表
-        let list = Rect::new(x(0.075), y(0.18), x(0.335) - x(0.075), y(0.95) - y(0.18));
-        let row_h = (y(0.95) - y(0.18)) / 6.5;
-        let rows = 6usize;
-        let start = self.selected.saturating_sub(2).min(self.charts.len().saturating_sub(rows));
+        // 列表：80px 行高，选中行 38px
+        let list = Rect::new(x(0.052), y(0.18), x(0.458) - x(0.052), y(0.98) - y(0.18));
+        let row_h = (y(0.98) - y(0.18)) / 7.2;
+        let rows = 7usize;
+        let start = self.selected.saturating_sub(3).min(self.charts.len().saturating_sub(rows));
+        let sel_y = list.y + (self.selected.saturating_sub(start)) as f32 * row_h;
+        draw_parallelogram(Rect::new(x(0.036), sel_y + row_h * 0.08, x(0.453) - x(0.036), row_h * 0.84), None, Color::new(0., 0., 0., 0.85), false);
+        if let Some(c) = self.charts.get(self.selected) {
+            let dr = Rect::new(x(0.389), sel_y + row_h * 0.5 - (y(0.106) - y(0.)) / 2., x(0.456) - x(0.389), y(0.106) - y(0.));
+            draw_parallelogram(dr, None, WHITE, false);
+            ui.text(format!("{:.0}", c.info.difficulty)).pos(dr.center().x, dr.center().y - 0.010).anchor(0.5, 0.5).size(0.50).color(BLACK).draw();
+            ui.text(c.info.level.split_whitespace().next().unwrap_or("IN")).pos(dr.center().x, dr.center().y + 0.030).anchor(0.5, 0.5).size(0.22).color(BLACK).draw();
+        }
+        let mut active_row = Rect::new(0., 0., 0., 0.);
         for (n, i) in (start..self.charts.len()).take(rows).enumerate() {
             let r = Rect::new(list.x, list.y + n as f32 * row_h, list.w, row_h);
             self.row_btns[i].inner.set(ui, r);
             let active = i == self.selected;
+            if active { active_row = r; }
             let c = &self.charts[i];
-            if active {
-                draw_parallelogram(Rect::new(x(0.045), r.y + 0.006, x(0.33) - x(0.045), r.h - 0.012), None, Color::new(0.02, 0.025, 0.03, 0.97), false);
-            }
             ui.text(&c.info.name)
-                .pos(x(0.085), r.y + r.h * 0.18)
-                .size(0.50)
-                .color(WHITE)
-                .max_width(x(0.30) - x(0.085))
-                .draw();
-            ui.text(&c.info.composer)
-                .pos(x(0.085), r.y + r.h * 0.58)
-                .size(0.26)
-                .color(Color::new(1., 1., 1., 0.6))
-                .max_width(x(0.30) - x(0.085))
+                .pos(x(0.090), r.y + r.h * 0.18)
+                .size(if active { 0.50 } else { 0.34 })
+                .color(if active { WHITE } else { Color::new(0.62, 0.62, 0.62, 1.) })
+                .max_width(x(0.36) - x(0.090))
                 .draw();
             if active {
-                let dr = Rect::new(x(0.255), r.y + 0.002, x(0.325) - x(0.255), r.h - 0.004);
-                draw_parallelogram(dr, None, WHITE, false);
-                ui.text(format!("{:.0}", c.info.difficulty))
-                    .pos(dr.center().x, dr.center().y - 0.010)
-                    .anchor(0.5, 0.5)
-                    .size(0.54)
-                    .color(BLACK)
-                    .draw();
-                ui.text(c.info.level.split_whitespace().next().unwrap_or("IN"))
-                    .pos(dr.center().x, dr.center().y + 0.030)
-                    .anchor(0.5, 0.5)
-                    .size(0.22)
-                    .color(BLACK)
-                    .draw();
-            } else {
-                ui.text(format!("{:.0}", c.info.difficulty))
-                    .pos(x(0.325), r.center().y)
-                    .anchor(1., 0.5)
-                    .size(0.48)
-                    .draw();
+                ui.text(&c.info.composer).pos(x(0.090), r.y + r.h * 0.63).size(0.24).color(Color::new(0.6, 0.6, 0.6, 1.)).draw();
+            }
+            if !active {
+                ui.text(format!("{:.0}", c.info.difficulty)).pos(x(0.445), r.center().y).anchor(1., 0.5).size(0.42).draw();
             }
         }
         // Mirror
-        let mr = Rect::new(x(0.075), y(0.90), x(0.16) - x(0.075), y(0.94) - y(0.90));
+        let mr = Rect::new(x(0.052), y(0.90), x(0.14) - x(0.052), y(0.95) - y(0.90));
         self.mirror_rect = mr;
         draw_parallelogram(mr, None, if self.mirror { WHITE } else { Color::new(0.06, 0.07, 0.09, 0.95) }, false);
         ui.text("Mirror").pos(mr.center().x, mr.center().y).anchor(0.5, 0.5).size(0.26).color(if self.mirror { BLACK } else { WHITE }).draw();
-        // 右侧详情
-        let art = Rect::new(x(0.335), y(0.06), x(0.675) - x(0.335), y(0.57) - y(0.06));
+        // jacket-container: top213 right40 w860 h484
+        let art = Rect::new(x(0.531), y(0.197), x(0.979) - x(0.531), y(0.645) - y(0.197));
         let selected_chart = self.charts.get(self.selected).cloned();
         let selected_cover = self.cover(self.selected);
-        if let Some(chart) = selected_chart {
+        if let Some(chart) = selected_chart.as_ref() {
             if let Some(tex) = selected_cover {
                 draw_parallelogram(art, Some((tex.clone().into_inner(), Rect::new(0., 0., 1., 1.))), WHITE, false);
             } else {
                 draw_parallelogram(art, None, Color::new(0.06, 0.07, 0.09, 1.), false);
             }
-            let info = Rect::new(art.x, y(0.50), art.w, y(0.57) - y(0.50));
-            ui.fill_rect(info, Color::new(0., 0., 0., 0.35));
-            ui.text(format!("♫  {}", chart.info.name)).pos(art.x + 0.02, y(0.515)).size(0.30).draw();
-            ui.text(format!("music  ·  made by {}", chart.info.charter)).pos(art.x + 0.02, y(0.545)).size(0.20).color(Color::new(1., 1., 1., 0.7)).draw();
-            // 难度条
-            let labels = ["EZ", "HD", "IN", "AT"];
-            let current = if chart.info.level.starts_with("AT") { 3 } else if chart.info.level.starts_with("IN") { 2 } else if chart.info.level.starts_with("HD") { 1 } else { 0 };
-            let nums = [3, 8, chart.info.difficulty.round() as i32, 15];
-            for i in 0..4 {
-                let r = Rect::new(x(0.335 + i as f32 * 0.045), y(0.60), x(0.375) - x(0.335), y(0.655) - y(0.60));
-                draw_parallelogram(r, None, if i == current { Color::new(0.78, 0.10, 0.13, 1.) } else { Color::new(0.93, 0.93, 0.95, 1.) }, false);
-                ui.text(labels[i]).pos(r.center().x, r.y + r.h * 0.20).anchor(0.5, 0.).size(0.20).color(if i == current { WHITE } else { BLACK }).draw();
-                ui.text(format!("{}", nums[i])).pos(r.center().x, r.y + r.h * 0.52).anchor(0.5, 0.).size(0.30).color(if i == current { WHITE } else { BLACK }).draw();
-            }
+            ui.text(format!("♫  {}", chart.info.name)).pos(art.x + 0.03, art.bottom() - 0.070).size(0.28).draw();
+            ui.text(format!("music  ·  made by {}", chart.info.charter)).pos(art.x + 0.03, art.bottom() - 0.035).size(0.20).color(Color::new(1., 1., 1., 0.75)).draw();
+        }
+        // elem3: diff-list + score
+        let labels = ["EZ", "HD", "IN", "AT"];
+        let current = selected_chart.as_ref().map(|c| if c.info.level.starts_with("AT") { 3 } else if c.info.level.starts_with("IN") { 2 } else if c.info.level.starts_with("HD") { 1 } else { 0 }).unwrap_or(0);
+        let nums = selected_chart.as_ref().map(|c| [3, 8, c.info.difficulty.round() as i32, 15]).unwrap_or([3, 8, 12, 15]);
+        for i in 0..4 {
+            let r = Rect::new(x(0.515 + i as f32 * 0.042), y(0.700), x(0.557) - x(0.515), y(0.775) - y(0.700));
+            draw_parallelogram(r, None, if i == current { Color::new(0.80, 0.16, 0.16, 1.) } else { WHITE }, false);
+            ui.text(labels[i]).pos(r.center().x, r.y + r.h * 0.20).anchor(0.5, 0.).size(0.18).color(if i == current { WHITE } else { BLACK }).draw();
+            ui.text(format!("{}", nums[i])).pos(r.center().x, r.y + r.h * 0.50).anchor(0.5, 0.).size(0.30).color(if i == current { WHITE } else { BLACK }).draw();
+        }
+        if let Some(chart) = &selected_chart {
             let score = chart.record.as_ref().map_or(0, |r| r.score);
-            ui.text(format!("{:07}", score)).pos(x(0.50), y(0.605)).size(0.48).draw();
+            ui.text(format!("{:07}", score)).pos(x(0.685), y(0.705)).size(0.46).draw();
             if let Some(rec) = &chart.record {
-                ui.text(format!("{:.2}%", rec.accuracy)).pos(x(0.50), y(0.645)).size(0.22).color(Color::new(1., 1., 1., 0.7)).draw();
+                ui.text(format!("{:.2}%", rec.accuracy)).pos(x(0.685), y(0.750)).size(0.22).color(Color::new(1., 1., 1., 0.7)).draw();
             }
             let rank = if score >= 1_000_000 { "Phi" } else if score >= 960_000 { "V" } else if score >= 920_000 { "S" } else if score >= 880_000 { "A" } else if score >= 820_000 { "B" } else { "F" };
-            ui.text(rank).pos(x(0.66), y(0.595)).anchor(1., 0.).size(0.72).color(Color::new(0.55, 0.75, 1., 1.)).draw();
+            ui.text(rank).pos(x(0.955), y(0.700)).anchor(1., 0.).size(0.62).color(Color::new(0.55, 0.75, 1., 1.)).draw();
         }
-        // 功能区
-        let func = Rect::new(x(0.69), y(0.10), x(0.755) - x(0.69), y(0.55) - y(0.10));
-        ui.fill_rect(func, Color::new(0.04, 0.045, 0.05, 0.55));
-        ui.text("功能区").pos(func.center().x, func.y + 0.04).anchor(0.5, 0.).size(0.26).draw();
-        // 播放
-        let pr = Rect::new(x(0.845), y(0.86), x(0.945) - x(0.845), y(0.945) - y(0.86));
+        // start-button: right0 bottom -30 w400 h200
+        let pr = Rect::new(x(0.792), y(0.843), x(1.0) - x(0.792), y(1.0) - y(0.843));
         self.play_btn.inner.set(ui, pr);
-        draw_parallelogram(pr, None, WHITE, false);
+        draw_parallelogram(pr, None, Color::new(1., 1., 1., 0.95), false);
         if let Some(tex) = &self.icon_play {
-            let ir = pr.feather(-0.025);
+            let ir = Rect::new(pr.x + 0.03, pr.y + 0.02, pr.w - 0.06, pr.h - 0.04);
             ui.fill_rect(ir, (tex.clone().into_inner(), ir, ScaleType::Fit, WHITE));
         } else {
             ui.text("▶").pos(pr.center().x, pr.center().y).anchor(0.5, 0.5).size(0.60).color(BLACK).draw();
