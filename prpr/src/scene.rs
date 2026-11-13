@@ -12,6 +12,11 @@ pub use crash::{CrashCode, CrashScene};
 mod game;
 pub use game::{GameMode, GameScene, SimpleRecord, LAUNCH_FLASH, PAUSE_NOTIFY};
 
+mod challenge;
+pub use challenge::{
+    ChallengeConfig, ChallengeEndData, ChallengeRoundRecord, ChallengeSession, HpConfig, HpLoseCondition,
+};
+
 mod loading;
 pub use loading::{BasicPlayer, FinishedStats, LoadingScene, SaveFn, UpdateFn, UploadFn};
 
@@ -91,6 +96,41 @@ pub fn show_achievement_popup(emoji: &str, icon: Option<SafeTexture>, title: Str
 }
 
 /// 每帧绘制成就横幅（淡入 → 停留 → 淡出），由顶层渲染器调用
+pub static FPS_OVERLAY_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub static FPS_OVERLAY_POSITION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+pub static FPS_OVERLAY_VALUE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn set_fps_overlay(enabled: bool, position: u8, fps: f32) {
+    use std::sync::atomic::Ordering;
+    FPS_OVERLAY_ENABLED.store(enabled, Ordering::Relaxed);
+    FPS_OVERLAY_POSITION.store(position.min(3), Ordering::Relaxed);
+    FPS_OVERLAY_VALUE.store(fps.to_bits(), Ordering::Relaxed);
+}
+
+fn draw_fps_overlay(ui: &mut Ui) {
+    use std::sync::atomic::Ordering;
+    if !FPS_OVERLAY_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+    let fps = f32::from_bits(FPS_OVERLAY_VALUE.load(Ordering::Relaxed));
+    if !fps.is_finite() || fps <= 0. {
+        return;
+    }
+    let pos = FPS_OVERLAY_POSITION.load(Ordering::Relaxed);
+    let (x, y, ax, ay) = match pos {
+        1 => (0.95, -ui.top + 0.035, 1., 0.),
+        2 => (-0.95, ui.top - 0.035, 0., 1.),
+        3 => (0.95, ui.top - 0.035, 1., 1.),
+        _ => (-0.95, -ui.top + 0.035, 0., 0.),
+    };
+    ui.text(format!("FPS {fps:.0}  {:.1}ms", 1000. / fps))
+        .pos(x, y)
+        .anchor(ax, ay)
+        .size(0.42)
+        .color(Color::new(1., 1., 1., 0.72))
+        .draw();
+}
+
 pub fn render_achievement_banners(ui: &mut Ui) {
     const LIFETIME: f32 = 3.4;
     const OUT: f32 = 0.4;
@@ -261,9 +301,13 @@ pub struct InputDialog {
     cancel_label: String,
     ok_btn: DRectButton,
     cancel_btn: DRectButton,
+    select_all_btn: DRectButton,
+    copy_btn: DRectButton,
+    paste_btn: DRectButton,
     enter_time: f32,
     cursor: usize,
     cursor_timer: f32,
+    delete_hold: f32,
     selection: Option<(usize, usize)>,
 }
 
@@ -286,8 +330,12 @@ impl InputDialog {
             cancel_label: config.cancel_label.map(|s| s.to_string()).unwrap_or_else(|| "Cancel".to_string()),
             ok_btn: DRectButton::new(),
             cancel_btn: DRectButton::new(),
+            select_all_btn: DRectButton::new(),
+            copy_btn: DRectButton::new(),
+            paste_btn: DRectButton::new(),
             enter_time: f32::NAN,
             cursor_timer: 0.,
+            delete_hold: 0.,
             selection: None,
         }
     }
@@ -304,45 +352,129 @@ impl InputDialog {
         android_show_keyboard(false);
     }
 
-    fn update_keyboard(&mut self) -> bool {
-        let ctrl = is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl);
-        if ctrl && is_key_pressed(KeyCode::A) {
-            self.selection = Some((0, self.text.len()));
-            self.cursor = self.text.len();
-            return true;
+    fn select_all(&mut self) {
+        self.selection = Some((0, self.text.len()));
+        self.cursor = self.text.len();
+    }
+
+    fn copy_selection(&mut self) {
+        let text = match self.selection {
+            Some((s, e)) if s < e => self.text[s..e].to_string(),
+            // 没有选中时点「复制」也复制整段，避免按钮看起来没反应
+            _ => self.text.clone(),
+        };
+        if !text.is_empty() {
+            unsafe { get_internal_gl() }.quad_context.clipboard_set(&text);
         }
-        // 复制 (Ctrl+C)
-        if ctrl && is_key_pressed(KeyCode::C) {
-            if let Some((s, e)) = self.selection {
-                let text = self.text[s..e].to_string();
-                unsafe { get_internal_gl() }.quad_context.clipboard_set(&text);
-            }
-            return true;
-        }
-        // 剪切 (Ctrl+X)
-        if ctrl && is_key_pressed(KeyCode::X) {
-            if let Some((s, e)) = self.selection.take() {
+    }
+
+    fn cut_selection(&mut self) {
+        if let Some((s, e)) = self.selection.take() {
+            if s < e {
                 let text = self.text[s..e].to_string();
                 unsafe { get_internal_gl() }.quad_context.clipboard_set(&text);
                 self.text.replace_range(s..e, "");
                 self.cursor = s;
             }
-            return true;
         }
-        // 粘贴 (Ctrl+V)
-        if ctrl && is_key_pressed(KeyCode::V) {
-            if let Some(clip) = unsafe { get_internal_gl() }.quad_context.clipboard_get() {
-                if let Some((s, e)) = self.selection.take() {
+    }
+
+    fn paste_clipboard(&mut self) {
+        if let Some(clip) = unsafe { get_internal_gl() }.quad_context.clipboard_get() {
+            if let Some((s, e)) = self.selection.take() {
+                if s < e {
                     self.text.replace_range(s..e, "");
                     self.cursor = s;
                 }
-                self.text.insert_str(self.cursor, &clip);
-                self.cursor += clip.len();
             }
+            self.text.insert_str(self.cursor, &clip);
+            self.cursor += clip.len();
+        }
+    }
+
+    fn backspace(&mut self) {
+        if let Some((s, e)) = self.selection.take() {
+            self.text.replace_range(s..e, "");
+            self.cursor = s;
+        } else if self.cursor > 0 {
+            let mut idx = self.cursor - 1;
+            while idx > 0 && !self.text.is_char_boundary(idx) {
+                idx -= 1;
+            }
+            self.text.replace_range(idx..self.cursor, "");
+            self.cursor = idx;
+        }
+    }
+
+    fn delete_forward(&mut self) {
+        if let Some((s, e)) = self.selection.take() {
+            self.text.replace_range(s..e, "");
+            self.cursor = s;
+        } else if self.cursor < self.text.len() {
+            let mut idx = self.cursor + 1;
+            while idx < self.text.len() && !self.text.is_char_boundary(idx) {
+                idx += 1;
+            }
+            self.text.replace_range(self.cursor..idx, "");
+        }
+    }
+
+    fn update_keyboard(&mut self) -> bool {
+        // Windows 上 IME 有时会吃掉 Ctrl 组合键；用物理键状态兜底。
+        if let Some(shortcut) = crate::shortcut::poll() {
+            match shortcut {
+                crate::shortcut::Shortcut::SelectAll => self.select_all(),
+                crate::shortcut::Shortcut::Copy => self.copy_selection(),
+                crate::shortcut::Shortcut::Cut => self.cut_selection(),
+                crate::shortcut::Shortcut::Paste => self.paste_clipboard(),
+            }
+            while get_char_pressed().is_some() {}
             return true;
         }
+        let ctrl = is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl);
+        // 键盘路径：按键能识别时直接用；处理完把本帧字符队列清掉，
+        // 避免 Ctrl+A / Ctrl+V 同时产生 'a' / 'v' 字符被插进文本框。
+        if ctrl {
+            let mut handled = true;
+            if is_key_pressed(KeyCode::A) {
+                self.select_all();
+            } else if is_key_pressed(KeyCode::C) {
+                self.copy_selection();
+            } else if is_key_pressed(KeyCode::X) {
+                self.cut_selection();
+            } else if is_key_pressed(KeyCode::V) {
+                self.paste_clipboard();
+            } else {
+                handled = false;
+            }
+            if handled {
+                while get_char_pressed().is_some() {}
+                return true;
+            }
+        }
         let mut input = String::new();
+        let mut backspace_char = false;
         while let Some(c) = get_char_pressed() {
+            // Windows/IME 把 Ctrl 组合键作为控制字符送进来时也能生效。
+            match c {
+                '\u{1}' => {
+                    self.select_all();
+                    continue;
+                }
+                '\u{3}' => {
+                    self.copy_selection();
+                    continue;
+                }
+                '\u{18}' => {
+                    self.cut_selection();
+                    continue;
+                }
+                '\u{16}' => {
+                    self.paste_clipboard();
+                    continue;
+                }
+                _ => {}
+            }
             if c == '\r' || c == '\n' {
                 if self.multiline {
                     input.push('\n');
@@ -352,7 +484,19 @@ impl InputDialog {
                 }
                 continue;
             }
-            if c == '\u{8}' || c == '\u{7f}' {
+            if c == '\u{8}' {
+                // 键盘连发时 Backspace 以字符 8 重复到达；首帧交给下面的按键逻辑。
+                if !is_key_pressed(KeyCode::Backspace) {
+                    self.backspace();
+                    backspace_char = true;
+                }
+                continue;
+            }
+            if c == '\u{7f}' {
+                if !is_key_pressed(KeyCode::Delete) {
+                    self.delete_forward();
+                    backspace_char = true;
+                }
                 continue;
             }
             if c.is_control() && c != '\t' {
@@ -369,30 +513,25 @@ impl InputDialog {
             self.text.insert_str(self.cursor, &reversed);
             self.cursor += input.len();
         }
+        // 按住 Backspace / Delete 连续删除（首次立即删，之后约 0.33s 后开始连发）
         if is_key_pressed(KeyCode::Backspace) {
-            if let Some((s, e)) = self.selection.take() {
-                self.text.replace_range(s..e, "");
-                self.cursor = s;
-            } else if self.cursor > 0 {
-                let mut idx = self.cursor - 1;
-                while idx > 0 && !self.text.is_char_boundary(idx) {
-                    idx -= 1;
+            self.backspace();
+            self.delete_hold = 0.;
+        } else if is_key_pressed(KeyCode::Delete) {
+            self.delete_forward();
+            self.delete_hold = 0.;
+        } else if !backspace_char && (is_key_down(KeyCode::Backspace) || is_key_down(KeyCode::Delete)) {
+            self.delete_hold += get_frame_time().min(0.1);
+            if self.delete_hold >= 0.33 {
+                if is_key_down(KeyCode::Backspace) {
+                    self.backspace();
+                } else {
+                    self.delete_forward();
                 }
-                self.text.replace_range(idx..self.cursor, "");
-                self.cursor = idx;
+                self.delete_hold = 0.30;
             }
-        }
-        if is_key_pressed(KeyCode::Delete) {
-            if let Some((s, e)) = self.selection.take() {
-                self.text.replace_range(s..e, "");
-                self.cursor = s;
-            } else if self.cursor < self.text.len() {
-                let mut idx = self.cursor + 1;
-                while idx < self.text.len() && !self.text.is_char_boundary(idx) {
-                    idx += 1;
-                }
-                self.text.replace_range(self.cursor..idx, "");
-            }
+        } else {
+            self.delete_hold = 0.;
         }
         if is_key_pressed(KeyCode::Left) {
             let shift = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
@@ -468,6 +607,18 @@ impl InputDialog {
     }
 
     fn touch(&mut self, touch: &Touch, t: f32) -> bool {
+        if self.select_all_btn.touch(touch, t) {
+            self.select_all();
+            return true;
+        }
+        if self.copy_btn.touch(touch, t) {
+            self.copy_selection();
+            return true;
+        }
+        if self.paste_btn.touch(touch, t) {
+            self.paste_clipboard();
+            return true;
+        }
         if self.ok_btn.touch(touch, t) {
             self.confirm();
             return false;
@@ -555,58 +706,75 @@ impl InputDialog {
         };
 
         let text_size = 0.38;
-        let text_x = input_r.x + il + 0.015;
+        let text_x0 = input_r.x + il + 0.015;
         let text_y = input_r.center().y;
-        let text_max_w = input_r.w - il - 0.06;
+        let text_max_w = (input_r.w - il - 0.06).max(0.02);
+        let before_w = ui.text(&before_cursor).size(text_size).measure().w;
+        // 单行输入横向滚动：光标跑到框外时让文本跟着左移，光标始终留在框内。
+        let scroll = if self.multiline {
+            0.
+        } else {
+            (before_w - text_max_w + text_size * 0.6).max(0.)
+        };
+        let text_x = text_x0 - scroll;
 
-        if let Some((s, e)) = self.selection {
-            if s < e {
-                let before_sel: String = if self.password {
-                    self.text[..s].chars().map(|_| '*').collect()
-                } else {
-                    self.text[..s].to_string()
-                };
-                let sel_text: String = if self.password {
-                    self.text[s..e].chars().map(|_| '*').collect()
-                } else {
-                    self.text[s..e].to_string()
-                };
-                let off_x = ui.text(&before_sel).size(text_size).measure().w;
-                let sel_w = ui.text(&sel_text).size(text_size).measure().w;
+        ui.scissor(input_r, |ui| {
+            if let Some((s, e)) = self.selection {
+                if s < e {
+                    let before_sel: String = if self.password {
+                        self.text[..s].chars().map(|_| '*').collect()
+                    } else {
+                        self.text[..s].to_string()
+                    };
+                    let sel_text: String = if self.password {
+                        self.text[s..e].chars().map(|_| '*').collect()
+                    } else {
+                        self.text[s..e].to_string()
+                    };
+                    let off_x = ui.text(&before_sel).size(text_size).measure().w;
+                    let sel_w = ui.text(&sel_text).size(text_size).measure().w;
+                    ui.fill_rect(
+                        Rect::new(text_x + off_x, input_r.y + 0.01, sel_w, input_r.h - 0.02),
+                        Color::new(0.2, 0.4, 0.8, 0.5 * ease),
+                    );
+                }
+            }
+
+            let placeholder = !self.prompt.is_empty() && self.text.is_empty();
+            if placeholder {
+                ui.text(&self.prompt)
+                    .pos(text_x, text_y)
+                    .anchor(0., 0.5)
+                    .max_width(text_max_w)
+                    .size(text_size)
+                    .color(semi_white(0.35 * ease))
+                    .draw();
+            } else if self.multiline {
+                ui.text(&display)
+                    .pos(text_x, text_y)
+                    .anchor(0., 0.5)
+                    .max_width(text_max_w)
+                    .size(text_size)
+                    .color(Color::new(1., 1., 1., ease))
+                    .draw();
+            } else {
+                // 不设 max_width：超长文本由 scissor 裁掉，配合上面的横向滚动。
+                ui.text(&display)
+                    .pos(text_x, text_y)
+                    .anchor(0., 0.5)
+                    .size(text_size)
+                    .color(Color::new(1., 1., 1., ease))
+                    .draw();
+            }
+
+            if !placeholder && (self.cursor_timer % 1.0) < 0.5 {
+                let cursor_x = text_x + before_w;
                 ui.fill_rect(
-                    Rect::new(text_x + off_x, input_r.y + 0.01, sel_w, input_r.h - 0.02),
-                    Color::new(0.2, 0.4, 0.8, 0.5 * ease),
+                    Rect::new(cursor_x, input_r.y + 0.012, 0.0025, input_r.h - 0.024),
+                    Color::new(0.4, 0.6, 1., ease),
                 );
             }
-        }
-
-        let placeholder = !self.prompt.is_empty() && self.text.is_empty();
-        if placeholder {
-            ui.text(&self.prompt)
-                .pos(text_x, text_y)
-                .anchor(0., 0.5)
-                .max_width(text_max_w)
-                .size(text_size)
-                .color(semi_white(0.35 * ease))
-                .draw();
-        } else {
-            ui.text(&display)
-                .pos(text_x, text_y)
-                .anchor(0., 0.5)
-                .max_width(text_max_w)
-                .size(text_size)
-                .color(Color::new(1., 1., 1., ease))
-                .draw();
-        }
-
-        if !placeholder && (self.cursor_timer % 1.0) < 0.5 {
-            let cw0 = ui.text(&before_cursor).size(text_size).measure().w;
-            let cursor_x = text_x + cw0;
-            ui.fill_rect(
-                Rect::new(cursor_x, input_r.y + 0.012, 0.0025, input_r.h - 0.024),
-                Color::new(0.4, 0.6, 1., ease),
-            );
-        }
+        });
 
         let bh = 0.065;
         let bw = 0.16;
@@ -615,6 +783,53 @@ impl InputDialog {
         let right_edge = wr.right() - l - pad;
         let ok_r = Rect::new(right_edge - bw, by, bw, bh);
         let cancel_r = Rect::new(ok_r.x - gap - bw, by, bw, bh);
+
+        // 文本快捷键按钮（键盘/IME 拦截 Ctrl 时也能用鼠标完成复制粘贴）
+        let sb_h = 0.055;
+        let sb_w = 0.16;
+        let sb_gap = 0.02;
+        let sb_y = (input_r.bottom() + 0.012)
+            .min(by - sb_h - 0.006)
+            .max(wr.y + pad);
+        let mut draw_small = |ui: &mut Ui, btn: &mut DRectButton, r: Rect, label: &str| {
+            btn.inner.set(ui, r);
+            let v = if btn.inner.touching() { 0.30 } else { 0.16 };
+            draw_parallelogram(r, None, Color::new(v, v, v + 0.05, 0.92 * ease), true);
+            let ss = 0.05;
+            draw_parallelogram(
+                Rect::new(r.x + r.w * (1. - ss), r.y, r.w * ss, r.h),
+                None,
+                Color::new(1., 1., 1., 0.75 * ease),
+                false,
+            );
+            let ct = r.center();
+            ui.text(label)
+                .pos(ct.x, ct.y)
+                .anchor(0.5, 0.5)
+                .no_baseline()
+                .size(0.24)
+                .color(semi_white(0.9 * ease))
+                .max_width(r.w)
+                .draw();
+        };
+        draw_small(
+            ui,
+            &mut self.select_all_btn,
+            Rect::new(cx, sb_y, sb_w, sb_h),
+            ttl!("select-all").as_ref(),
+        );
+        draw_small(
+            ui,
+            &mut self.copy_btn,
+            Rect::new(cx + (sb_w + sb_gap), sb_y, sb_w, sb_h),
+            ttl!("copy").as_ref(),
+        );
+        draw_small(
+            ui,
+            &mut self.paste_btn,
+            Rect::new(cx + (sb_w + sb_gap) * 2., sb_y, sb_w, sb_h),
+            ttl!("paste").as_ref(),
+        );
 
         self.cancel_btn.inner.set(ui, cancel_r);
         let cv = if self.cancel_btn.inner.touching() { 0.3 } else { 0.16 };
@@ -910,6 +1125,7 @@ pub struct Main {
     pub top_level: bool,
     touches: Option<Vec<Touch>>,
     pub viewport: Option<(i32, i32, i32, i32)>,
+    fade_start: Option<f64>,
 }
 
 impl Main {
@@ -944,6 +1160,7 @@ impl Main {
             top_level: true,
             touches: None,
             viewport: None,
+            fade_start: None,
         })
     }
 
@@ -955,7 +1172,9 @@ impl Main {
         if self.paused {
             return Ok(());
         }
-        match self.scenes.last_mut().unwrap().next_scene(&mut self.tm) {
+        let next = self.scenes.last_mut().unwrap().next_scene(&mut self.tm);
+        let transiting = !matches!(next, NextScene::None);
+        match next {
             NextScene::None => {}
             NextScene::Pop => {
                 self.scenes.pop();
@@ -996,6 +1215,11 @@ impl Main {
                 *self.scenes.last_mut().unwrap() = scene;
             }
         }
+        if transiting {
+            self.fade_start = Some(self.tm.now());
+        }
+        crate::gamepad::poll_global();
+        crate::gamepad::update_virtual_cursor(get_frame_time());
         Judge::on_new_frame();
         let mut touches = Judge::get_touches();
         touches.iter_mut().for_each(f);
@@ -1070,6 +1294,33 @@ impl Main {
         let mut ui = Ui::new(painter, self.viewport);
         ui.set_touches(self.touches.take().unwrap());
         ui.scope(|ui| self.scenes.last_mut().unwrap().render(&mut self.tm, ui))?;
+        draw_fps_overlay(&mut ui);
+        if let Some(start) = self.fade_start {
+            let e = (self.tm.now() - start) as f32;
+            let a = if e < 0.25 {
+                e / 0.25
+            } else if e < 1.25 {
+                1.
+            } else if e < 1.6 {
+                1. - (e - 1.25) / 0.35
+            } else {
+                self.fade_start = None;
+                0.
+            };
+            if a > 0. {
+                ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., a.clamp(0., 1.)));
+                ui.text("加载中...")
+                    .pos(0., 0.)
+                    .anchor(0.5, 0.5)
+                    .size(0.42)
+                    .color(Color::new(1., 1., 1., a.clamp(0., 1.)))
+                    .draw();
+            }
+        }
+        if let Some(pos) = crate::gamepad::cursor_pos() {
+            ui.fill_circle(pos.x, pos.y, 0.018, Color::new(1., 1., 1., 0.85));
+            ui.fill_circle(pos.x, pos.y, 0.010, Color::new(0.2, 0.5, 1., 0.95));
+        }
         if self.top_level {
             push_camera_state();
             set_camera(&ui.camera());
