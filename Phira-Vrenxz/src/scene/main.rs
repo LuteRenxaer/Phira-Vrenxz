@@ -275,6 +275,7 @@ pub struct MainScene {
 
     pages: Vec<Box<dyn Page>>,
     page_fade: Option<f32>,
+    page_fade_art: Option<SafeTexture>,
 
     import_task: Option<Task<Result<(LocalChart, ParseWarnings)>>>,
     pending_debug_scene: Option<&'static str>,
@@ -494,6 +495,7 @@ impl MainScene {
 
             pages: Vec::new(),
             page_fade: None,
+            page_fade_art: None,
 
             import_task: None,
             pending_debug_scene: None,
@@ -1084,6 +1086,7 @@ impl Scene for MainScene {
             match next {
                 NextPage::Overlay(mut sub) => {
                     self.page_fade = Some(s.t);
+                    self.page_fade_art = prpr::scene::random_loading_art();
                     if self.pages.len() == 1 {
                         if let Some(bgm) = &mut self.bgm {
                             bgm.set_low_pass(LOW_PASS)?;
@@ -1100,6 +1103,7 @@ impl Scene for MainScene {
                 }
                 NextPage::Pop => {
                     self.page_fade = Some(s.t);
+                    self.page_fade_art = prpr::scene::random_loading_art();
                     self.pop();
                 }
                 NextPage::None => {}
@@ -1607,11 +1611,16 @@ impl Scene for MainScene {
                 0.
             };
             if a > 0. {
-                ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., a.clamp(0., 1.)));
-                ui.text("加载中...")
-                    .pos(0., 0.)
-                    .anchor(0.5, 0.5)
-                    .size(0.42)
+                if let Some(tex) = self.page_fade_art.as_ref() {
+                    prpr::scene::draw_loading_art(tex.clone());
+                } else {
+                    ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., a.clamp(0., 1.)));
+                }
+                ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 0.35 * a.clamp(0., 1.)));
+                ui.text("Loading...")
+                    .pos(0.85, 0.85)
+                    .anchor(1., 1.)
+                    .size(0.44)
                     .color(Color::new(1., 1., 1., a.clamp(0., 1.)))
                     .draw();
             }

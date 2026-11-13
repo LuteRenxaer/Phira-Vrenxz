@@ -44,7 +44,7 @@ fn fade(c: Color, a: f32) -> Color {
 }
 
 
-fn random_local_chart_art() -> Option<SafeTexture> {
+pub(crate) fn random_local_chart_art() -> Option<SafeTexture> {
     let root = std::path::Path::new("data/charts");
     let mut files = Vec::new();
     fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {

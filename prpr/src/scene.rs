@@ -1126,6 +1126,7 @@ pub struct Main {
     touches: Option<Vec<Touch>>,
     pub viewport: Option<(i32, i32, i32, i32)>,
     fade_start: Option<f64>,
+    fade_art: Option<SafeTexture>,
 }
 
 impl Main {
@@ -1161,6 +1162,7 @@ impl Main {
             touches: None,
             viewport: None,
             fade_start: None,
+            fade_art: None,
         })
     }
 
@@ -1217,6 +1219,7 @@ impl Main {
         }
         if transiting {
             self.fade_start = Some(self.tm.now());
+            self.fade_art = loading::random_local_chart_art();
         }
         crate::gamepad::poll_global();
         crate::gamepad::update_virtual_cursor(get_frame_time());
@@ -1308,11 +1311,16 @@ impl Main {
                 0.
             };
             if a > 0. {
-                ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., a.clamp(0., 1.)));
-                ui.text("加载中...")
-                    .pos(0., 0.)
-                    .anchor(0.5, 0.5)
-                    .size(0.42)
+                if let Some(tex) = self.fade_art.as_ref() {
+                    draw_background(tex.clone().into_inner());
+                } else {
+                    ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., a.clamp(0., 1.)));
+                }
+                ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 0.35 * a.clamp(0., 1.)));
+                ui.text("Loading...")
+                    .pos(0.85, 0.85)
+                    .anchor(1., 1.)
+                    .size(0.44)
                     .color(Color::new(1., 1., 1., a.clamp(0., 1.)))
                     .draw();
             }
@@ -1400,7 +1408,15 @@ impl Main {
     }
 }
 
-fn draw_background(tex: Texture2D) {
+pub fn random_loading_art() -> Option<SafeTexture> {
+    loading::random_local_chart_art()
+}
+
+pub fn draw_loading_art(tex: SafeTexture) {
+    draw_background(tex.clone().into_inner());
+}
+
+pub(crate) fn draw_background(tex: Texture2D) {
     let asp = screen_aspect();
     let top = 1. / asp;
     draw_image(tex, Rect::new(-1., -top, 2., top * 2.), ScaleType::CropCenter);
