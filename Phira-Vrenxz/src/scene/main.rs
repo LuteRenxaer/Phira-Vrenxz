@@ -62,7 +62,7 @@ use crate::{
     dir, get_data, get_data_mut,
     mp::{MpSession, MultiplayerScene, MP_SESSION},
     icons::Icons,
-    page::{ExportInfo, HomePage, LibraryPage, NextPage, Page, ResPackItem, SharedState, SettingsPage, ExtensionPage, ResPackPage, MessagePage, EventPage, FavoritesPage},
+    page::{ExportInfo, HomePage, LibraryPage, NextPage, Page, PhigrosLibraryPage, ResPackItem, SharedState, SettingsPage, ExtensionPage, ResPackPage, MessagePage, EventPage, FavoritesPage},
     save_data,
     scene::{confirm_dialog, import_chart_to, parse_warnings_to_string, TEX_BACKGROUND, TEX_ICON_BACK, TEX_ICON_PROCEED},
 };
@@ -342,6 +342,9 @@ impl MainScene {
         // 只有从 Setup / StartupLoading 直接进主界面时才在 enter() 里兜底创建。
         let mut sf = Self::new_inner(fallback).await?;
         sf.pages.push(Box::new(HomePage::new().await?));
+        if std::env::var("PHIRA_PAGE").ok().as_deref() == Some("phigros") {
+            sf.pages.push(Box::new(PhigrosLibraryPage::new()));
+        }
         prpr::hud::selftest();
         Ok(sf)
     }

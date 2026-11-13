@@ -174,14 +174,14 @@ impl Page for PhigrosLibraryPage {
 
     fn render(&mut self, ui: &mut Ui, _s: &mut SharedState) -> Result<()> {
         let area = ui.content_rect();
-        let top_y = area.y;
+        let top_y = area.y + 0.055;
         // 顶部排序栏
-        ui.text("排序方式").pos(-0.58, top_y).size(0.28).color(Color::new(1., 1., 1., 0.55)).draw();
-        ui.text("默认").pos(-0.58, top_y + 0.035).size(0.40).draw();
+        ui.text("排序方式").pos(-0.64, top_y).size(0.28).color(Color::new(1., 1., 1., 0.55)).draw();
+        ui.text("默认").pos(-0.64, top_y + 0.035).size(0.40).draw();
         ui.text("随机").pos(0.02, top_y + 0.015).anchor(0.5, 0.).size(0.30).draw();
         ui.text("设置").pos(0.14, top_y + 0.015).anchor(0.5, 0.).size(0.30).draw();
         // 两行标签（5 + 2）
-        let tab_y = area.y + 0.075;
+        let tab_y = area.y + 0.14;
         let tab_w = 0.175;
         for i in 0..7 {
             let (x, y) = if i < 5 {
@@ -200,7 +200,7 @@ impl Page for PhigrosLibraryPage {
                 .draw();
         }
         // 左侧列表
-        let list = Rect::new(-0.66, tab_y + 0.14, 0.64, area.h - 0.24);
+        let list = Rect::new(-0.66, tab_y + 0.14, 0.58, area.h - 0.24);
         let row_h = 0.095;
         let rows = ((list.h / row_h) as usize).max(1);
         let start = self.selected.saturating_sub(rows / 2).min(self.charts.len().saturating_sub(rows));
@@ -237,7 +237,7 @@ impl Page for PhigrosLibraryPage {
         ui.fill_rect(mr, if self.mirror { WHITE } else { Color::new(0.08, 0.09, 0.11, 0.95) });
         ui.text("Mirror").pos(mr.center().x, mr.center().y).anchor(0.5, 0.5).size(0.26).color(if self.mirror { BLACK } else { WHITE }).draw();
         // 右侧详情
-        let detail = Rect::new(0.03, tab_y + 0.14, 0.55, area.h - 0.24);
+        let detail = Rect::new(-0.02, tab_y + 0.14, 0.80, area.h - 0.24);
         let selected_chart = self.charts.get(self.selected).cloned();
         let selected_cover = self.cover(self.selected);
         if let Some(chart) = selected_chart {
@@ -272,7 +272,8 @@ impl Page for PhigrosLibraryPage {
                 let r = Rect::new(detail.x + i as f32 * 0.105, by, 0.10, 0.085);
                 ui.fill_rect(r, if i == current { Color::new(0.75, 0.10, 0.14, 1.) } else { Color::new(0.92, 0.92, 0.94, 1.) });
                 ui.text(labels[i]).pos(r.center().x, r.y + 0.020).anchor(0.5, 0.).size(0.22).color(if i == current { WHITE } else { BLACK }).draw();
-                ui.text(if i == current { format!("{:.0}", chart.info.difficulty) } else { "-".into() })
+                let nums = [3, 8, chart.info.difficulty.round() as i32, 15];
+                ui.text(format!("{}", nums[i]))
                     .pos(r.center().x, r.y + 0.050)
                     .anchor(0.5, 0.)
                     .size(0.34)
@@ -281,25 +282,28 @@ impl Page for PhigrosLibraryPage {
             }
             let score = chart.record.as_ref().map_or(0, |r| r.score);
             ui.text(format!("{:07}", score))
-                .pos(detail.right() - 0.02, by + 0.02)
-                .anchor(1., 0.)
-                .size(0.50)
+                .pos(detail.x + 0.46, by + 0.02)
+                .anchor(0., 0.)
+                .size(0.46)
                 .draw();
             if let Some(rec) = &chart.record {
                 ui.text(format!("{:.2}%", rec.accuracy))
-                    .pos(detail.right() - 0.02, by + 0.075)
-                    .anchor(1., 0.)
+                    .pos(detail.x + 0.46, by + 0.070)
+                    .anchor(0., 0.)
                     .size(0.24)
                     .color(Color::new(1., 1., 1., 0.7))
                     .draw();
             }
+            let score_i = chart.record.as_ref().map_or(0, |r| r.score);
+            let rank = if score_i >= 1_000_000 { "Phi" } else if score_i >= 960_000 { "V" } else if score_i >= 920_000 { "S" } else if score_i >= 880_000 { "A" } else if score_i >= 820_000 { "B" } else { "F" };
+            ui.text(rank).pos(detail.right() - 0.02, by - 0.01).anchor(1., 0.).size(0.72).color(Color::new(0.55, 0.75, 1., 1.)).draw();
         }
         // 功能区
-        let func = Rect::new(0.62, tab_y + 0.14, 0.10, area.h - 0.24);
+        let func = Rect::new(0.795, tab_y + 0.14, 0.08, area.h - 0.24);
         ui.fill_rect(func, Color::new(0.04, 0.045, 0.055, 0.55));
         ui.text("功能区").pos(func.center().x, func.y + 0.05).anchor(0.5, 0.).size(0.26).draw();
         // 播放
-        let pr = Rect::new(0.75, area.bottom() - 0.13, 0.18, 0.11);
+        let pr = Rect::new(0.84, area.bottom() - 0.13, 0.14, 0.11);
         self.play_btn.inner.set(ui, pr);
         ui.fill_rect(pr, WHITE);
         ui.text("▶").pos(pr.center().x, pr.center().y).anchor(0.5, 0.5).size(0.60).color(BLACK).draw();
