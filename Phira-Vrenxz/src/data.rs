@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use prpr::{
-    config::{Config, Mods},
+    config::{Config, HpMode, Mods},
     info::ChartInfo,
     scene::SimpleRecord,
     ui::PREFER_REDUCED_MOTION,
@@ -83,7 +83,13 @@ impl From<ChartInfo> for BriefChartInfo {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
+pub struct FontEntry {
+    pub name: String,
+    pub file: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct LocalChart {
     #[serde(flatten)]
     pub info: BriefChartInfo,
@@ -91,6 +97,9 @@ pub struct LocalChart {
     pub record: Option<SimpleRecord>,
     #[serde(default)]
     pub mods: Mods,
+    /// 谱面级 HP 血量档位（随 mods 一样按谱面独立，Off 表示关闭）
+    #[serde(default)]
+    pub hp: HpMode,
     #[serde(default)]
     pub played_unlock: bool,
 }
@@ -128,37 +137,33 @@ pub struct Data {
 
     pub prefer_reduced_motion: bool,
 
-    /// Custom background music path (local file)
     #[serde(default)]
     pub custom_bgm_path: Option<String>,
 
-    /// Custom home background image path (local file)
     #[serde(default)]
     pub custom_background_path: Option<String>,
 
-    /// Show the startup screen (login screen) before the main menu.
+    /// 主页动态背景视频（MP4/WebM 等，路径由文件选择器导入）
+    #[serde(default)]
+    pub home_video_path: Option<String>,
+
+    #[serde(default)]
+    pub fonts: Vec<FontEntry>,
+    #[serde(default)]
+    pub font_id: usize,
+
     #[serde(default = "default_true")]
     pub show_startup_screen: bool,
 
-    /// Custom startup screen background music path (local file).
-    /// None falls back to the built-in `login.mp3`.
     #[serde(default)]
     pub custom_startup_bgm_path: Option<String>,
 
-    /// 玩家是否已主动选择过初始语言。选择过一次后,启动页不再弹出语言选择。
     #[serde(default)]
     pub has_chosen_language: bool,
 
-    /// 首启向导（语言 / 登录 / 音量 / 其他设置 / 最后确认）是否已经走完。
-    /// 走完之后启动页不再拦截，直接进主页（见 scene::SetupScene）。
-    /// 老数据里没有这个字段，`Data::init` 会用 `has_chosen_language` 兜底迁移 ——
-    /// 否则这次更新会把所有老玩家都拉去走一遍首次启动流程。
     #[serde(default)]
     pub initial_setup_done: bool,
 
-    /// 首次进游戏时是否游玩新手教程（首启向导最后一步的选择）。
-    /// 目前只落盘保存：教程入口仍然只有设置页那一颗按钮，还没有进游戏自动开教程的流程，
-    /// 这个字段就是给那条流程预留的依据。
     #[serde(default = "default_true")]
     pub play_tutorial: bool,
 
@@ -167,8 +172,6 @@ pub struct Data {
     #[serde(default)]
     collection_uuids: Vec<Uuid>,
 
-    /// Need to know what path caused the problem when restarting the program next time
-    /// see: https://github.com/TeamFlos/phira/pull/689/#discussion_r2899026506
     #[serde(default)]
     pub import_scan_retry: HashMap<String, u8>,
 
@@ -182,6 +185,10 @@ pub struct Data {
     pub xcsim_api_url: Option<String>,
     #[serde(default)]
     pub xcsim_download_url: Option<String>,
+
+    /// 被禁用的插件名列表（插件管理页开关控制，空=全部启用）
+    #[serde(default)]
+    pub disabled_plugins: Vec<String>,
 }
 
 impl Default for Data {
@@ -206,6 +213,9 @@ impl Default for Data {
             prefer_reduced_motion: false,
             custom_bgm_path: None,
             custom_background_path: None,
+            home_video_path: None,
+            fonts: Vec::new(),
+            font_id: 0,
             show_startup_screen: true,
             custom_startup_bgm_path: None,
             has_chosen_language: false,
@@ -218,6 +228,7 @@ impl Default for Data {
             xcsim_account: Default::default(),
             xcsim_api_url: None,
             xcsim_download_url: None,
+            disabled_plugins: Vec::new(),
         }
     }
 }
@@ -306,6 +317,7 @@ impl Data {
                         local_path: filename,
                         record: None,
                         mods: Mods::default(),
+                        hp: HpMode::Off,
                         played_unlock: false,
                     });
                 }
@@ -347,6 +359,7 @@ impl Data {
                         local_path: filename,
                         record: None,
                         mods: Mods::default(),
+                        hp: HpMode::Off,
                         played_unlock: false,
                     });
                 }
@@ -372,8 +385,7 @@ impl Data {
                 *res_pack_path = "chart.zip".to_owned();
             }
         }
-        // 老数据迁移：以前的初始设置只有启动页那一次语言选择，选过语言的玩家显然已经
-        // 设置过了，直接当作向导走完 —— 否则这次更新会把所有老玩家都拉去重走一遍首启流程。
+
         if self.has_chosen_language {
             self.initial_setup_done = true;
         }
@@ -425,8 +437,6 @@ impl Data {
         let path = Self::collection_info_path(uuid)?;
         std::fs::write(path, serde_json::to_string(&info)?)?;
         self.collection_cache.insert(*uuid, Arc::new(info));
-        // 收藏内容变化时同步成就进度（未初始化成就系统时静默跳过）
-        crate::achievement::sync_favorites();
         Ok(())
     }
     pub fn push_collection(&mut self, info: LocalCollection) -> Result<Uuid> {
@@ -440,8 +450,6 @@ impl Data {
         let path = Self::collection_info_path(&uuid)?;
         std::fs::remove_file(path)?;
         self.collection_cache.remove(&uuid);
-        // 收藏数量变化时同步成就进度（未初始化成就系统时静默跳过）
-        crate::achievement::sync_favorites();
         Ok(uuid)
     }
     pub fn move_collection(&mut self, from: usize, to: usize) {
@@ -470,4 +478,3 @@ impl Data {
             .clone()
     }
 }
-

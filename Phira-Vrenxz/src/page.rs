@@ -5,6 +5,8 @@ pub use challenge::ChallengePage;
 
 /// 谱面合集 l10n 容器（合集页已移除，仅保留文案供 charts_view 占位卡片使用）
 pub mod coll;
+pub mod phigros_library;
+pub use phigros_library::PhigrosLibraryPage;
 pub mod replay_manager;
 pub use replay_manager::ReplayManager;
 

@@ -1,7 +1,7 @@
 prpr_l10n::tl_file!("home");
 use super::{
-    load_font_with_cksum, set_bold_font, AchievementPage, LibraryPage, NextPage, Page, ResPackPage, SFader, SettingsPage, SharedState,
-    BOLD_FONT_CKSUM,
+    load_font_with_cksum, set_bold_font, ChallengePage, LibraryPage, NextPage, Page, PhigrosLibraryPage, ResPackPage,
+    SFader, SettingsPage, SharedState, BOLD_FONT_CKSUM,
 };
 use super::message::MessagePage;
 use crate::{
@@ -10,7 +10,7 @@ use crate::{
     icons::Icons,
     login::Login,
     save_data,
-    scene::{check_read_tos_and_policy, ProfileScene, JUST_LOADED_TOS},
+    scene::{check_read_tos_and_policy, ChapterScene, ProfileScene, JUST_LOADED_TOS},
     sync_data,
     threed::ThreeD,
 };
@@ -20,7 +20,7 @@ use chrono::NaiveDate;
 use image::DynamicImage;
 use macroquad::prelude::*;
 use prpr::{
-    ext::{open_url, semi_black, semi_white, RectExt, SafeTexture, ScaleType},
+    ext::{open_url, poll_future, semi_black, semi_white, LocalTask, RectExt, SafeTexture, ScaleType, BLACK_TEXTURE},
     info::ChartInfo,
     scene::{show_error, NextScene},
     task::Task,
@@ -38,6 +38,52 @@ use tracing::{info, warn};
 const BOARD_SWITCH_TIME: f32 = 4.;
 const BOARD_TRANSIT_TIME: f32 = 1.2;
 
+/// 主页菜单统一斜切量（相对按钮高度）
+const MENU_SKEW: f32 = 0.26;
+
+/// 斜切矩形（上边右移 sk），与设置页/结算页同一套语言
+fn fill_para(ui: &mut Ui, r: Rect, sk: f32, color: Color) {
+    fill_band(ui, r, sk, 0., 1., color);
+}
+
+/// 斜切矩形里横向 [from, to] 那一条（用于按钮右端的白条）
+fn fill_band(ui: &mut Ui, r: Rect, sk: f32, from: f32, to: f32, color: Color) {
+    use lyon::math::point;
+    let xa = r.x + r.w * from;
+    let xb = r.x + r.w * to;
+    let mut b = lyon::path::Path::builder();
+    b.begin(point(xa + sk, r.y));
+    b.line_to(point(xb + sk, r.y));
+    b.line_to(point(xb, r.bottom()));
+    b.line_to(point(xa, r.bottom()));
+    b.end(true);
+    ui.fill_path(&b.build(), color);
+}
+
+fn stroke_para(ui: &mut Ui, r: Rect, sk: f32, width: f32, color: Color) {
+    use lyon::math::point;
+    let mut b = lyon::path::Path::builder();
+    b.begin(point(r.x + sk, r.y));
+    b.line_to(point(r.right() + sk, r.y));
+    b.line_to(point(r.right(), r.bottom()));
+    b.line_to(point(r.x, r.bottom()));
+    b.end(true);
+    ui.stroke_path(&b.build(), width, color);
+}
+
+
+/// 主页菜单按钮：主按钮白底黑字，次按钮黑底白字 + 右端白条
+fn draw_menu_button(ui: &mut Ui, r: Rect, primary: bool) {
+    let sk = r.h * MENU_SKEW;
+    if primary {
+        fill_para(ui, r, sk, WHITE);
+    } else {
+        fill_para(ui, r, sk, Color::new(0.035, 0.037, 0.046, 0.88));
+        stroke_para(ui, r, sk, 0.0012, semi_white(0.16));
+        fill_band(ui, r, sk, 0.955, 1.0, WHITE);
+    }
+}
+
 type BoldFontUpdateTask = Task<Result<Option<(FontArc, String)>>>;
 
 #[derive(Deserialize)]
@@ -52,13 +98,17 @@ pub struct HomePage {
     icons: Arc<Icons>,
 
     btn_play: DRectButton,
+    btn_challenge: DRectButton,
     btn_respack: DRectButton,
     btn_settings: DRectButton,
     btn_user: DRectButton,
     btn_message: DRectButton,
-    btn_achievements: DRectButton,
+    btn_chapter: DRectButton,
 
     next_page: Option<NextPage>,
+    next_page_task: LocalTask<Result<NextPage>>,
+    /// 章节按钮异步加载 Remember 章节场景
+    chapter_scene_task: LocalTask<Result<ChapterScene>>,
 
     login: Login,
     update_task: Option<Task<Result<User>>>,
@@ -81,6 +131,10 @@ pub struct HomePage {
     check_bold_font_update_task: Option<BoldFontUpdateTask>,
 
     btn_play_3d: ThreeD,
+
+    /// 已加载的本地插件列表
+    plugins: Vec<crate::plugin::Plugin>,
+
 
     #[cfg(feature = "hykb")]
     beian_btn: RectButton,
@@ -116,13 +170,16 @@ impl HomePage {
             icons: Arc::clone(&icons),
 
             btn_play: DRectButton::new().with_delta(-0.01),
+            btn_challenge: DRectButton::new().with_delta(-0.01),
             btn_respack: DRectButton::new().with_delta(-0.004).with_elevation(0.).no_sound(),
             btn_settings: DRectButton::new().with_delta(-0.004).with_elevation(0.),
             btn_user: DRectButton::new().with_delta(-0.003),
             btn_message: DRectButton::new().with_delta(-0.004).with_elevation(0.),
-            btn_achievements: DRectButton::new().with_delta(-0.004).with_elevation(0.),
+            btn_chapter: DRectButton::new().with_delta(-0.004).with_elevation(0.),
 
             next_page: None,
+            next_page_task: None,
+            chapter_scene_task: None,
 
             login: Login::new(icons),
             update_task,
@@ -134,6 +191,7 @@ impl HomePage {
             board_task: None,
             board_last_time: f32::NEG_INFINITY,
             board_last: None,
+            plugins: crate::plugin::load_plugins(),
             board_tex_last: None,
             board_tex: None,
             board_dir: false,
@@ -220,140 +278,140 @@ impl HomePage {
     fn render_home(&mut self, ui: &mut Ui, s: &mut SharedState) {
         let t = s.t;
         let rt = s.rt;
+        let p = self.appear(rt, 0.0, 0.26);
 
-        let pad = 0.04;
-
-        // 先计算各按钮的出现动画参数(x/y 偏移 + 透明度)
-        let p_play = self.appear(rt, 0.0, 0.28);
-        let p_msg = self.appear(rt, 0.0, 0.26);
-        let p_set = self.appear(rt, 0.0, 0.26);
-        let p_res = self.appear(rt, 0.0, 0.26);
-        let (dx_play, dy_play) = (-0.22 * (1. - p_play), 0.06 * (1. - p_play));
-        let (dx_msg, dy_msg) = (-0.22 * (1. - p_msg), 0.05 * (1. - p_msg));
-        let (dx_set, dy_set) = (0.18 * (1. - p_set), 0.05 * (1. - p_set));
-        let (dx_res, dy_res) = (0.18 * (1. - p_res), 0.05 * (1. - p_res));
-
-        let config = &get_data().config;
-        let r = Rect::new(-0.83 + config.home_play_offset_x, -0.33 + config.home_play_offset_y, 0.83, 0.45);
-        let mat = self.btn_play_3d.now(ui, r, t);
-        ui.with_gl(mat, |ui| {
-            s.render_fader(ui, |ui| {
-                ui.scope(|ui| {
-                    ui.dx(dx_play);
-                    ui.dy(dy_play);
-                    ui.alpha(p_play, |ui| {
-                        let rad = self.btn_play.config.radius;
-                        self.btn_play.render_shadow(ui, r, t, |ui, path| {
-                            ui.fill_path(&path, semi_black(0.4));
-                            if let Some(cur) = &self.board_tex {
-                                let p = (t - self.board_last_time) / BOARD_TRANSIT_TIME;
-                                if p > 1. {
-                                    self.board_tex_last = None;
-                                    ui.fill_path(&path, (**cur, r));
-                                } else if let Some(last) = &self.board_tex_last {
-                                    let (cur, last) = if self.board_dir { (last, cur) } else { (cur, last) };
-                                    let p = 1. - (1. - p).powi(3);
-                                    let p = if self.board_dir { 1. - p } else { p };
-                                    clip_rounded_rect(ui, r, rad, |ui| {
-                                        let mut nr = r;
-                                        nr.h = r.h * (1. - p);
-                                        ui.fill_rect(nr, (**last, nr));
-
-                                        nr.h = r.h * p;
-                                        nr.y = r.bottom() - nr.h;
-                                        ui.fill_rect(nr, (**cur, nr));
-                                    });
-                                } else {
-                                    ui.fill_path(&path, (**cur, r, ScaleType::CropCenter, semi_white(p)));
-                                }
-                            }
-                            ui.fill_path(&path, (semi_black(0.7), (r.x, r.y), Color::default(), (r.x + 0.6, r.y)));
-                            ui.text(tl!("play")).pos(r.x + pad, r.y + pad).draw();
-                            let r = Rect::new(r.x + 0.02, r.bottom() - 0.18, 0.17, 0.17);
-                            ui.fill_rect(r, (*self.icons.play, r, ScaleType::Fit, semi_white(0.6)));
-                        });
-                    });
-                });
-            });
-        });
-
-        let btn_size = 0.12;
-        let margin = 0.055;
-        let bottom_y = ui.top - btn_size - margin + config.home_menu_offset_y;
-
-        let right_x = 0.95 - btn_size * 2.0 - 0.02 + config.home_menu_offset_x;
-
-        let r_res = Rect::new(right_x, bottom_y, btn_size, btn_size);
+        // 字标与开屏完全同一位置/字号：点开始之后它原地不动，只有下面的菜单淡入
+        let cx = crate::splash_ui::sx(crate::splash_ui::CONTENT_CX);
         s.render_fader(ui, |ui| {
-            ui.scope(|ui| {
-                ui.dx(dx_res);
-                ui.dy(dy_res);
-                ui.alpha(p_res, |ui| {
-                    self.btn_respack.render_shadow(ui, r_res, t, |ui, path| {
-                        ui.fill_path(&path, semi_black(0.2));
-                        let ir = r_res.feather(-0.02);
-                        ui.fill_rect(ir, (*self.icons.respack, ir, ScaleType::Fit));
-                    });
-                });
-            });
+            crate::splash_ui::draw_logo(ui, cx, -0.02, 1.50, 1.0);
         });
 
-        let r_set = Rect::new(r_res.right() + 0.02, bottom_y, btn_size, btn_size);
+        // 菜单列：与字标同宽，右端和字标右缘对齐
+        let x0 = crate::splash_ui::sx(0.620);
+        let x1 = crate::splash_ui::sx(0.952);
+        let w = x1 - x0;
+
+        // ==== 游玩（主按钮）====
+        let h_play = 0.135;
+        let r_play = Rect::new(x0, 0.112, w, h_play);
         s.render_fader(ui, |ui| {
-            ui.scope(|ui| {
-                ui.dx(dx_set);
-                ui.dy(dy_set);
-                ui.alpha(p_set, |ui| {
-                    self.btn_settings.render_shadow(ui, r_set, t, |ui, path| {
-                        ui.fill_path(&path, semi_black(0.2));
-                        let ir = r_set.feather(-0.02);
-                        ui.fill_rect(ir, (*self.icons.settings, ir, ScaleType::Fit));
-                    });
+            ui.alpha(p, |ui| {
+                self.btn_play.build(ui, t, r_play, |ui, _| {
+                    let sk = r_play.h * MENU_SKEW;
+                    draw_menu_button(ui, r_play, true);
+                    let dark = Color::new(0.06, 0.06, 0.08, 1.);
+                    ui.text(tl!("play"))
+                        .pos(r_play.x + 0.052 + sk * 0.5, r_play.center().y)
+                        .anchor(0., 0.5)
+                        .size(0.52)
+                        .color(dark)
+                        .draw();
+
                 });
             });
         });
 
-        let left_x = -0.95 + config.home_menu_offset_x;
-
-        let r_msg = Rect::new(left_x, bottom_y, btn_size, btn_size);
+        // ==== 课题模式（次按钮）====
+        let r_ch = Rect::new(x0, r_play.bottom() + 0.030, w, 0.098);
         s.render_fader(ui, |ui| {
-            ui.scope(|ui| {
-                ui.dx(dx_msg);
-                ui.dy(dy_msg);
-                ui.alpha(p_msg, |ui| {
-                    self.btn_message.render_shadow(ui, r_msg, t, |ui, path| {
-                        ui.fill_path(&path, semi_black(0.2));
-                        let ir = r_msg.feather(-0.02);
-                        ui.fill_rect(ir, (*self.icons.msg, ir, ScaleType::Fit));
-                        if self.has_new {
-                            let dot = Rect::new(ir.right() - 0.025, ir.y - 0.015, 0.035, 0.035);
-                            ui.fill_path(&dot.rounded(0.0175), RED);
-                        }
-                    });
+            ui.alpha(p, |ui| {
+                self.btn_challenge.build(ui, t, r_ch, |ui, _| {
+                    let sk = r_ch.h * MENU_SKEW;
+                    draw_menu_button(ui, r_ch, false);
+                    ui.text("课题模式")
+                        .pos(r_ch.x + 0.052 + sk * 0.5, r_ch.center().y)
+                        .anchor(0., 0.5)
+                        .size(0.40)
+                        .color(WHITE)
+                        .draw();
+
                 });
             });
         });
 
-        let r_ach = Rect::new(r_msg.right() + 0.02, bottom_y, btn_size, btn_size);
+        // ==== 图标行：消息 / 资源包 / 设置（同一斜切板，右端对齐）====
+        let btn = 0.088;
+        let gap = 0.024;
+        let row_y = r_ch.bottom() + 0.042;
+        let r_msg = Rect::new(x1 - btn * 3. - gap * 2., row_y, btn, btn);
+        let r_res = Rect::new(x1 - btn * 2. - gap, row_y, btn, btn);
+        let r_set = Rect::new(x1 - btn, row_y, btn, btn);
         s.render_fader(ui, |ui| {
-            ui.scope(|ui| {
-                ui.dx(dx_msg);
-                ui.dy(dy_msg);
-                ui.alpha(p_msg, |ui| {
-                    self.btn_achievements.render_shadow(ui, r_ach, t, |ui, path| {
-                        ui.fill_path(&path, semi_black(0.2));
-                        let ir = r_ach.feather(-0.02);
-                        ui.fill_rect(ir, (*self.icons.achievements, ir, ScaleType::Fit));
-                    });
+            ui.alpha(p, |ui| {
+                let mut draw_icon = |ui: &mut Ui, r: Rect, tex: &SafeTexture, dot: bool, frac: f32| {
+                    let sk = r.h * MENU_SKEW;
+                    fill_para(ui, r, sk, Color::new(0.035, 0.037, 0.046, 0.88));
+                    stroke_para(ui, r, sk, 0.0012, semi_white(0.16));
+                    fill_band(ui, r, sk, 0.955, 1.0, WHITE);
+                    // 按贴图原始宽高比缩放：ScaleType::Fit 会直接拉伸填满矩形，
+                    // 图标贴图是 51x41 / 45x41 这种非正方形，硬拉会被压扁变形。
+                    // frac 逐图标微调：资源包(1.24 宽高比)和设置(1.10)本来就比消息(1.02)显大。
+                    let ar = tex.width() / tex.height();
+                    let avail_w = r.w * frac;
+                    let avail_h = r.h * frac;
+                    let (iw, ih) = if ar >= 1. {
+                        (avail_w, avail_w / ar)
+                    } else {
+                        (avail_h * ar, avail_h)
+                    };
+                    let icx = r.center().x + sk * 0.5;
+                    let icy = r.center().y;
+                    let ir = Rect::new(icx - iw * 0.5, icy - ih * 0.5, iw, ih);
+                    ui.fill_rect(ir, (**tex, ir, ScaleType::CropCenter, WHITE));
+                    if dot {
+                        let d = Rect::new(ir.right() - 0.006, ir.y - 0.010, 0.026, 0.026);
+                        ui.fill_path(&d.rounded(0.013), RED);
+                    }
+                };
+                self.btn_message.build(ui, t, r_msg, |ui, _| {
+                    draw_icon(ui, r_msg, &self.icons.msg, self.has_new, 0.46);
+                });
+                self.btn_respack.build(ui, t, r_res, |ui, _| {
+                    draw_icon(ui, r_res, &self.icons.respack, false, 0.38);
+                });
+                self.btn_settings.build(ui, t, r_set, |ui, _| {
+                    draw_icon(ui, r_set, &self.icons.settings, false, 0.36);
                 });
             });
         });
+
+        // ==== 插件（图标行下方的小字）====
+        {
+            let plugins: Vec<_> = self.plugins.iter().filter(|p| p.enabled()).collect();
+            let has_disabled = self.plugins.iter().any(|p| !p.enabled());
+            let mut y = row_y + btn + 0.045;
+            if !plugins.is_empty() {
+                ui.text("[ 插件已加载 ]")
+                    .pos(x0, y)
+                    .anchor(0., 0.5)
+                    .size(0.24)
+                    .color(semi_white(0.45))
+                    .draw();
+                y += 0.045;
+                for p in &plugins {
+                    ui.text(format!("{} v{}", p.info.name, p.info.version))
+                        .pos(x0, y)
+                        .anchor(0., 0.5)
+                        .size(0.21)
+                        .color(semi_white(0.34))
+                        .draw();
+                    y += 0.038;
+                }
+            } else if has_disabled {
+                ui.text("[ 插件已全部禁用 ]")
+                    .pos(x0, y)
+                    .anchor(0., 0.5)
+                    .size(0.22)
+                    .color(semi_white(0.34))
+                    .draw();
+            }
+        }
     }
 }
 
 impl Page for HomePage {
     fn label(&self) -> Cow<'static, str> {
-        "PHIRA-VRENXZ".into()
+        "".into()
     }
 
     fn enter(&mut self, s: &mut SharedState) -> Result<()> {
@@ -382,7 +440,15 @@ impl Page for HomePage {
         }
         self.btn_play_3d.touch(touch, t);
         if self.btn_play.touch(touch, t) {
-            self.next_page = Some(NextPage::Overlay(Box::new(LibraryPage::new(Arc::clone(&self.icons), s.icons.clone())?)));
+            self.next_page = Some(NextPage::Overlay(Box::new(PhigrosLibraryPage::new())));
+            return Ok(true);
+        }
+        if self.btn_challenge.touch(touch, t) {
+            s.reload_local_charts();
+            self.next_page = Some(NextPage::Overlay(Box::new(ChallengePage::new(
+                Arc::clone(&self.icons),
+                s.charts_local.clone(),
+            )?)));
             return Ok(true);
         }
         if self.btn_respack.touch(touch, t) {
@@ -400,10 +466,18 @@ impl Page for HomePage {
             ))));
             return Ok(true);
         }
-        if self.btn_achievements.touch(touch, t) {
-            self.next_page = Some(NextPage::Overlay(Box::new(AchievementPage::new()?)));
-            return Ok(true);
-        }
+        // 章节按钮已注释（2026-10-05，插件功能改造），不再响应点击
+        // if self.btn_chapter.touch(touch, t) {
+        //     if get_data().config.home_chapter_button_show {
+        //         let icons = Arc::clone(&self.icons);
+        //         let rank_icons = s.icons.clone();
+        //         // 点击章节直接进入 Remember 章节（不再经过谱面合集页）
+        //         self.chapter_scene_task = Some(Box::pin(async move {
+        //             ChapterScene::new("remember".to_owned(), icons, rank_icons, BLACK_TEXTURE.clone()).await
+        //         }));
+        //     }
+        //     return Ok(true);
+        // }
     if self.btn_user.touch(touch, t) {
         if let Some(me) = &get_data().me {
             self.need_back = true;
@@ -429,6 +503,24 @@ impl Page for HomePage {
             self.login.force(t);
         }
         self.login.update(t)?;
+
+
+        // 章节页面异步加载完成后切换
+        if let Some(task) = &mut self.next_page_task {
+            if let Some(res) = poll_future(task.as_mut()) {
+                self.next_page = Some(res?);
+                self.next_page_task = None;
+            }
+        }
+
+        // 章节页面异步加载完成后再切换场景
+        if let Some(task) = &mut self.chapter_scene_task {
+            if let Some(res) = poll_future(task.as_mut()) {
+                let scene = res?;
+                self.sf.goto(t, scene);
+                self.chapter_scene_task = None;
+            }
+        }
 
         if let Some(task) = &mut self.update_task {
             if let Some(res) = task.take() {
