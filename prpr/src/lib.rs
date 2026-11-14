@@ -4,12 +4,16 @@ pub mod core;
 pub mod dir;
 pub mod ext;
 pub mod fs;
+pub mod gamepad;
+pub mod hud;
 pub mod info;
 pub mod judge;
 pub mod parallel;
 pub mod parse;
 pub mod particle;
+pub mod replay;
 pub mod scene;
+pub mod shortcut;
 pub mod task;
 pub mod time;
 pub mod ui;
@@ -26,16 +30,12 @@ pub use scene::Main;
 pub fn build_conf() -> macroquad::window::Conf {
     macroquad::window::Conf {
         window_title: "Phira-Vrenxz".to_string(),
-        window_width: 973,
-        window_height: 608,
+        window_width: 1600,
+        window_height: 740,
         ..Default::default()
     }
 }
 
-/// 运行时切换垂直同步间隔（0 = 关闭 vsync / 1 = 锁定到刷新率）。
-///
-/// miniquad 只在启动时读取 `Conf::swap_interval`，运行中切换需要直接调用
-/// `wglSwapIntervalEXT`（Windows）；其它平台目前无可行的运行时切换 API，记录警告。
 #[cfg(target_os = "windows")]
 pub fn set_swap_interval(interval: i32) {
     use std::ffi::c_void;
@@ -60,7 +60,6 @@ pub fn set_swap_interval(interval: i32) {
     }
 }
 
-/// 非 Windows 平台暂不支持运行时切换 vsync
 #[cfg(not(target_os = "windows"))]
 pub fn set_swap_interval(_interval: i32) {
     tracing::warn!("set_swap_interval: runtime vsync switching not supported on this platform");
