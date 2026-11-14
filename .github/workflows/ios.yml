@@ -8,6 +8,7 @@ on:
       - 'Phira-Vrenxz/**'
       - 'Phira-Vrenxz-main/**'
       - 'prpr/**'
+      - 'vendor/**'
       - 'assets/**'
       - 'phira.xcodeproj/**'
       - 'xcode/**'
