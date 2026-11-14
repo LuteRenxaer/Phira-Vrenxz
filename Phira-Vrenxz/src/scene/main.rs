@@ -1106,7 +1106,7 @@ impl Scene for MainScene {
                     sub.enter(s)?;
                     if let Some(bgm) = &mut self.bgm {
                         let _ = bgm.fade_out(2.0);
-                        self.bgm_fade_in_at = Some(tm.now() + 2.0);
+                        self.bgm_fade_in_at = Some(tm.now() + 2.7);
                     }
                     self.pages.push(sub);
                     s.fader.sub(s.t);
@@ -1116,7 +1116,7 @@ impl Scene for MainScene {
                     self.page_fade_art = prpr::scene::random_loading_art();
                     if let Some(bgm) = &mut self.bgm {
                         let _ = bgm.fade_out(2.0);
-                        self.bgm_fade_in_at = Some(s.t as f64 + 2.0);
+                        self.bgm_fade_in_at = Some(s.t as f64 + 2.7);
                     }
                     self.pop();
                 }
