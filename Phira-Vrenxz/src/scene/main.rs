@@ -1114,6 +1114,10 @@ impl Scene for MainScene {
                 NextPage::Pop => {
                     self.page_fade = Some(s.t);
                     self.page_fade_art = prpr::scene::random_loading_art();
+                    if let Some(bgm) = &mut self.bgm {
+                        let _ = bgm.fade_out(2.0);
+                        self.bgm_fade_in_at = Some(s.t as f64 + 2.0);
+                    }
                     self.pop();
                 }
                 NextPage::None => {}
@@ -1610,7 +1614,7 @@ impl Scene for MainScene {
 
         if let Some(start) = self.page_fade {
             let e = s.t - start;
-            if e < 2.0 {
+            if e < 2.7 {
                 prpr::scene::draw_transition_loading(ui, self.page_fade_art.as_ref(), s.t, e);
             } else {
                 self.page_fade = None;

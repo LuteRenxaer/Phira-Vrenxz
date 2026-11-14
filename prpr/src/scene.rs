@@ -1300,7 +1300,7 @@ impl Main {
         draw_fps_overlay(&mut ui);
         if let Some(start) = self.fade_start {
             let e = (self.tm.now() - start) as f32;
-            if e < 2.0 {
+            if e < 2.7 {
                 let time = self.tm.now() as f32;
                 draw_transition_loading(&mut ui, self.fade_art.as_ref(), time, e);
             } else {
@@ -1404,22 +1404,31 @@ pub fn draw_loading_art(tex: SafeTexture) {
 
 /// 与谱面加载页一致的 Loading 文案 + 进度条（不含封面/谱面信息）。
 pub fn draw_transition_loading(ui: &mut Ui, art: Option<&SafeTexture>, time: f32, elapsed: f32) {
-    let intro = (elapsed / 0.4).clamp(0., 1.);
-    let intro = 1. - (1. - intro).powi(3);
-    let black_a = if elapsed < 0.4 {
-        1. - intro
-    } else if elapsed < 1.65 {
+    let black_a = if elapsed < 0.40 {
+        1.
+    } else if elapsed < 2.00 {
         0.
+    } else if elapsed < 2.35 {
+        ((elapsed - 2.00) / 0.35).clamp(0., 1.)
     } else {
-        ((elapsed - 1.65) / 0.35).clamp(0., 1.)
+        (1. - (elapsed - 2.35) / 0.35).clamp(0., 1.)
     };
-    if let Some(tex) = art {
-        draw_background(tex.clone().into_inner());
-    } else {
-        ui.fill_rect(ui.screen_rect(), Color::new(0.02, 0.025, 0.035, 1.));
+    // 2.35s 后只保留最终的黑->目标画面淡出，不再画加载封面
+    if elapsed < 2.35 {
+        if let Some(tex) = art {
+            draw_background(tex.clone().into_inner());
+        } else {
+            ui.fill_rect(ui.screen_rect(), Color::new(0.02, 0.025, 0.035, 1.));
+        }
     }
     ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., black_a));
-    let text_a = if elapsed < 1.65 { intro } else { (1. - (elapsed - 1.65) / 0.35).clamp(0., 1.) };
+    let text_a = if elapsed < 0.40 {
+        0.
+    } else if elapsed < 2.00 {
+        1.
+    } else {
+        (1. - (elapsed - 2.00) / 0.25).clamp(0., 1.)
+    };
     let load_text = "Loading...";
     let m = ui.text(load_text).size(0.44).measure();
     let top = 1. / screen_aspect();
