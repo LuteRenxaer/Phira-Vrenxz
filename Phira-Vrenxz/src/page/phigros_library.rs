@@ -24,6 +24,15 @@ fn load_ui_icon(name: &str) -> Option<SafeTexture> {
     Some(Texture2D::from_rgba8(w as u16, h as u16, &img).into())
 }
 
+
+fn load_rank_icon(name: &str) -> Option<SafeTexture> {
+    let path = std::path::Path::new("assets/rank").join(name);
+    let bytes = std::fs::read(path).ok()?;
+    let img = image::load_from_memory(&bytes).ok()?.to_rgba8();
+    let (w, h) = img.dimensions();
+    Some(Texture2D::from_rgba8(w as u16, h as u16, &img).into())
+}
+
 const TABS: [&str; 7] = ["本地", "上架", "特殊", "未上架", "热门", "XC-SIM", "内置"];
 
 pub struct PhigrosLibraryPage {
@@ -43,6 +52,7 @@ pub struct PhigrosLibraryPage {
     icon_random: Option<SafeTexture>,
     icon_setting: Option<SafeTexture>,
     icon_play: Option<SafeTexture>,
+    rank_icons: [Option<SafeTexture>; 6],
 }
 
 impl PhigrosLibraryPage {
@@ -64,6 +74,14 @@ impl PhigrosLibraryPage {
             icon_random: load_ui_icon("Random.png"),
             icon_setting: load_ui_icon("setting.png"),
             icon_play: load_ui_icon("play.png"),
+            rank_icons: [
+                load_rank_icon("phi.png"),
+                load_rank_icon("V.png"),
+                load_rank_icon("S.png"),
+                load_rank_icon("A.png"),
+                load_rank_icon("B.png"),
+                load_rank_icon("F.png"),
+            ],
         };
         this.reload();
         this
@@ -290,8 +308,11 @@ impl Page for PhigrosLibraryPage {
             if let Some(rec) = &chart.record {
                 ui.text(format!("{:.2}%", rec.accuracy)).pos(x(0.685), y(0.750)).size(0.22).color(Color::new(1., 1., 1., 0.7)).draw();
             }
-            let rank = if score >= 1_000_000 { "Phi" } else if score >= 960_000 { "V" } else if score >= 920_000 { "S" } else if score >= 880_000 { "A" } else if score >= 820_000 { "B" } else { "F" };
-            ui.text(rank).pos(x(0.955), y(0.700)).anchor(1., 0.).size(0.62).color(Color::new(0.55, 0.75, 1., 1.)).draw();
+            let ri = if score >= 1_000_000 { 0 } else if score >= 960_000 { 1 } else if score >= 920_000 { 2 } else if score >= 880_000 { 3 } else if score >= 820_000 { 4 } else { 5 };
+            if let Some(tex) = &self.rank_icons[ri] {
+                let rr = Rect::new(x(0.900), y(0.690), x(0.965) - x(0.900), y(0.800) - y(0.690));
+                ui.fill_rect(rr, (tex.clone().into_inner(), rr, ScaleType::Fit, WHITE));
+            }
         }
         // start-button: right0 bottom -30 w400 h200
         let pr = Rect::new(x(0.792), y(0.843), x(1.0) - x(0.792), y(1.0) - y(0.843));
