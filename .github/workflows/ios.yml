@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   ipa:
@@ -61,9 +62,16 @@ jobs:
       - name: Show failure tail
         if: failure()
         run: |
+          tail -n 300 build.log > /tmp/ios_fail.txt
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          tail -n 200 build.log >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/ios_fail.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          BODY=$(jq -Rs '{title:"iOS build failure log", body:("```\n" + . + "\n```")}' /tmp/ios_fail.txt)
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/issues \
+            -d "$BODY"
       - name: Package IPA
         run: |
           set -euo pipefail
