@@ -192,16 +192,12 @@ impl ChartsView {
         NEED_UPDATE.fetch_and(false, Ordering::Relaxed)
     }
 
-    /// `rt`（真实时间）保留在签名里以兼容既有调用方：多人选谱已改成「请求进入多人场景」，
-    /// 不再需要它来驱动面板滑出动画。
     pub fn touch(&mut self, touch: &Touch, t: f32, _rt: f32) -> Result<bool> {
         if self.chart_menu.showing() {
             self.chart_menu.touch(touch, t);
             return Ok(true);
         }
         if self.scroll.touch(touch, t) {
-
-
 
             if let Some(charts) = &mut self.charts {
                 for item in charts.iter_mut() {
@@ -220,8 +216,7 @@ impl ChartsView {
                 if let Some(chart) = &item.chart {
                     if item.btn.touch(touch, t) {
                         item.long_touch.reset();
-                        // 在房里点谱面 = 为多人房间选谱（在线谱）或选本地谱分享。
-                        // 选完后请求进入多人场景，回到房间页。
+
                         let handled_by_mp = crate::mp::MP_SESSION.with(|it| {
                             let mut guard = it.borrow_mut();
                             let Some(session) = guard.as_mut() else { return false };
@@ -304,6 +299,11 @@ impl ChartsView {
                                 .local_path
                                 .as_ref()
                                 .and_then(|path| get_data().charts.iter().find(|it| &it.local_path == path).map(|it| it.mods))
+                                .unwrap_or_default(),
+                            chart
+                                .local_path
+                                .as_ref()
+                                .and_then(|path| get_data().charts.iter().find(|it| &it.local_path == path).map(|it| it.hp))
                                 .unwrap_or_default(),
                         );
                         self.transit = Some(TransitState {
@@ -550,7 +550,6 @@ impl ChartsView {
                                         }
                                     }
 
-
                                     ui.fill_path(&card_path, (semi_black(0.0 * c.a), (0., 0.), semi_black(0.85 * c.a), (0., ch * 0.6)));
 
                                     let info = &chart.info;
@@ -559,7 +558,6 @@ impl ChartsView {
                                         use std::fmt::Write;
                                         write!(&mut level, " Lv.{}", info.difficulty as i32).unwrap();
                                     }
-
 
                                     let mut level_text = ui
                                         .text(level)
@@ -579,7 +577,6 @@ impl ChartsView {
                                         },
                                     );
                                     level_text.draw();
-
 
                                     ui.text(&info.name)
                                         .pos(card_r.x + 0.015, card_r.bottom() - 0.015)
@@ -662,4 +659,3 @@ impl ChartsView {
         None
     }
 }
-

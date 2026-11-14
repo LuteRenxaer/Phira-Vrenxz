@@ -82,6 +82,8 @@ walkdir = { workspace = true }
 zip = { workspace = true, features = ["chrono"] }
 sevenz-rust = { workspace = true }
 zstd = "0.13"
+rusty_spine_38 = { package = "rusty_spine", git = "https://github.com/jabuwu/rusty_spine3.8", rev = "4ff8b72" }
+rusty_spine_4x = { package = "rusty_spine", path = "../vendor/rusty_spine_4x" }
 
 miniquad = { workspace = true }
 phira-mp-client = { workspace = true }
@@ -89,6 +91,11 @@ phira-mp-common = { workspace = true }
 sanitize-filename = "0.6.0"
 daachorse = "3.0.2"
 glam = { version = "0.30", features = ["scalar-math"] }
+ndarray = "0.16.1"
+num-complex = "0.4.6"
+realfft = { version = "3.5.0", features = ["avx", "sse"] }
+rayon = "1.10.0"
+rustc-hash = "2.1.2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.22.4"
@@ -119,6 +126,7 @@ objc2-ui-kit = { workspace = true }
 [build-dependencies]
 dotenv-build = "0.1"
 sevenz-rust = { workspace = true }
+embed-resource = "2.4"
 
 [dev-dependencies]
 fluent = { workspace = true }
@@ -128,7 +136,6 @@ fluent-syntax = { workspace = true }
 apk_name = "Phira-Vrenxz"
 package = "com.teamflos.PhiraVrenxz"
 assets = "../assets"
-icon = "icons/icon.png"
 min_sdk_version = 30
 target_sdk_version = 30
 
@@ -138,3 +145,8 @@ alias = "phirLie"
 keystore_password = "278913"
 key_password = "278913"
 
+
+[target.'cfg(target_os = "windows")'.dependencies]
+wry = "0.57.1"
+raw-window-handle = "0.6"
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }

@@ -1,6 +1,6 @@
 prpr_l10n::tl_file!("library");
 
-use super::{CollectionPage, FavoritesPage, NextPage, Page, SharedState};
+use super::{FavoritesPage, NextPage, Page, SharedState};
 use crate::{
     charts_view::{ChartDisplayItem, ChartsView, NEED_UPDATE},
     client::{recv_raw, Chart, ChartRef, ChartRefChartInfo, Client, Collection, CollectionUpdate, LocalCollection},
@@ -60,10 +60,20 @@ enum ChartListType {
     Local,
     Builtin,
     XCSim,
+    LocalServer,
     Ranked,
     Special,
     Unstable,
     Popular,
+}
+
+/// 本地服务器 GET /chart/list 返回的单条记录。
+#[derive(Deserialize)]
+struct LocSrvChart {
+    id: i32,
+    file: Option<String>,
+    #[serde(rename = "uploaderName")]
+    uploader_name: Option<String>,
 }
 
 struct ChartList {
@@ -109,7 +119,7 @@ pub struct LibraryPage {
     xcsim_login_step: u8,
     xcsim_login_username: String,
     xcsim_login_btn: DRectButton,
-    xcsim_server_btn: DRectButton,
+    loc_srv_task: Option<Task<Result<(Vec<ChartDisplayItem>, u64)>>>,
 
     icons: Arc<Icons>,
     rank_icons: [SafeTexture; 8],
@@ -119,6 +129,8 @@ pub struct LibraryPage {
     search_btn: DRectButton,
     search_str: String,
     search_active: bool,
+    search_selected: bool,
+    search_backspace_hold: f32,
     search_clr_btn: RectButton,
 
     order_btn: DRectButton,
@@ -138,7 +150,6 @@ pub struct LibraryPage {
     rating_last_show: bool,
     filter_show_tag: bool,
 
-    // 内置谱修改弹窗
     modify_btn: DRectButton,
     show_modify_dialog: bool,
     modify_aspect: String,
@@ -203,11 +214,12 @@ impl LibraryPage {
                 (new_list(ChartListType::Local), || tl!("local")),
                 (new_list(ChartListType::Builtin), || tl!("builtin")),
                 (new_list(ChartListType::XCSim), || "XC-SIM".into()),
+                (new_list(ChartListType::LocalServer), || tl!("loc-srv")),
                 (new_list(ChartListType::Ranked), || ttl!("chart-ranked")),
                 (new_list(ChartListType::Special), || ttl!("chart-special")),
                 (new_list(ChartListType::Unstable), || ttl!("chart-unstable")),
                 (new_list(ChartListType::Popular), || tl!("popular")),
-            ] as [(ChartList, TitleFn); 7]),
+            ] as [(ChartList, TitleFn); 8]),
 
             current_page: 0,
             online_total_page: 0,
@@ -223,7 +235,7 @@ impl LibraryPage {
         xcsim_login_step: 0,
         xcsim_login_username: String::new(),
         xcsim_login_btn: DRectButton::new(),
-        xcsim_server_btn: DRectButton::new(),
+        loc_srv_task: None,
 
             icons,
             rank_icons,
@@ -233,6 +245,8 @@ impl LibraryPage {
             search_btn: DRectButton::new(),
             search_str: String::new(),
             search_active: false,
+            search_selected: false,
+            search_backspace_hold: 0.,
             search_clr_btn: RectButton::new(),
 
             order_btn: DRectButton::new(),
@@ -322,6 +336,7 @@ impl LibraryPage {
     fn finish_search(&mut self) {
         if self.search_active {
             self.search_active = false;
+            self.search_selected = false;
             self.show_keyboard(false);
         }
     }
@@ -330,22 +345,129 @@ impl LibraryPage {
         unsafe { get_internal_gl() }.quad_context.show_keyboard(show);
     }
 
+    fn clip_set(&self, text: &str) {
+        if !text.is_empty() {
+            unsafe { get_internal_gl() }.quad_context.clipboard_set(text);
+        }
+    }
+
+    fn clip_get(&self) -> Option<String> {
+        unsafe { get_internal_gl() }.quad_context.clipboard_get()
+    }
+
     /// 内联搜索：整批字符（中文输入法一次上屏多个字）先反转再插入以纠正顺序，
     /// 回车结束并返回 true。
     fn poll_search_inline(&mut self) -> bool {
         if !self.search_active {
             return false;
         }
+        // Windows IME 吞掉 Ctrl 组合键时用物理键状态兜底
+        if let Some(shortcut) = prpr::shortcut::poll() {
+            match shortcut {
+                prpr::shortcut::Shortcut::SelectAll => self.search_selected = true,
+                prpr::shortcut::Shortcut::Copy => self.clip_set(&self.search_str),
+                prpr::shortcut::Shortcut::Cut => {
+                    self.clip_set(&self.search_str);
+                    self.search_str.clear();
+                    self.search_selected = false;
+                }
+                prpr::shortcut::Shortcut::Paste => {
+                    if let Some(clip) = self.clip_get() {
+                        if self.search_selected {
+                            self.search_str.clear();
+                            self.search_selected = false;
+                        }
+                        self.search_str.push_str(&clip);
+                    }
+                }
+            }
+            while get_char_pressed().is_some() {}
+            return false;
+        }
+        let ctrl = is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl);
+        if ctrl {
+            let mut handled = true;
+            if is_key_pressed(KeyCode::A) {
+                self.search_selected = true;
+            } else if is_key_pressed(KeyCode::C) {
+                self.clip_set(&self.search_str);
+            } else if is_key_pressed(KeyCode::X) {
+                self.clip_set(&self.search_str);
+                self.search_str.clear();
+                self.search_selected = false;
+            } else if is_key_pressed(KeyCode::V) {
+                if let Some(clip) = self.clip_get() {
+                    if self.search_selected {
+                        self.search_str.clear();
+                        self.search_selected = false;
+                    }
+                    self.search_str.push_str(&clip);
+                }
+            } else {
+                handled = false;
+            }
+            if handled {
+                while get_char_pressed().is_some() {}
+                return false;
+            }
+        }
         let mut batch = String::new();
+        let mut backspace_char = false;
         loop {
             match get_char_pressed() {
                 None => break,
                 Some(c) => {
+                    match c {
+                        '\u{1}' => {
+                            self.search_selected = true;
+                            continue;
+                        }
+                        '\u{3}' => {
+                            self.clip_set(&self.search_str);
+                            continue;
+                        }
+                        '\u{18}' => {
+                            self.clip_set(&self.search_str);
+                            self.search_str.clear();
+                            self.search_selected = false;
+                            continue;
+                        }
+                        '\u{16}' => {
+                            if let Some(clip) = self.clip_get() {
+                                if self.search_selected {
+                                    self.search_str.clear();
+                                    self.search_selected = false;
+                                }
+                                self.search_str.push_str(&clip);
+                            }
+                            continue;
+                        }
+                        _ => {}
+                    }
                     if c == '\r' || c == '\n' {
                         self.finish_search();
                         return true;
                     }
-                    if c == '\u{8}' || c == '\u{7f}' || c.is_control() {
+                    if c == '\u{8}' {
+                        if !is_key_pressed(KeyCode::Backspace) {
+                            if self.search_selected {
+                                self.search_str.clear();
+                                self.search_selected = false;
+                            } else {
+                                self.search_str.pop();
+                            }
+                            backspace_char = true;
+                        }
+                        continue;
+                    }
+                    if c == '\u{7f}' {
+                        if !is_key_pressed(KeyCode::Delete) {
+                            self.search_str.pop();
+                            backspace_char = true;
+                        }
+                        continue;
+                    }
+                    if c.is_control() {
                         continue;
                     }
                     batch.push(c);
@@ -353,13 +475,36 @@ impl LibraryPage {
             }
         }
         if !batch.is_empty() {
+            if self.search_selected {
+                self.search_str.clear();
+                self.search_selected = false;
+            }
             // 与旧 InputDialog 一致：输入法一次提交的一批字符按反序到达，反转后才是正确顺序
             for c in batch.chars().rev() {
                 self.search_str.push(c);
             }
         }
         if is_key_pressed(KeyCode::Backspace) {
-            self.search_str.pop();
+            if self.search_selected {
+                self.search_str.clear();
+                self.search_selected = false;
+            } else {
+                self.search_str.pop();
+            }
+            self.search_backspace_hold = 0.;
+        } else if !backspace_char && is_key_down(KeyCode::Backspace) {
+            self.search_backspace_hold += get_frame_time().min(0.1);
+            if self.search_backspace_hold >= 0.33 {
+                if self.search_selected {
+                    self.search_str.clear();
+                    self.search_selected = false;
+                } else {
+                    self.search_str.pop();
+                }
+                self.search_backspace_hold = 0.30;
+            }
+        } else {
+            self.search_backspace_hold = 0.;
         }
         false
     }
@@ -572,6 +717,77 @@ impl LibraryPage {
         }));
     }
 
+    /// 加载本地服务器谱面列表（公开接口，无需登录）。
+    /// GET UPLOAD_BASE/chart/list 一次返回全部，客户端做关键词过滤并按 id 排序，
+    /// 单页全量展示（列表滚动查看，不做分页）。
+    fn load_loc_srv(&mut self) {
+        self.tabs.selected_mut().view.reset_scroll();
+        self.tabs.selected_mut().view.clear();
+        self.online_total_page = 0;
+        let search = self.search_str.clone();
+        self.loc_srv_task = Some(Task::new(async move {
+            let resp = recv_raw(Client::get_to(crate::score_upload::UPLOAD_BASE, "/chart/list")).await?;
+            let charts: Vec<LocSrvChart> = resp.json().await?;
+            let mut charts: Vec<_> = charts
+                .into_iter()
+                .filter(|c| {
+                    search.is_empty()
+                        || c.file
+                            .as_deref()
+                            .is_some_and(|f| f.to_lowercase().contains(&search.to_lowercase()))
+                        || c.uploader_name
+                            .as_deref()
+                            .is_some_and(|u| u.to_lowercase().contains(&search.to_lowercase()))
+                })
+                .collect();
+            charts.sort_by_key(|c| c.id);
+            let total_page = if charts.is_empty() { 0 } else { 1 };
+            let display_items: Vec<_> = charts
+                .iter()
+                .map(|c| {
+                    let name = c
+                        .file
+                        .as_deref()
+                        .map(|f| {
+                            Path::new(f)
+                                .file_name()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or(f)
+                                .to_string()
+                        })
+                        .unwrap_or_else(|| format!("Chart {}", c.id));
+                    ChartDisplayItem::new(
+                        Some(ChartItem {
+                            info: BriefChartInfo {
+                                id: Some(c.id),
+                                uploader: None,
+                                name,
+                                level: String::new(),
+                                difficulty: 0.,
+                                intro: c.uploader_name.clone().unwrap_or_default(),
+                                charter: String::new(),
+                                composer: String::new(),
+                                illustrator: String::new(),
+                                created: None,
+                                updated: None,
+                                chart_updated: None,
+                                has_unlock: false,
+                            },
+                            local_path: None,
+                            illu: Illustration::from_done(crate::page::BLACK_TEXTURE.clone()),
+                            chart_type: ChartType::LocalServer,
+                            level_author: None,
+                            xcsim_preview_url: None,
+                            xcsim_illustration_url: None,
+                        }),
+                        None,
+                    )
+                })
+                .collect();
+            Ok((display_items, total_page))
+        }));
+    }
+
     fn sync_local(&mut self, s: &SharedState) {
         let mut charts_local = s.charts_local.iter().collect::<Vec<_>>();
         self.current_order.apply(&mut charts_local, |it| it);
@@ -732,15 +948,11 @@ fn present_export_picker(path: String) {
 
     define_class! {
 
-
-
         #[unsafe(super = NSObject)]
         #[thread_kind = MainThreadOnly]
         struct PickerDelegate;
 
-
         unsafe impl NSObjectProtocol for PickerDelegate {}
-
 
         unsafe impl UIDocumentPickerDelegate for PickerDelegate {
 
@@ -1013,7 +1225,7 @@ impl Page for LibraryPage {
         }
         if !matches!(self.tabs.selected().ty, ChartListType::Local | ChartListType::Builtin) {
             // 加载中禁止切换分页
-            let is_loading = self.xcsim_task.is_some() || self.online_task.is_some();
+            let is_loading = self.xcsim_task.is_some() || self.loc_srv_task.is_some() || self.online_task.is_some();
             if !is_loading {
                 if self.prev_page_btn.touch(touch, t) {
                     if self.current_page != 0 {
@@ -1037,12 +1249,6 @@ impl Page for LibraryPage {
                 self.finish_search();
                 self.xcsim_login_step = 0;
                 request_input("xcsim_username", InputBox::new().prompt(tl!("xcsim-username-prompt")));
-                return Ok(true);
-            }
-            if self.xcsim_server_btn.touch(touch, t) {
-                self.finish_search();
-                let current = crate::xcsim::api_base_url();
-                request_input("xcsim_server_api", InputBox::new().default_text(&current).prompt(tl!("xcsim-api-prompt")));
                 return Ok(true);
             }
         }
@@ -1124,6 +1330,20 @@ impl Page for LibraryPage {
                     self.finish_search();
                     self.current_page = 0;
                     self.load_xcsim();
+                    return Ok(true);
+                }
+                if !self.search_clr_btn.contains(touch.position) && self.search_btn.touch(touch, t) {
+                    self.begin_search();
+                    return Ok(true);
+                }
+            }
+            ChartListType::LocalServer => {
+                if !self.search_str.is_empty() && self.search_clr_btn.touch(touch) {
+                    button_hit();
+                    self.search_str.clear();
+                    self.finish_search();
+                    self.current_page = 0;
+                    self.load_loc_srv();
                     return Ok(true);
                 }
                 if !self.search_clr_btn.contains(touch.position) && self.search_btn.touch(touch, t) {
@@ -1222,24 +1442,28 @@ impl Page for LibraryPage {
 
         let is_local = self.tabs.selected().ty == ChartListType::Local || self.tabs.selected().ty == ChartListType::Builtin;
         let is_xcsim = self.tabs.selected().ty == ChartListType::XCSim;
+        let is_loc_srv = self.tabs.selected().ty == ChartListType::LocalServer;
         if self.tabs.changed() {
             self.tabs.selected_mut().view.reset_scroll();
             self.tabs.iter_mut().for_each(|it| it.view.multi_select = None);
             self.online_task = None;
             self.xcsim_task = None;
+            self.loc_srv_task = None;
             if is_local {
                 self.sync_local(s);
             } else if is_xcsim {
                 self.current_page = 0;
                 self.load_xcsim();
+            } else if is_loc_srv {
+                self.current_page = 0;
+                self.load_loc_srv();
             } else {
                 self.current_page = 0;
                 self.load_online();
             }
         }
+        // 谱面合集页已移除：点击章节直接进入 Remember 章节（由主页章节按钮处理）
         if cfg!(closed) && self.tabs.selected_mut().view.clicked_special {
-            let icons = Arc::clone(&self.icons);
-            self.next_page_task = Some(Box::pin(async move { Ok(NextPage::Overlay(Box::new(CollectionPage::new(icons).await?))) }));
             self.tabs.selected_mut().view.clicked_special = false;
         }
         if let Some(task) = &mut self.next_page_task {
@@ -1311,11 +1535,24 @@ impl Page for LibraryPage {
                 self.xcsim_task = None;
             }
         }
+        if let Some(task) = &mut self.loc_srv_task {
+            if let Some(res) = task.take() {
+                match res {
+                    Err(err) => show_error(err.context("Failed to load local server charts")),
+                    Ok((charts, total_page)) => {
+                        self.online_total_page = total_page as u64;
+                        self.tabs.selected_mut().view.set(t, charts);
+                    }
+                }
+                self.loc_srv_task = None;
+            }
+        }
         self.order_menu.update(t);
         self.order_meta_menu.update(t);
         self.multi_operation_menu.update(t);
         self.multi_select_menu.update(t);
         for chart in &mut s.charts_local {
+            chart.illu.notify();
             chart.illu.settle(t);
         }
         self.tabs.selected_mut().view.can_refresh = !is_local || self.current_fav_index.is_some();
@@ -1377,6 +1614,9 @@ impl Page for LibraryPage {
             } else if is_xcsim {
                 self.current_page = 0;
                 self.load_xcsim();
+            } else if is_loc_srv {
+                self.current_page = 0;
+                self.load_loc_srv();
             } else {
                 self.current_page = 0;
                 self.load_online();
@@ -1385,11 +1625,15 @@ impl Page for LibraryPage {
         if let Some((id, text)) = take_input() {
             if id == "search" {
                 self.search_str = text;
+                self.search_selected = false;
                 if is_local {
                     self.sync_local(s);
                 } else if is_xcsim {
                     self.current_page = 0;
                     self.load_xcsim();
+                } else if is_loc_srv {
+                    self.current_page = 0;
+                    self.load_loc_srv();
                 } else {
                     self.current_page = 0;
                     self.load_online();
@@ -1408,15 +1652,6 @@ impl Page for LibraryPage {
                 self.xcsim_login_task = Some(Task::new(async move {
                     crate::xcsim::login(&username, &password).await
                 }));
-            } else if id == "xcsim_server_api" {
-                let data = crate::get_data_mut();
-                if text.is_empty() {
-                    data.xcsim_api_url = None;
-                } else {
-                    data.xcsim_api_url = Some(text);
-                }
-                let _ = crate::save_data();
-                show_message(tl!("xcsim-api-updated")).ok();
             } else if id == "xcsim_server_download" {
                 let data = crate::get_data_mut();
                 if text.is_empty() {
@@ -1877,6 +2112,17 @@ impl Page for LibraryPage {
         if chosen != ChartListType::Local {
             r.h -= 0.08;
         }
+        // HUD 自定义：谱面列表整体大框。只支持整体移动 / 缩放，
+        // 里面的小格由容器尺寸自动排布（不单独拖动某一格）。
+        const SLOT_LIST: prpr::hud::SlotDef = prpr::hud::SlotDef::centered("list", [0., 0., 1.67, 1.2], prpr::hud::Cap(true, true, true));
+        if prpr::hud::has("library", "list") {
+            r = prpr::hud::slot(ui, "library", SLOT_LIST);
+            if chosen != ChartListType::Local {
+                r.h -= 0.08;
+            }
+        } else {
+            prpr::hud::register("library", SLOT_LIST, r);
+        }
 
         s.render_fader(ui, |ui| {
             let main_r = r.feather(-0.01);
@@ -1889,9 +2135,17 @@ impl Page for LibraryPage {
 
         if chosen != ChartListType::Popular {
             s.render_fader(ui, |ui| {
+                // HUD 自定义：右上按钮排（整体移动 / 缩放；排内按钮仍等距自动排列）。
+                const SLOT_TOPBAR: prpr::hud::SlotDef = prpr::hud::SlotDef::centered("topbar", [0., 0., 0.09, 0.09], prpr::hud::Cap(true, true, true));
+                let bar = if prpr::hud::has("library", "topbar") {
+                    prpr::hud::slot(ui, "library", SLOT_TOPBAR)
+                } else {
+                    let r0 = Rect::new(r.right() - 0.09, -ui.top + 0.04, 0.09, r.y + ui.top - 0.06);
+                    prpr::hud::register("library", SLOT_TOPBAR, r0);
+                    r0
+                };
                 let multi_select = self.tabs.selected().view.multi_select.is_some();
-                let mut r = Rect::new(r.right(), -ui.top + 0.04, 0., r.y + ui.top - 0.06);
-                r.w = r.h;
+                let mut r = Rect::new(bar.right(), bar.y, bar.h, bar.h);
                 r.x -= r.w;
 
                 if let Some(selected) = &mut self.tabs.selected_mut().view.multi_select {
@@ -1960,7 +2214,7 @@ impl Page for LibraryPage {
                         ui.fill_rect(cr, (*self.icons.r#mod, cr, ScaleType::Fit, WHITE));
                     });
                     r.x -= r.w + 0.02;
-                } else if chosen != ChartListType::Local {
+                } else if chosen != ChartListType::Local && chosen != ChartListType::LocalServer {
                     self.filter_btn.render_shadow(ui, r, t, |ui, path| {
                         ui.fill_path(&path, semi_black(0.3));
                         let cr = r.feather(-0.01);
@@ -2021,6 +2275,14 @@ impl Page for LibraryPage {
                     r.x += r.w;
                 }
                 ui.fill_rect(r, (*self.icons.search, r, ScaleType::Fit, WHITE));
+                if self.search_active && self.search_selected && !self.search_str.is_empty() {
+                    let max_w = (rt - r.right() - 0.02).max(0.);
+                    let tw = ui.text(&self.search_str).size(0.6).measure().w.min(max_w);
+                    ui.fill_rect(
+                        Rect::new(r.right() + 0.005, r.center().y - 0.045, tw + 0.01, 0.09),
+                        Color::new(0.3, 0.55, 1., 0.35),
+                    );
+                }
                 let display = if self.search_active {
                     format!("{}|", self.search_str)
                 } else {
@@ -2039,9 +2301,6 @@ impl Page for LibraryPage {
                     r.w = 0.16;
                     r.x -= r.w + 0.02;
                     self.xcsim_login_btn.render_text(ui, r, t, tl!("xcsim-login"), 0.5, true);
-                    r.w = 0.12;
-                    r.x -= r.w + 0.02;
-                    self.xcsim_server_btn.render_text(ui, r, t, tl!("xcsim-server"), 0.45, true);
                 }
             });
         }

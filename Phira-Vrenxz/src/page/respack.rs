@@ -1,11 +1,12 @@
-prpr_l10n::tl_file!("respack");
+﻿prpr_l10n::tl_file!("respack");
 
 use super::{Page, SharedState};
 use crate::{
     dir, get_data, get_data_mut,
     icons::Icons,
+    page::{request_export, resolve_export, take_export},
     save_data,
-    scene::{confirm_delete, MainScene},
+    scene::{compress_folder, confirm_delete, MainScene},
 };
 use anyhow::Result;
 use macroquad::prelude::*;
@@ -16,16 +17,19 @@ use prpr::{
     ui::{button_hit, list_switch, DRectButton, Dialog, Scroll, Ui},
 };
 use sasa::{AudioManager, PlaySfxParams, Sfx};
+use sanitize_filename::sanitize;
 use serde_yaml::Error;
 use std::{
     borrow::Cow,
     fs::File,
+    io::BufWriter,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        mpsc, Arc,
     },
 };
+use tracing::warn;
 
 fn build_emitter(pack: &ResourcePack) -> Result<ParticleEmitter> {
     ParticleEmitter::new(pack, get_data().config.note_scale * 0.6, pack.info.hide_particles)
@@ -72,6 +76,10 @@ pub struct ResPackPage {
 
     info_btn: DRectButton,
     delete_btn: DRectButton,
+    export_btn: DRectButton,
+
+    export_path: Option<PathBuf>,
+    export_task: Option<mpsc::Receiver<Result<()>>>,
 
     should_delete: Arc<AtomicBool>,
 
@@ -128,6 +136,7 @@ impl ResPackPage {
         save_data()?;
         items[index].load();
         let delete_btn = DRectButton::new().with_delta(-0.004).with_elevation(0.);
+        let export_btn = delete_btn.clone();
         Ok(Self {
             audio: create_audio_manger(&get_data().config)?,
             items,
@@ -139,6 +148,10 @@ impl ResPackPage {
 
             info_btn: delete_btn.clone(),
             delete_btn,
+            export_btn,
+
+            export_path: None,
+            export_task: None,
 
             should_delete: Arc::new(AtomicBool::default()),
 
@@ -197,6 +210,19 @@ impl Page for ResPackPage {
             confirm_delete(self.should_delete.clone());
             return Ok(true);
         }
+        if self.export_btn.touch(touch, t) {
+            button_hit();
+            if self.index == 0 {
+                show_message(tl!("cant-export-builtin")).error();
+                return Ok(true);
+            }
+            let item = &self.items[self.index];
+            let path = item.path.clone().unwrap();
+            let name = sanitize(&item.name);
+            self.export_path = Some(path);
+            request_export(format!("{name}.zip"));
+            return Ok(true);
+        }
         Ok(false)
     }
 
@@ -233,6 +259,47 @@ impl Page for ResPackPage {
             self.items[self.index].load();
             show_message(tl!("deleted")).ok();
         }
+        if let Some(config) = take_export() {
+            fn export_inner(path: PathBuf, output: File) -> Result<()> {
+                compress_folder(&path, &mut BufWriter::new(output))?;
+                Ok(())
+            }
+            match config {
+                Err(err) => show_error(err.into()),
+                Ok(config) => {
+                    if let Some(path) = self.export_path.take() {
+                        let (tx, rx) = mpsc::sync_channel(1);
+                        std::thread::spawn(move || {
+                            let result = export_inner(path, config.file);
+                            if result.is_err() {
+                                if let Err(err) = (config.deleter)() {
+                                    warn!("failed to delete export file: {:?}", err);
+                                }
+                            }
+                            let _ = tx.send(result);
+                        });
+                        self.export_task = Some(rx);
+                    }
+                }
+            }
+        }
+        if let Some(rx) = &mut self.export_task {
+            match rx.try_recv() {
+                Ok(Err(err)) => {
+                    show_error(err);
+                    self.export_task = None;
+                }
+                Ok(Ok(())) => {
+                    resolve_export();
+                    self.export_task = None;
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    show_error(anyhow::Error::msg("Export thread panicked"));
+                    self.export_task = None;
+                }
+            }
+        }
         if let Some(item) = MainScene::take_imported_respack() {
             self.items.push(item);
         }
@@ -246,8 +313,10 @@ impl Page for ResPackPage {
         let d = 0.29;
         cr.x += d;
         cr.w -= d;
-
-        let r = Rect::new(-0.92, cr.y, 0.47, cr.h);
+        // HUD 自定义：左侧资源包列表 + 右侧预览，都可整块移动 / 缩放。
+        let key = prpr::hud::cur_page().key();
+        let r = prpr::hud::slot_or(ui, key, "list", prpr::hud::Cap(true, true, true), Rect::new(-0.92, cr.y, 0.47, cr.h));
+        let cr = prpr::hud::slot_or(ui, key, "preview", prpr::hud::Cap(true, true, true), cr);
         s.render_fader(ui, |ui| {
             ui.fill_path(&r.rounded(0.01), semi_black(0.3));
             let pad = 0.02;
@@ -424,6 +493,12 @@ impl Page for ResPackPage {
                     ui.fill_path(&path, semi_black(0.2));
                     let r = tr.feather(-0.02);
                     ui.fill_rect(r, (*self.icons.info, r, ScaleType::Fit));
+                });
+                tr.x -= tr.w + 0.02;
+                self.export_btn.render_shadow(ui, tr, t, |ui, path| {
+                    ui.fill_path(&path, semi_black(0.2));
+                    let r = tr.feather(-0.02);
+                    ui.fill_rect(r, (*self.icons.download, r, ScaleType::Fit));
                 });
             }
         });

@@ -19,7 +19,7 @@ use std::sync::{atomic::Ordering, Arc};
 use tracing::warn;
 
 const BEFORE_TIME: f32 = 1.2;
-/// 面板进场时相对最终位置的横向偏移（负数 = 从左边偏一点点滑进来）。
+
 const PANEL_IN_OFFSET: f32 = -0.06;
 const PROGRESS_CYCLE: f32 = 3.0;
 
@@ -27,7 +27,6 @@ pub type UploadFn = Arc<dyn Fn(Vec<u8>) -> Task<Result<RecordUpdateState>>>;
 pub type UpdateFn = Box<dyn FnMut(f64, &mut Resource, &mut Judge)>;
 pub type SaveFn = Box<dyn Fn(SimpleRecord) -> Result<()>>;
 
-/// 加载页从右边滑进来的时长；开了「减少动态效果」返回 `None`（不做动画，直接到位）。
 fn transition_time() -> Option<f32> {
     if PREFER_REDUCED_MOTION.load(Ordering::Relaxed) {
         None
@@ -164,8 +163,6 @@ impl LoadingScene {
         })
     }
 
-    /// 底部那条细进度线。走 Ui 画（原来是 macroquad 的 draw_rectangle/draw_circle），
-    /// 这样它才跟着面板的进场位移与透明度一起动。
     fn draw_phigros_loading(&self, ui: &mut Ui, t: f32) {
         let progress = (t % PROGRESS_CYCLE) / PROGRESS_CYCLE;
         let bar_width = 0.5;
@@ -182,7 +179,6 @@ impl LoadingScene {
         }
     }
 
-    /// `cover_alpha` 单独给曲绘（封面）用：进场时它只做透明度渐变，比面板再晚一点。
     fn draw_parallelogram_card(&self, ui: &mut Ui, card: Rect, radius: f32, cover_alpha: f32) {
         let skew_offset = 0.08;
 
@@ -277,12 +273,6 @@ impl Scene for LoadingScene {
         cam.render_target = self.target;
         set_camera(&cam);
 
-        // 进场编排：三段错开、全部 ease-out ——
-        //   背景：整块从屏幕右侧推入（最先动，先把后面盖住）
-        //   面板：从左边偏一点点滑到位，同时淡入
-        //   封面：只做透明度渐变（比面板再晚一点）
-        // LoadingScene 是 Overlay 进来的，底下就是选曲页，所以背景推入时能看见它。
-        // 开了「减少动态效果」则三段直接到位。
         let ease = |p: f32| 1. - (1. - p).powi(3);
         let seg = |delay: f32, dur: f32| {
             if transition_time().is_none() {
@@ -296,14 +286,12 @@ impl Scene for LoadingScene {
         let panel_off = PANEL_IN_OFFSET * (1. - panel_p);
         let cover_p = seg(0.16, 0.30);
 
-        // —— 背景层：整块从右边推入（走 Ui 才吃得到位移；原来是 macroquad 的 draw_background）——
         let screen = Rect::new(-1., -top, 2., top * 2.);
         ui.dx(bg_off);
         ui.fill_rect(screen, (*self.background, screen, ScaleType::CropCenter));
         ui.fill_rect(screen, semi_black(0.3));
         ui.dx(-bg_off);
 
-        // —— 面板 + 文字层：从左边偏一点点进来 + 透明度渐变 ——
         ui.alpha(panel_p, |ui| {
             ui.dx(panel_off);
             let card_w = 1.2;
@@ -396,7 +384,7 @@ impl Scene for LoadingScene {
                 let fade = ((t - self.finish_time) / 0.5).min(1.0);
                 ui.fill_rect(full, semi_black(fade * 0.9));
             }
-            // dx 是累加的：不还原会把位移带到这一帧之后的绘制上
+
             ui.dx(-panel_off);
         });
 

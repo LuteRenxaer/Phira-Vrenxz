@@ -39,12 +39,9 @@ pub struct Note {
     pub color: Color,
     pub fx_color: Option<Color>,
     pub judge_area: f32,
-    /// 晚按保护标记：一帧里"按得比 perfect 窗口更晚、附近又有 drag / flick"时，
-    /// 这些 drag / flick 会被打上这个标记，然后这一下点击作废（见 judge）。
-    /// 与 phire 的 `Note::protected` 同一用途，跨帧保留、每次 reset 清掉。
+
     pub protected: bool,
 
-    /// From the other side of the line
     pub above: bool,
     pub multiple_hint: bool,
     pub fake: bool,
@@ -311,7 +308,6 @@ impl Note {
                     let tex = &style.hold;
                     let ratio = style.hold_ratio();
 
-
                     draw_tex(
                         res,
                         **(if res.res_pack.info.hold_repeat {
@@ -519,15 +515,15 @@ pub(crate) struct FrameGeo<'b> {
     pub hold_compact: bool,
     pub hold_partial_cover: bool,
     pub pe_alpha_extension: bool,
-    /// 屏幕外剔除（档位接管后的生效值）
+
     pub cull: bool,
-    /// 多指提示 Note 宽度比（始终取全分辨率 click 贴图，与原实现一致）
+
     pub mh_ratio: f32,
-    /// 花样 mod：幽灵 / 横摆（快照预先判定，工作线程只读）
+
     pub ghost: bool,
     pub random_x: bool,
     pub styles: StyleSet,
-    /// appear_before 扩展（负 alpha 编码）需要时用于 beat/time 换算
+
     pub bpm: Option<&'b BpmList>,
 }
 
@@ -563,19 +559,16 @@ impl<'b> FrameGeo<'b> {
     }
 }
 
-/// Note 顶点输出单元：排序键 + 一个四顶点矩形（与旧 `NoteBuffer::push` 输入一致）。
 #[derive(Clone, Copy, Default)]
 pub(crate) struct NoteVertexItem {
     pub key: (i8, GLuint),
     pub verts: [Vertex; 4],
 }
 
-/// 顶点去向抽象。
 pub(crate) trait VertexSink {
     fn push(&mut self, key: (i8, GLuint), verts: [Vertex; 4]);
 }
 
-/// 写入线程内暂存（并行路径，之后由主线程按线序合批）。
 pub(crate) struct StagingSink<'a>(pub &'a mut Vec<NoteVertexItem>);
 
 impl VertexSink for StagingSink<'_> {
@@ -912,4 +905,3 @@ pub(crate) fn note_render(note: &Note, g: &mut Geo, cfg: &mut NoteRenderCfg) {
         }
     }
 }
-

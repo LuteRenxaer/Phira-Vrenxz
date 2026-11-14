@@ -7,8 +7,38 @@ use prpr::{
     ui::{button_hit, rounded_rect_shadow, DRectButton, RectButton, Scroll, ShadowConfig, Ui},
 };
 
-pub struct Popup {
-    scroll: Scroll,
+/// 设置页两栏布局里的「值」方块：深色底 + 极细描边 + 右侧下拉箭头
+pub fn chip(ui: &mut Ui, r: Rect, text: &str, size: f32) {
+    ui.fill_rect(r, Color::new(0.025, 0.027, 0.032, 0.62));
+    let b = 0.0016;
+    let c = semi_white(0.16);
+    ui.fill_rect(Rect::new(r.x, r.y, r.w, b), c);
+    ui.fill_rect(Rect::new(r.x, r.bottom() - b, r.w, b), c);
+    ui.fill_rect(Rect::new(r.x, r.y, b, r.h), c);
+    ui.fill_rect(Rect::new(r.right() - b, r.y, b, r.h), c);
+    ui.text(text)
+        .pos(r.x + 0.018, r.center().y)
+        .anchor(0., 0.5)
+        .size(size)
+        .max_width(r.w - 0.036)
+        .color(semi_white(0.92))
+        .draw();
+}
+
+/// 值方块右侧的小三角
+pub fn chip_caret(ui: &mut Ui, r: Rect) {
+    use lyon::math::point;
+    let cx = r.right() - 0.026;
+    let cy = r.center().y;
+    let mut b = lyon::path::Path::builder();
+    b.begin(point(cx - 0.010, cy - 0.004));
+    b.line_to(point(cx + 0.010, cy - 0.004));
+    b.line_to(point(cx, cy + 0.008));
+    b.end(true);
+    ui.fill_path(&b.build(), semi_white(0.75));
+}
+
+pub struct Popup {    scroll: Scroll,
     rect: Rect,
     showing: bool,
     options: Vec<(String, RectButton)>,
@@ -88,11 +118,19 @@ impl Popup {
     }
 
     pub fn show(&mut self, ui: &mut Ui, t: f32, r: Rect) {
-        self.rect = ui.rect_to_global(r);
+        let rect = ui.rect_to_global(r);
+        self.show_global(t, rect);
+    }
+
+    /// 用已经换算好的屏幕坐标弹窗。
+    /// `render_flat` 里的行坐标带着滚动容器的偏移，必须先转成全局坐标再判断
+    /// 下方放不放得下，否则会把「本地坐标」和 `ui.top` 混着比，弹窗翻到屏幕外。
+    pub fn show_global(&mut self, t: f32, mut rect: Rect) {
         if let Some(area) = self.auto_adjust {
-            self.rect.x = self.rect.x.clamp(area.x, area.right() - self.rect.w);
-            self.rect.y = self.rect.y.clamp(area.y, area.bottom() - self.rect.h);
+            rect.x = rect.x.clamp(area.x, area.right() - rect.w);
+            rect.y = rect.y.clamp(area.y, area.bottom() - rect.h);
         }
+        self.rect = rect;
         self.showing = true;
         self.fader.sub(t);
     }
@@ -256,8 +294,30 @@ impl ChooseButton {
     }
 
     #[inline]
+    pub fn set_options(&mut self, options: Vec<String>) {
+        self.popup.set_options(options);
+    }
+
+    #[inline]
+    pub fn with_height(mut self, height: f32) -> Self {
+        self.height = height;
+        self
+    }
+
+    /// 弹窗宽度（不改变按钮本身的宽度）。选项文字很长时用。
+    #[inline]
+    pub fn with_width(mut self, width: f32) -> Self {
+        self.width = Some(width);
+        self
+    }
+
+    #[inline]
     pub fn selected(&self) -> usize {
         self.popup.selected
+    }
+
+    pub fn set_selected(&mut self, selected: usize) {
+        self.popup.selected = selected;
     }
 
     #[inline]
@@ -267,7 +327,7 @@ impl ChooseButton {
 
     pub fn render(&mut self, ui: &mut Ui, r: Rect, t: f32) {
         self.btn
-            .render_text(ui, r, t, &self.popup.options[self.popup.selected].0, self.popup.size, false);
+            .render_text_para(ui, r, t, &self.popup.options[self.popup.selected].0, self.popup.size, false);
         if self.need_to_show {
             let pad = 0.007;
             let mut rr = Rect::new(r.x, r.bottom() + pad, self.width.unwrap_or(r.w), self.height);
@@ -283,6 +343,35 @@ impl ChooseButton {
     #[inline]
     pub fn render_top(&mut self, ui: &mut Ui, t: f32, alpha: f32) {
         self.popup.render(ui, t, alpha);
+    }
+
+    /// 扁平样式：深色值方块 + 当前选项 + 下拉箭头（设置页两栏布局用）
+    pub fn render_flat(&mut self, ui: &mut Ui, r: Rect, t: f32, size: f32) {
+        let text = self.popup.options[self.popup.selected].0.clone();
+        self.btn.build(ui, t, r, |ui, _| {
+            chip(ui, r, &text, size);
+            chip_caret(ui, r);
+        });
+        if self.need_to_show {
+            let pad = 0.007;
+            let h = self.height.min(ui.top * 2. - 0.06);
+            let w = self.width.unwrap_or(r.w);
+            // 先把按钮和「往下展开后的底边」都换到屏幕坐标，再决定往哪边弹；
+            // r 是滚动容器里的局部坐标，直接和 ui.top 比会把弹窗翻到屏幕外。
+            let gr = ui.rect_to_global(r);
+            let open_up = gr.y + gr.h + pad + h > ui.top - 0.02;
+            let mut target = if open_up {
+                Rect::new(gr.x, gr.y - h - pad, w, h)
+            } else {
+                Rect::new(gr.x, gr.y + gr.h + pad, w, h)
+            };
+            target.y = target.y.clamp(-ui.top + 0.02, ui.top - 0.02 - h);
+            target.x -= 0.1;
+            target.w += 0.1;
+            self.popup.set_bottom(!open_up);
+            self.popup.show_global(t, target);
+            self.need_to_show = false;
+        }
     }
 
     pub fn update(&mut self, t: f32) {

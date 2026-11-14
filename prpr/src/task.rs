@@ -1,4 +1,3 @@
-//! Time consuming task management.
 
 use std::{
     future::Future,

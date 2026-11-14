@@ -2,7 +2,7 @@ prpr_l10n::tl_file!("profile");
 
 #[cfg(feature = "hykb")]
 use super::confirm_dialog;
-use super::{confirm_delete, TEX_BACKGROUND, TEX_ICON_BACK};
+use super::{confirm_delete, TEX_ICON_BACK};
 use crate::{
     client::{recv_raw, Client, Record, User, UserManager},
     get_data, get_data_mut, hykb_logout,
@@ -33,7 +33,6 @@ use std::sync::{
 };
 use tokio::sync::Notify;
 
-/// 生成平行四边形路径（左右边斜切）
 fn parallelogram(r: Rect, shear: f32) -> lyon::path::Path {
     use lyon::math::point;
     let mut p = lyon::path::Path::builder();
@@ -59,7 +58,8 @@ pub struct ProfileScene {
 
     pf_scroll: Scroll,
 
-    background: SafeTexture,
+    /// 与主页 / 主场景共用的底板（左侧主图 + 右侧黑场 / TriGrid + 粒子）
+    backdrop: crate::splash_ui::Backdrop,
 
     icon_back: SafeTexture,
     icon_user: SafeTexture,
@@ -110,7 +110,7 @@ impl ProfileScene {
 
             pf_scroll: Scroll::new(),
 
-            background: TEX_BACKGROUND.with(|it| it.borrow().clone().unwrap()),
+            backdrop: crate::splash_ui::Backdrop::new(),
 
             icon_back: TEX_ICON_BACK.with(|it| it.borrow().clone().unwrap()),
             icon_user,
@@ -181,7 +181,7 @@ impl ProfileScene {
 
             rank_icons,
         };
-        // 禁用按钮阴影
+
         s.btn_open_web.config.elevation = 0.0;
         s.btn_logout.config.elevation = 0.0;
         s.btn_delete.config.elevation = 0.0;
@@ -447,15 +447,16 @@ impl Scene for ProfileScene {
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
-        // 背景使用原始比例，不随 UI 比例缩放
-        set_camera(&ui.bg_camera());
         let t = tm.now() as f32;
 
-        let r = ui.screen_rect();
-        ui.fill_rect(r, (*self.background, r));
-
-        // UI 使用带比例的 camera
+        // 与主页 / 主场景同一套底板：自定义背景只替换左侧主图。
         set_camera(&ui.camera());
+        self.backdrop.draw(
+            ui,
+            crate::splash_ui::key_art().as_ref(),
+            macroquad::time::get_time() as f32,
+            1.0,
+        );
 
         let r = ui.back_rect();
         ui.fill_path(&r.rounded(0.01), semi_black(0.3));
@@ -466,10 +467,10 @@ impl Scene for ProfileScene {
         let r = Rect::new(-0.85, -ui.top + 0.1, 0.6, 2.);
         let radius = 0.02;
         let shear = 0.04;
-        // 卡片平行四边形背景
+
         let pgram = parallelogram(r, shear);
         ui.fill_path(&pgram, semi_black(0.3));
-        // 顶部高光条
+
         let top_bar = Rect::new(r.x + 0.04, r.y + 0.02, r.w - 0.08, 0.006);
         ui.fill_path(&parallelogram(top_bar, 0.01), Color::from_rgba(255, 255, 255, 30));
 
@@ -490,7 +491,7 @@ impl Scene for ProfileScene {
 
                     let r = ui.avatar(cx, r.y + radius + 0.05, radius, t, UserManager::opt_avatar(self.id, &self.icon_user));
                     self.avatar_btn.set(ui, r);
-                    // 头像外发光圆环
+
                     let avatar_center = (r.center().x, r.center().y);
                     let glow_r = radius + 0.015;
                     for i in 0..3 {
@@ -508,7 +509,6 @@ impl Scene for ProfileScene {
                         .draw();
                     self.btn_name.set(ui, r);
 
-
                     let r = ui
                         .text(format!("#{}", self.id))
                         .size(0.35)
@@ -517,8 +517,6 @@ impl Scene for ProfileScene {
                         .color(semi_white(0.45))
                         .draw();
 
-
-                    // RKS 醒目显示
                     let rks_y = r.bottom() + 0.025;
                     ui.text("RKS")
                         .size(0.35)
@@ -672,7 +670,7 @@ impl Scene for ProfileScene {
                                         let card_shear = 0.012;
                                         ui.fill_path(&parallelogram(r, card_shear), semi_black(0.25));
                                         let cover_r = r.nonuniform_feather(0.015, 0.0);
-                                        // 封面图用平行四边形裁剪
+
                                         ui.fill_path(&parallelogram(cover_r, card_shear), (*item.illu.texture.0, cover_r));
                                         ui.fill_path(&parallelogram(r, card_shear), semi_black(0.5));
                                     });
@@ -680,7 +678,7 @@ impl Scene for ProfileScene {
                                     let icon = icon_index(item.record.score as _, item.record.full_combo);
                                     let s = r.h - pad * 2.;
                                     let ir = Rect::new(r.x + pad, r.y + pad, s, s);
-                                    // 排名图标背景
+
                                     ui.fill_path(&ir.rounded(0.008), semi_black(0.3));
                                     ui.fill_rect(ir.feather(-0.008), (*self.rank_icons[icon], ir.feather(-0.008), ScaleType::Fit));
 
@@ -697,7 +695,7 @@ impl Scene for ProfileScene {
                                         .size(0.55)
                                         .color(if fc { Color::from_rgba(255, 215, 0, 255) } else { semi_white(0.65) })
                                         .draw();
-                                    // FC 时底部金色装饰线
+
                                     if fc {
                                         let line_r = Rect::new(r.x + pad, r.bottom() - 0.012, r.w - pad * 2., 0.006);
                                         ui.fill_path(&line_r.rounded(0.003), Color::from_rgba(255, 215, 0, 150));

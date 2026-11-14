@@ -1,10 +1,6 @@
-//! 加载主页的加载页。仿造 prpr 的 LoadingScene,只保留背景、Tip 和右下角的加载图标。
-//! 首次启动时会解压内置资源（本体资源包）。
-//! 内置谱面包（`assets/Level.zip` / Android 的 `Expansion_package.zip`）不再解压，
-//! 由 `crate::scene::open_builtin_level_zip` 直接从 zip 读取。
 
 use super::MainScene;
-use crate::blue_archive_tips::random_tip;
+use crate::tips::random_tip;
 prpr_l10n::tl_file!("login");
 use prpr::{
     ext::{draw_parallelogram, poll_future, semi_white, LocalTask, PARALLELOGRAM_SLOPE},
@@ -19,16 +15,16 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 const FADE_IN_TIME: f32 = 0.5;
-/// 主页加载完成后,加载页至少再显示这么久,避免一闪而过
+
 const MIN_SHOW_TIME: f32 = 0.8;
 
-/// 需要解压的内置资源包
-/// (压缩包名, 描述)
-/// 内置谱面包现在直接读 zip，不在此列。
-const ASSET_PACKAGES: &[(&str, &str)] = &[("Ontology_package.zip", "本体资源包")];
+pub(crate) const ASSET_PACKAGES: &[(&str, &str)] = if cfg!(target_os = "android") {
+    &[("Ontology_package.zip", "本体资源包")]
+} else {
+    &[("Ontology_package.pak", "本体资源包")]
+};
 
-/// 检查内置谱面包是否可用（存在且能作为 zip 打开，不解压）。
-fn level_package_available(assets_dir: &std::path::Path) -> bool {
+pub(crate) fn level_package_available(assets_dir: &std::path::Path) -> bool {
     let Some(path) = super::builtin_level_zip_in(assets_dir) else {
         return false;
     };
@@ -41,24 +37,15 @@ fn level_package_available(assets_dir: &std::path::Path) -> bool {
     }
 }
 
-/// 本体资源包解压出来的顶层目录。缺任何一个都说明没解压完整。
-///
-/// 为什么不能只看一个：以前这里只检查 `achievements_icon` 在不在，于是只要那一个目录
-/// 存在（工具/玩家只解了一半、或者换包之后残留），就会被当成"已经解压过了" ——
-/// rank / respack / sfx 这些永远补不上，本体包里换掉的贴图也就永远看不到。
-const ONTOLOGY_GROUPS: &[&str] = &["achievements_icon", "icon_old(home)", "mod", "rank", "respack", "sfx", "Tutorial"];
+// 本体包完整性检查只关心必需的资源组；包里若含已废弃的目录（例如 achievements_icon）
+// 会被解压出来但不参与检查，多余目录不影响判定。
+pub(crate) const ONTOLOGY_GROUPS: &[&str] = &["icon_old(home)", "mod", "rank", "respack", "sfx", "Tutorial"];
 
-/// 检查所有资源包是否已就绪（谱面包能打开 + 本体包的各组都在）
-fn all_packages_complete(assets_dir: &std::path::Path) -> bool {
+pub(crate) fn all_packages_complete(assets_dir: &std::path::Path) -> bool {
     level_package_available(assets_dir) && ONTOLOGY_GROUPS.iter().all(|group| assets_dir.join(group).exists())
 }
 
-/// 内置资源包的指纹（包名 + 字节数 + 修改时间）。
-///
-/// 解压是一次性的：只在**没有标记文件**时才解压。开发期换掉本体包里的贴图、或者更新 APK
-/// 带来新的资源包之后，老的解压产物会让新贴图永远看不到（Android 侧还有一层：Java 那边
-/// "文件已存在就不抄"）。所以标记文件里记下当时那一包的指纹，指纹对不上就重新解压。
-fn extract_stamp(assets_dir: &std::path::Path) -> String {
+pub(crate) fn extract_stamp(assets_dir: &std::path::Path) -> String {
     ASSET_PACKAGES
         .iter()
         .map(|(name, _)| match std::fs::metadata(assets_dir.join(name)) {
@@ -77,12 +64,11 @@ fn extract_stamp(assets_dir: &std::path::Path) -> String {
         .join(";")
 }
 
-/// 解压进度共享状态
-struct ExtractProgress {
-    current: usize,
-    total: usize,
-    message: String,
-    done: bool,
+pub(crate) struct ExtractProgress {
+    pub(crate) current: usize,
+    pub(crate) total: usize,
+    pub(crate) message: String,
+    pub(crate) done: bool,
 }
 
 pub struct StartupLoadingScene {
@@ -90,13 +76,13 @@ pub struct StartupLoadingScene {
     ready_scene: Option<Box<dyn Scene>>,
     finish_time: f32,
     enter_time: f32,
-    tip: String,
+    tip: &'static str,
     error: Option<String>,
-    /// 解压进度（None 表示不需要解压）
+
     extract_progress: Option<Arc<Mutex<ExtractProgress>>>,
-    /// 解压任务句柄
+
     extract_handle: Option<std::thread::JoinHandle<()>>,
-    /// 缓存的 fallback font（解压完成后用于创建 MainScene）
+
     fallback_font: Option<FontArc>,
 }
 
@@ -104,9 +90,6 @@ impl StartupLoadingScene {
     pub fn new(fallback: FontArc) -> Self {
         let tip = random_tip();
 
-        // 检查是否需要解压：
-        // - 标记文件在、但里面记的指纹和现在的包对不上 → 包换过了，重新解压；
-        // - 标记文件不在 → 老逻辑（本体包的资源不完整才解压）。
         let assets_dir = super::assets_root();
         let marker = assets_dir.join(".extracted_builtin");
         let need_extract = match std::fs::read_to_string(&marker) {
@@ -138,7 +121,6 @@ impl StartupLoadingScene {
             (None, None)
         };
 
-        // 如果不需要解压，直接开始加载 MainScene
         let (load_task, fallback_font) = if need_extract {
             (None, Some(fallback))
         } else {
@@ -160,8 +142,7 @@ impl StartupLoadingScene {
     }
 }
 
-/// 在后台线程解压内置资源
-fn extract_builtin_assets(progress: &Arc<Mutex<ExtractProgress>>) {
+pub(crate) fn extract_builtin_assets(progress: &Arc<Mutex<ExtractProgress>>) {
     let assets_dir = super::assets_root();
     let mut all_ok = true;
 
@@ -180,8 +161,7 @@ fn extract_builtin_assets(progress: &Arc<Mutex<ExtractProgress>>) {
             continue;
         }
 
-        // 解压到 assets 目录（自动跳过顶层目录）
-        match extract_zip_skip_top_dir(&archive_path, &assets_dir) {
+        match extract_builtin_archive(&archive_path, &assets_dir) {
             Ok(_) => {
                 eprintln!("Successfully extracted {}", archive_name);
             }
@@ -192,8 +172,6 @@ fn extract_builtin_assets(progress: &Arc<Mutex<ExtractProgress>>) {
         }
     }
 
-    // 只有所有包都解压成功才写标记文件；写的是"解压的是哪一包"的指纹，
-    // 下次启动包一变就会重新解压（见 extract_stamp）。
     if all_ok {
         let marker = assets_dir.join(".extracted_builtin");
         let _ = std::fs::write(&marker, extract_stamp(&assets_dir));
@@ -204,15 +182,47 @@ fn extract_builtin_assets(progress: &Arc<Mutex<ExtractProgress>>) {
     p.message = if all_ok { "解压完成".to_string() } else { "解压部分失败".to_string() };
 }
 
-/// 解压 zip 文件，自动跳过顶层目录
-fn extract_zip_skip_top_dir(
+pub(crate) fn extract_zip_skip_top_dir(
     archive_path: &std::path::Path,
     output_dir: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = std::fs::File::open(archive_path)?;
-    let mut archive = zip::ZipArchive::new(file)?;
+    let archive = zip::ZipArchive::new(file)?;
+    extract_zip_inner(archive, output_dir)
+}
 
-    // 先确定顶层目录名（如果所有条目都在同一个目录下）
+/// 从内存字节解压（跳过顶层目录），用于解密后的本体资源包。
+pub(crate) fn extract_zip_bytes(
+    data: &[u8],
+    output_dir: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let archive = zip::ZipArchive::new(std::io::Cursor::new(data))?;
+    extract_zip_inner(archive, output_dir)
+}
+
+/// 解压本体资源包：桌面端为加密 PVX1 包，Android 端为明文 zip。
+#[cfg(not(target_os = "android"))]
+fn extract_builtin_archive(
+    archive_path: &std::path::Path,
+    output_dir: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let data = std::fs::read(archive_path)?;
+    let zip_bytes = crate::pack::decrypt_pack(&data)?;
+    extract_zip_bytes(&zip_bytes, output_dir)
+}
+
+#[cfg(target_os = "android")]
+fn extract_builtin_archive(
+    archive_path: &std::path::Path,
+    output_dir: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    extract_zip_skip_top_dir(archive_path, output_dir)
+}
+
+fn extract_zip_inner<R: std::io::Read + std::io::Seek>(
+    mut archive: zip::ZipArchive<R>,
+    output_dir: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut top_dir: Option<String> = None;
     for i in 0..archive.len() {
         let f = archive.by_index(i)?;
@@ -220,12 +230,12 @@ fn extract_zip_skip_top_dir(
         if name.is_empty() || name == "/" {
             continue;
         }
-        // 找第一个 / 之前的部分
+
         let first_sep = name.find('/').or_else(|| name.find('\\'));
         let current_top = match first_sep {
             Some(idx) => &name[..idx],
             None => {
-                // 没有顶层目录，直接解压
+
                 top_dir = None;
                 break;
             }
@@ -233,7 +243,7 @@ fn extract_zip_skip_top_dir(
         match &top_dir {
             None => top_dir = Some(current_top.to_string()),
             Some(existing) if existing != current_top => {
-                // 有多个不同的顶层目录，不跳过
+
                 top_dir = None;
                 break;
             }
@@ -252,7 +262,6 @@ fn extract_zip_skip_top_dir(
 
         let path_str = enclosed.to_string_lossy().replace('\\', "/");
 
-        // 跳过顶层目录前缀
         let relative_path = if let Some(prefix) = &top_dir_prefix {
             if let Some(rest) = path_str.strip_prefix(prefix) {
                 rest
@@ -264,12 +273,6 @@ fn extract_zip_skip_top_dir(
         };
 
         if relative_path.is_empty() {
-            continue;
-        }
-
-        // 角色功能已移除：不再解压 skel / voice_Line 内容
-        let first_seg = relative_path.split(['/', '\\']).next().unwrap_or("");
-        if first_seg == "skel" || first_seg == "voice_Line" {
             continue;
         }
 
@@ -298,11 +301,11 @@ impl Scene for StartupLoadingScene {
     }
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
-        // 检查解压是否完成
+
         if let Some(progress) = &self.extract_progress {
             let done = progress.lock().map(|p| p.done).unwrap_or(true);
             if done && self.load_task.is_none() {
-                // 解压完成，开始加载 MainScene
+
                 if let Some(fallback) = self.fallback_font.take() {
                     let task: Pin<Box<dyn Future<Output = Result<MainScene>>>> = Box::pin(async move { MainScene::new(fallback).await });
                     self.load_task = Some(task);
@@ -329,13 +332,12 @@ impl Scene for StartupLoadingScene {
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
-        // 背景使用原始比例，不随 UI 比例缩放
+
         set_camera(&ui.bg_camera());
         let t = tm.now() as f32;
         let top = ui.top;
         let full = ui.screen_rect();
 
-        // 深色渐变背景
         ui.fill_rect(
             full,
             (
@@ -346,7 +348,6 @@ impl Scene for StartupLoadingScene {
             ),
         );
 
-        // UI 使用带比例的 camera
         set_camera(&ui.camera());
 
         let alpha = ((t - self.enter_time) / FADE_IN_TIME).clamp(0., 1.);
@@ -367,7 +368,7 @@ impl Scene for StartupLoadingScene {
                     .color(semi_white(0.7))
                     .draw();
             } else if let Some(progress) = &self.extract_progress {
-                // 显示解压进度
+
                 let (msg, done, current, total) = if let Ok(p) = progress.lock() {
                     (p.message.clone(), p.done, p.current, p.total)
                 } else {
@@ -379,7 +380,6 @@ impl Scene for StartupLoadingScene {
                     format!("{} ({}/{})", msg, current + 1, total)
                 };
 
-                // 右下角进度文字（仿 loading.rs 风格）
                 let load_text = msg.as_str();
                 let txt = ui.text(load_text)
                     .pos(0.93, top * 0.92)
@@ -391,17 +391,16 @@ impl Scene for StartupLoadingScene {
                 let he = 0.5;
                 let r = Rect::new(txt.x - txt.w * we, txt.y - txt.h * he, txt.w * (1. + we * 2.), txt.h * (1. + he * 2.));
 
-                // 进度条（平行四边形，白色）
                 if !done && total > 0 {
                     let progress_val = current as f32 / total as f32;
-                    // 背景（半透明）
+
                     draw_parallelogram(r, None, Color::new(1., 1., 1., 0.15), false);
-                    // 进度填充（白色平行四边形）
+
                     if progress_val > 0.01 {
                         let fill_w = r.w * progress_val;
                         let fill_r = Rect::new(r.x, r.y, fill_w, r.h);
                         draw_parallelogram(fill_r, None, WHITE, false);
-                        // scissor 显示黑色文字在进度条上
+
                         ui.scissor(fill_r, |ui| {
                             ui.text(load_text)
                                 .pos(0.93, top * 0.92)
@@ -412,7 +411,7 @@ impl Scene for StartupLoadingScene {
                         });
                     }
                 } else {
-                    // 加载中（解压完成后），用扫描动画
+
                     let pp = 0.6;
                     let s = 0.2;
                     let t_val = ((t - 0.3).max(0.) % (pp * 2. + s)) / pp;
@@ -432,25 +431,11 @@ impl Scene for StartupLoadingScene {
                     }
                 }
 
-                // Tip(左下角)
-                ui.text(tl!("startup-tip", "tip" => &self.tip))
-                    .pos(-0.95, top - 0.05)
-                    .anchor(0., 1.)
-                    .max_width(1.6)
-                    .size(0.4)
-                    .color(semi_white(0.6))
-                    .draw();
+                draw_loading_tip(ui, top, self.tip);
             } else {
-                // Tip(左下角)
-                ui.text(tl!("startup-tip", "tip" => &self.tip))
-                    .pos(-0.95, top - 0.05)
-                    .anchor(0., 1.)
-                    .max_width(1.6)
-                    .size(0.4)
-                    .color(semi_white(0.6))
-                    .draw();
 
-                // 右下角 Loading... 扫描动画(仿 prpr LoadingScene)
+                draw_loading_tip(ui, top, self.tip);
+
                 draw_loading_animation(ui, t, top);
             }
         });
@@ -465,6 +450,33 @@ impl Scene for StartupLoadingScene {
         }
         NextScene::None
     }
+}
+
+/// Phigros 式加载提示：左下角一个白色斜切「TIP」标签 + 一行提示文字
+fn draw_loading_tip(ui: &mut Ui, top: f32, tip: &str) {
+    let tag = Rect::new(-0.95, top - 0.115, 0.235, 0.062);
+    // 斜切标签（跟 UI 变换/淡入一起走，别用裸 GL 画）
+    let sk = tag.h * PARALLELOGRAM_SLOPE;
+    let mut b = lyon::path::Path::builder();
+    b.begin(lyon::math::point(tag.x + sk, tag.y));
+    b.line_to(lyon::math::point(tag.right() + sk, tag.y));
+    b.line_to(lyon::math::point(tag.right(), tag.bottom()));
+    b.line_to(lyon::math::point(tag.x, tag.bottom()));
+    b.end(true);
+    ui.fill_path(&b.build(), WHITE);
+    ui.text("TIP")
+        .pos(tag.center().x, tag.center().y)
+        .anchor(0.5, 0.5)
+        .size(0.30)
+        .color(BLACK)
+        .draw();
+    ui.text(tip)
+        .pos(tag.right() + 0.03, tag.center().y)
+        .anchor(0., 0.5)
+        .max_width(1.28)
+        .size(0.34)
+        .color(semi_white(0.62))
+        .draw();
 }
 
 fn draw_loading_animation(ui: &mut Ui, now: f32, top: f32) {

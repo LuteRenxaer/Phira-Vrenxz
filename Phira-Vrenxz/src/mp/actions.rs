@@ -1,6 +1,3 @@
-//! 多人协议调用的唯一出口：连接 / 建房 / 进房 / 就绪 / 开始 / 管理 / 聊天 /
-//! 离开 / 谱面分享 / 成绩上报。这里只做“发命令 + 记录任务句柄 + 错误提示”，
-//! 不含任何 UI 布局。
 
 use std::{
     fs::File,
@@ -27,20 +24,17 @@ use crate::{
     scene::{SongScene, LAST_MP_FINISH},
 };
 
-/// 谱面下载流程的推进结果。
 pub enum DownloadStep {
-    /// 还没有结果
+
     Pending,
-    /// 谱面已在本地，按 intent 继续后续动作
+
     Continue(DownloadIntent),
-    /// 用户取消了下载，流程终止（intent 一并丢弃）
+
     Cancelled,
 }
 
 impl MpState {
-    // ---------- 连接 / 大厅 ----------
 
-    /// 连接服务器并鉴权。深链接可携带服务器地址（`phira://...?server=xxx`），优先使用。
     pub fn connect(&mut self) {
         let Some(token) = get_data().tokens.as_ref().map(|it| it.0.clone()) else {
             show_message(mtl!("connect-must-login")).error();
@@ -70,7 +64,6 @@ impl MpState {
         }));
     }
 
-    /// 以玩家身份加入房间。
     pub fn join_room(&mut self, id: RoomId) {
         let client = self.connected();
         self.join_room_task = Some(Task::new(async move {
@@ -79,7 +72,6 @@ impl MpState {
         }));
     }
 
-    /// 带密码加入房间（“加入失败且提示需要密码”后的一次重试）。
     pub fn join_room_with_password(&mut self, id: RoomId, password: String) {
         let client = self.connected();
         self.join_room_task = Some(Task::new(async move {
@@ -93,7 +85,6 @@ impl MpState {
         self.task = Some(Task::new(async move { client.leave_room().await }));
     }
 
-    /// 拉取公共房间列表（GET {web}/api/rooms）。
     pub fn load_room_list(&mut self) {
         if self.room_list_task.is_some() {
             return;
@@ -110,8 +101,6 @@ impl MpState {
         }));
     }
 
-    // ---------- 房间管理 ----------
-
     pub fn lock_room(&mut self, to: bool) {
         let client = self.connected();
         self.task = Some(Task::new(async move { client.lock_room(to).await.with_context(|| mtl!("lock-room-failed")) }));
@@ -122,7 +111,6 @@ impl MpState {
         self.task = Some(Task::new(async move { client.cycle_room(to).await.with_context(|| mtl!("cycle-room-failed")) }));
     }
 
-    /// 设置房间密码（空串 = 清除密码）。
     pub fn set_room_password(&mut self, password: String) {
         let client = self.connected();
         self.task = Some(Task::new(async move {
@@ -149,9 +137,6 @@ impl MpState {
         self.chat_task = Some(Task::new(async move { client.chat(text).await }));
     }
 
-    // ---------- 谱面选择 ----------
-
-    /// 选择在线谱面（仅房主，且必须在选谱/本地谱阶段）。
     pub fn select_chart(&mut self, id: i32) {
         let Some(client) = self.client() else { return };
         if !client.blocking_is_host().unwrap_or(false) {
@@ -162,7 +147,7 @@ impl MpState {
             show_message(mtl!("select-chart-not-now")).error();
             return;
         }
-        // 切换到在线谱面：清除之前选择的本地谱面
+
         self.local_chart = None;
         self.reset_local_chart();
         self.task = Some(Task::new(async move {
@@ -171,7 +156,6 @@ impl MpState {
         }));
     }
 
-    /// 从谱面库中选择本地谱面进行分享（仅房主，且必须在选谱阶段）。
     pub fn select_local_chart(&mut self, local_path: String, name: String) {
         if !Self::server_allows_local_chart() {
             show_message(mtl!("mp-server-no-local-chart")).error();
@@ -188,20 +172,17 @@ impl MpState {
         }
         self.local_chart_task = Some(Task::new(async move {
             let uuid = uuid::Uuid::new_v4().to_string();
-            // 把本地谱面复制到 download/{uuid}
+
             serve::stage_local_chart(&local_path, &uuid)?;
             client.select_local_chart(uuid, name).await.with_context(|| mtl!("select-chart-failed"))?;
             Ok(())
         }));
     }
 
-    // ---------- 就绪 / 开始 ----------
-
-    /// 房主请求开始。
     pub fn request_start(&mut self) {
         let Some(client) = self.client() else { return };
         let Some(state) = client.blocking_room_state() else { return };
-        // LocalChart 状态下房主已选择本地谱面：直接请求开始（服务端会通知房主启动上传）
+
         if matches!(state, RoomState::LocalChart) {
             if !Self::server_allows_local_chart() {
                 show_message(mtl!("mp-server-no-local-chart")).error();
@@ -223,14 +204,12 @@ impl MpState {
         }
     }
 
-    /// 玩家点“准备”：先确保谱面在本地，再上报就绪。
     pub fn ready(&mut self) {
         if let Some(id) = self.chart_id {
             self.fetch_chart(id, DownloadIntent::Ready);
         }
     }
 
-    /// 谱面已就绪：房主真正发起开始。
     pub fn start_game(&mut self) {
         let client = self.connected();
         self.task = Some(Task::new(async move {
@@ -239,7 +218,6 @@ impl MpState {
         }));
     }
 
-    /// 谱面已就绪：真正上报就绪。
     pub fn set_ready(&mut self) {
         let client = self.connected();
         self.task = Some(Task::new(async move {
@@ -253,7 +231,6 @@ impl MpState {
         self.task = Some(Task::new(async move { client.cancel_ready().await }));
     }
 
-    /// 房主取消本地谱面分享。
     pub fn cancel_local_chart(&mut self) {
         self.reset_local_chart();
         let client = self.connected();
@@ -263,7 +240,6 @@ impl MpState {
         }));
     }
 
-    /// 玩家取消“已就绪”。
     pub fn cancel_download_ready(&mut self) {
         self.local_ready = false;
         self.syncing = None;
@@ -277,16 +253,34 @@ impl MpState {
         }));
     }
 
-    // ---------- 谱面下载流程 ----------
-
-    /// 开始拉取谱面元数据，并记下“下载完之后要做什么”。
     pub fn fetch_chart(&mut self, id: i32, intent: DownloadIntent) {
+
+        if self.download.chart_id == id
+            && self.download.intent == Some(DownloadIntent::Cache)
+            && (self.download.task.is_some() || self.download.ui.is_some())
+        {
+            self.download.intent = Some(intent);
+            return;
+        }
         self.download.intent = Some(intent);
         self.download.chart_id = id;
         self.download.task = Some(Task::new(async move { Ptr::new(id).fetch().await }));
     }
 
-    /// 推进谱面下载流程（每帧调用）。
+    pub fn prefetch_chart(&mut self, id: i32) {
+        if self.prefetch_done == Some(id) {
+            return;
+        }
+        if self.download.chart_id == id && (self.download.task.is_some() || self.download.ui.is_some()) {
+            return;
+        }
+        self.prefetch_done = Some(id);
+        if self.local_chart_ready(Some(id), None) {
+            return;
+        }
+        self.fetch_chart(id, DownloadIntent::Cache);
+    }
+
     pub fn poll_download(&mut self) -> anyhow::Result<DownloadStep> {
         if let Some(task) = &mut self.download.task {
             if let Some(res) = task.take() {
@@ -326,7 +320,7 @@ impl MpState {
         if let Some(dl) = &mut self.download.ui {
             if let Some(res) = dl.check()? {
                 self.download.ui = None;
-                // res 为 None 表示玩家取消了下载：流程终止，不再继续 intent
+
                 return Ok(if res.is_some() { self.take_intent() } else { self.discard_intent() });
             }
         }
@@ -345,26 +339,22 @@ impl MpState {
         DownloadStep::Cancelled
     }
 
-    // ---------- 本地谱面分享 ----------
-
-    /// 房主开始上传本地谱面到服务端（服务端下发 StartServing 后调用）。
     pub fn start_serving(&mut self, chart_id: String) {
         let client = self.connected();
         let syncing = Arc::new(serve::ChartSyncing::new());
         self.syncing = Some(Arc::clone(&syncing));
         self.local_chart_task = Some(Task::new(async move {
-            // 把本地谱面包经 game 连接上传到服务端
+
             serve::upload_chart(&client, &chart_id).await?;
-            // 通知服务端开始分享；玩家下载地址由服务端下发
+
             client.send_chart(String::new(), 0).await?;
             Ok::<_, anyhow::Error>(())
         }));
     }
 
-    /// 玩家点“准备”后开始下载房主分享的本地谱面。
     pub fn download_pending_local_chart(&mut self) {
         let Some((chart_id, _chart_name)) = self.pending_download.take() else {
-            // 没有待下载内容：直接上报就绪
+
             let client = self.connected();
             self.local_chart_task = Some(Task::new(async move {
                 client.download_ready().await?;
@@ -388,8 +378,6 @@ impl MpState {
         }));
     }
 
-    /// 消费服务端下发的本地谱面分享事件。
-    /// 返回 true 表示房主需要上传谱面（已在此启动上传任务）。
     pub fn apply_local_chart_event(&mut self, ev: LocalChartEvent) {
         let is_host = self.client.as_ref().and_then(|it| it.blocking_is_host()).unwrap_or(false);
         match ev {
@@ -428,50 +416,42 @@ impl MpState {
         }
     }
 
-    /// 按房间阶段同步本地谱面分享状态（每帧调用）。
     pub fn sync_local_chart_stage(&mut self, state: Option<RoomState>) {
         if matches!(state, Some(RoomState::LocalChart)) {
             if self.local_chart.is_some() {
                 self.chart_id = None;
             }
         } else {
-            // 离开本地谱面分享阶段：重置状态
+
             self.reset_local_chart();
             self.local_chart = None;
         }
     }
 
-    // ---------- 对局 ----------
-
-    /// 房间进入 Playing：准备好成绩上报所需的全局状态与暂停上报钩子。
-    /// 实际启动游玩场景由面板负责（需要 scene_task）。
     pub fn begin_playing(&mut self) {
         use std::sync::atomic::Ordering as O;
         self.game_start_consumed = true;
         crate::scene::RECORD_ID.store(-1, O::Relaxed);
-        // 开局清空上一局的成绩记录，避免残留导致误判“完成”
+
         *LAST_MP_FINISH.lock().unwrap() = None;
         self.need_upload = true;
         self.entered = false;
-        // 多人正式游玩：接入“暂停/继续上报服务器”的钩子（GameScene 构造时取走）。
-        // 本地暂停因此能同步给房间里的其他人。
+
         if let Some(client) = self.client.clone() {
             *prpr::scene::PAUSE_NOTIFY.lock().unwrap() = Some(Arc::new(move |paused: bool| {
-                // 设置/发送失败也不 panic（例如连接已断开）
+
                 let _ = client.blocking_send(phira_mp_common::ClientCommand::PauseState { paused });
             }));
         }
     }
 
-    /// 从游玩场景回来：以真实成绩上报完成，没有有效成绩则按放弃处理。
     pub fn report_finish(&mut self) {
         if !self.need_upload {
             return;
         }
         self.need_upload = false;
         let Some(client) = self.client() else { return };
-        // 谱面自然打完（引擎在 record 有效时才写入 LAST_MP_FINISH）→ 上报真实成绩；
-        // 中途退出/跳过/失败不会产生有效成绩 → 仍按放弃(abort)处理。
+
         if let Some(stats) = LAST_MP_FINISH.lock().unwrap().take() {
             self.task = Some(Task::new(async move {
                 client
@@ -493,9 +473,6 @@ impl MpState {
         }
     }
 
-    // ---------- 断线重连 ----------
-
-    /// 心跳连续失败时的自动重连（提示 + 重连一次）。
     pub fn reconnect_if_lost(&mut self) {
         let Some(client) = &self.client else { return };
         if client.ping_fail_count() >= 2 && self.connect_task.is_none() {

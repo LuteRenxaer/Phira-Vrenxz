@@ -9,3 +9,6 @@ confirm = Xác nhận
 read-file-failed = Không thể đọc tệp
 pasted = Đã dán từ bảng nhớ tạm
 audio-backend-init-failed = Không thể khởi tạo backend âm thanh, đang chạy ở chế độ im lặng.
+select-all = All
+copy = Copy
+paste = Paste

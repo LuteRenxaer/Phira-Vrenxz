@@ -7,8 +7,8 @@ use tracing::warn;
 use super::{process_lines, L10N_LOCAL};
 use crate::{
     core::{
-        Anim, AnimFloat, AnimVector, BpmList, Chart, ChartExtra, ChartSettings, JudgeLine, JudgeLineCache, JudgeLineKind, Keyframe, Note, NoteKind,
-        Object, HEIGHT_RATIO,
+        Anim, AnimFloat, AnimVector, BlockArea, BlockMoveEvent, BlockRotateEvent, BlockScaleEvent, BpmList, Chart, ChartExtra, ChartSettings, JudgeLine,
+        JudgeLineCache, JudgeLineKind, Keyframe, Note, NoteKind, Object, Vector, HEIGHT_RATIO,
     },
     ext::NotNanExt,
     judge::{HitSound, JudgeStatus},
@@ -64,12 +64,80 @@ struct PgrJudgeLine {
     notes_below: Vec<PgrNote>,
 }
 
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PgrVec2 {
+    x: f32,
+    y: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PgrBlockRotateEvent {
+    anchor: PgrVec2,
+    time: f64,
+    #[serde(default)]
+    ease_type: i32,
+    #[serde(default)]
+    rotation: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PgrBlockMoveEvent {
+    end_position: PgrVec2,
+    time: f64,
+    #[serde(default)]
+    ease_type_x: i32,
+    #[serde(default)]
+    ease_type_y: i32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PgrBlockScaleEvent {
+    anchor: PgrVec2,
+    time: f64,
+    #[serde(default)]
+    ease_type_x: i32,
+    #[serde(default)]
+    ease_type_y: i32,
+    scale: PgrVec2,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PgrBlockArea {
+    #[serde(default)]
+    top_right_percentage: PgrVec2,
+    #[serde(default)]
+    bottom_left_percentage: PgrVec2,
+    #[serde(default)]
+    appear_time: f64,
+    #[serde(default)]
+    enable_time: f64,
+    #[serde(default)]
+    disable_time: f64,
+    #[serde(default)]
+    disappear_time: f64,
+    #[serde(default)]
+    is_subtract: bool,
+    #[serde(default)]
+    rotate_events: Vec<PgrBlockRotateEvent>,
+    #[serde(default)]
+    move_events: Vec<PgrBlockMoveEvent>,
+    #[serde(default)]
+    scale_events: Vec<PgrBlockScaleEvent>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PgrChart {
     format_version: u32,
     offset: f32,
     judge_line_list: Vec<PgrJudgeLine>,
+    #[serde(default)]
+    block_area_list: Vec<PgrBlockArea>,
 }
 
 macro_rules! validate_events {
@@ -267,6 +335,67 @@ fn parse_judge_line(pgr: PgrJudgeLine, max_time: f64, format_version: u32) -> Re
     })
 }
 
+fn anim_from_kfs(mut kfs: Vec<Keyframe<f32>>, def: f32) -> AnimFloat {
+    if kfs.is_empty() {
+        AnimFloat::fixed(def)
+    } else {
+        kfs.sort_by(|a, b| a.time.total_cmp(&b.time));
+        AnimFloat::new(kfs)
+    }
+}
+
+/// 解析谱面 JSON 顶层 blockAreaList 为噪域运行时对象。
+/// 事件时间轴单位：秒（与 appear/enable/disable/disappear 及 res.time 同一基准）。
+pub(crate) fn parse_block_areas(list: Vec<PgrBlockArea>) -> Vec<BlockArea> {
+    list.into_iter()
+        .map(|b| BlockArea {
+            top_right: Vector::new(b.top_right_percentage.x, b.top_right_percentage.y),
+            bottom_left: Vector::new(b.bottom_left_percentage.x, b.bottom_left_percentage.y),
+            appear_time: b.appear_time,
+            enable_time: b.enable_time,
+            disable_time: b.disable_time,
+            disappear_time: b.disappear_time,
+            is_subtract: b.is_subtract,
+            active_intervals: Vec::new(),
+            absolute_scale: false,
+            base_px: Vector::zeros(),
+            move_x_events: Vec::new(),
+            move_y_events: Vec::new(),
+            rotate_events: b
+                .rotate_events
+                .into_iter()
+                .map(|e| BlockRotateEvent {
+                    anchor: Vector::new(e.anchor.x, e.anchor.y),
+                    time: e.time,
+                    ease: e.ease_type,
+                    rotation: e.rotation,
+                })
+                .collect(),
+            move_events: b
+                .move_events
+                .into_iter()
+                .map(|e| BlockMoveEvent {
+                    end: Vector::new(e.end_position.x, e.end_position.y),
+                    time: e.time,
+                    ease_x: e.ease_type_x,
+                    ease_y: e.ease_type_y,
+                })
+                .collect(),
+            scale_events: b
+                .scale_events
+                .into_iter()
+                .map(|e| BlockScaleEvent {
+                    anchor: Vector::new(e.anchor.x, e.anchor.y),
+                    time: e.time,
+                    ease_x: e.ease_type_x,
+                    ease_y: e.ease_type_y,
+                    scale: Vector::new(e.scale.x, e.scale.y),
+                })
+                .collect(),
+        })
+        .collect()
+}
+
 pub fn parse_phigros(source: &str, extra: ChartExtra) -> Result<Chart> {
     let pgr: PgrChart = serde_json::from_str(source).with_context(|| ptl!("json-parse-failed"))?;
     let format_version = pgr.format_version;
@@ -295,5 +424,14 @@ pub fn parse_phigros(source: &str, extra: ChartExtra) -> Result<Chart> {
         .collect::<Result<Vec<_>>>()?;
 
     process_lines(&mut lines);
-    Ok(Chart::new(pgr.offset, lines, BpmList::default(), ChartSettings::default(), extra, HashMap::new()))
+    let block_areas = parse_block_areas(pgr.block_area_list);
+    Ok(Chart::new(
+        pgr.offset,
+        lines,
+        BpmList::default(),
+        ChartSettings::default(),
+        extra,
+        HashMap::new(),
+        block_areas,
+    ))
 }

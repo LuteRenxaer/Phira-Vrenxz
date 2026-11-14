@@ -1,4 +1,4 @@
-prpr_l10n::tl_file!("favorites");
+﻿prpr_l10n::tl_file!("favorites");
 
 use super::{Illustration, NextPage, Page, SharedState};
 use crate::{
@@ -183,11 +183,9 @@ impl FavoritesPage {
         page
     }
 
-
     fn rebuild_folders(&mut self) {
         let data = get_data();
         let mut folders = Vec::new();
-
 
         folders.push(FolderItem {
             index: None,
@@ -606,7 +604,6 @@ impl Page for FavoritesPage {
                                     .await?;
                             Ok(Ok(resp))
                         } else {
-
 
                             let chart = Ptr::<Chart>::new(chart_id).fetch().await?;
                             Ok(Err(chart.illustration.clone()))
@@ -1189,16 +1186,18 @@ impl Page for FavoritesPage {
                 });
             }
 
-            self.scroll.size((2., content_h));
+            // HUD 自定义：文件夹网格区域（整体移动 / 缩放；列数随宽度自动变化）。
+            let grid = prpr::hud::slot_or(ui, "favorites", "grid", prpr::hud::Cap(true, true, true), Rect::new(-1., top, 2., content_h));
+            self.scroll.size((grid.w, grid.h));
 
             ui.scope(|ui| {
-                ui.dx(-1.);
-                ui.dy(top);
+                ui.dx(grid.x);
+                ui.dy(grid.y);
                 self.scroll.render(ui, |ui| {
                     let start_x = 0.12;
                     let mut x = start_x;
                     let mut y = 0.02;
-                    let max_x = 2.0 - 0.12;
+                    let max_x = grid.w - 0.12;
                     let cols = ((max_x - start_x + CARD_PAD) / (CARD_WIDTH + CARD_PAD)).floor() as usize;
                     let cols = cols.max(1);
 

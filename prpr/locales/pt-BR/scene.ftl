@@ -8,3 +8,6 @@ confirm = Confirmar
 
 read-file-failed = Falha ao ler arquivo
 pasted = Colado da área de transferência
+select-all = All
+copy = Copy
+paste = Paste

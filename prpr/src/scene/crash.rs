@@ -15,13 +15,16 @@ use crate::{
 };
 use anyhow::Result;
 use macroquad::prelude::*;
-use sasa::{AudioClip, AudioManager, Music, MusicParams};
+use sasa::{AudioClip, AudioManager, Music, MusicParams, PlaySfxParams, Sfx};
 use std::env;
 
 /// 内嵌报错页 BGM（编译期打入二进制，避免 Android 上 std::fs 读不到 assets 而 panic）。
 const CRASH_BGM: &[u8] = include_bytes!("../../../assets/bgm/gameerror.mp3");
 /// 内嵌报错页背景图。
 const CRASH_BG_PNG: &[u8] = include_bytes!("../../../assets/backgrounds/errorbackground.png");
+/// 剧情入口音效（点击"继续"后播放，然后跳转剧情页面）。
+// 剧情代码已注释（2026-10-05）：剧情入口音效常量
+// const STORY_SOUND: &[u8] = include_bytes!("../../../assets/sfx/openSaturnOS.wav");
 
 
 
@@ -80,6 +83,10 @@ pub struct CrashScene {
     black_duration: f32,
     custom_title: String,
     copy_toast_time: f32,
+    fake_crash: bool,
+    custom_next: Option<NextScene>,
+    next_override: Option<NextScene>,
+    story_sfx: Option<Sfx>,
 }
 
 impl CrashScene {
@@ -236,6 +243,15 @@ impl CrashScene {
     ];
 
     pub fn new(code: CrashCode, custom_title: String) -> Self {
+        Self::new_full(code, custom_title, false, None)
+    }
+
+    /// 设置进入崩溃页前的黑屏停留时长（秒）。剧情触发用于"退出卡住4秒"。
+    pub fn set_black_duration(&mut self, d: f32) {
+        self.black_duration = d;
+    }
+
+    pub fn new_full(code: CrashCode, custom_title: String, fake_crash: bool, custom_next: Option<NextScene>) -> Self {
         tracing::info!("CrashScene::new called");
         // On Android, rand::thread_rng() uses a once_cell::Lazy that may be
         // poisoned by a previous panic, causing random_tip() to panic. Guard with catch_unwind.
@@ -267,6 +283,10 @@ impl CrashScene {
                                     black_duration: 0.3,
                                     custom_title,
                                     copy_toast_time: 0.0,
+                                    fake_crash,
+                                    custom_next,
+                                    next_override: None,
+                story_sfx: None,
                                 }
                             }
                             Err(e) => {
@@ -281,6 +301,10 @@ impl CrashScene {
                                     black_duration: 0.3,
                                     custom_title,
                                     copy_toast_time: 0.0,
+                                    fake_crash,
+                                    custom_next,
+                                    next_override: None,
+                story_sfx: None,
                                 }
                             }
                         }
@@ -297,6 +321,10 @@ impl CrashScene {
                             black_duration: 0.3,
                             custom_title,
                             copy_toast_time: 0.0,
+                            fake_crash,
+                            custom_next,
+                            next_override: None,
+                story_sfx: None,
                         }
                     }
                 }
@@ -313,6 +341,10 @@ impl CrashScene {
                     black_duration: 0.3,
                     custom_title,
                     copy_toast_time: 0.0,
+                    fake_crash,
+                    custom_next,
+                    next_override: None,
+                story_sfx: None,
                 }
             }
         };
@@ -386,11 +418,13 @@ impl Scene for CrashScene {
         tm.seek_to(0.0);
         self.enter_time = tm.now() as f32;
 
-        self.load_background();
+        if !self.fake_crash {
+            self.load_background();
 
-        if let Some(bgm) = &mut self.bgm {
-            if let Err(e) = bgm.play() {
-                tracing::warn!("播放背景音乐失败: {}", e);
+            if let Some(bgm) = &mut self.bgm {
+                if let Err(e) = bgm.play() {
+                    tracing::warn!("播放背景音乐失败: {}", e);
+                }
             }
         }
         Ok(())
@@ -567,6 +601,17 @@ impl Scene for CrashScene {
             0.28,
             Color::new(0.7, 0.8, 1., s1_progress * 0.7),
         );
+        if self.fake_crash {
+            draw_text_aligned(
+                ui,
+                "建议:404",
+                s1.right() - dx,
+                s1.bottom() - dy,
+                (1., 1.),
+                0.28,
+                Color::new(0.7, 0.8, 1., s1_progress * 0.7),
+            );
+        }
 
         gl.pop_model_matrix();
 
@@ -580,6 +625,9 @@ impl Scene for CrashScene {
 
 
         let complain_rect = Rect::new(-1. - h * slope, -top + dy_btn, w, h);
+        let copy_rect = Rect::new(-1. - h * slope, -top + dy_btn + h + 0.01, w, h);
+        let restart_rect = Rect::new(1. + h * slope - w, top - dy_btn - 2. * h - 0.02, w, h);
+        if !self.fake_crash {
         Self::tran(&mut gl, -btn_p * 0.085);
         draw_parallelogram(complain_rect, None, btn_bg, true);
         draw_parallelogram(
@@ -600,7 +648,6 @@ impl Scene for CrashScene {
         gl.pop_model_matrix();
 
 
-        let copy_rect = Rect::new(-1. - h * slope, -top + dy_btn + h + 0.01, w, h);
         Self::tran(&mut gl, -btn_p * 0.085);
         draw_parallelogram(copy_rect, None, btn_bg, true);
         draw_parallelogram(
@@ -621,7 +668,6 @@ impl Scene for CrashScene {
         gl.pop_model_matrix();
 
 
-        let restart_rect = Rect::new(1. + h * slope - w, top - dy_btn - 2. * h - 0.02, w, h);
         Self::tran(&mut gl, btn_p * 0.085);
         draw_parallelogram(restart_rect, None, btn_bg, true);
         draw_parallelogram(
@@ -642,6 +688,7 @@ impl Scene for CrashScene {
         gl.pop_model_matrix();
 
 
+        }
         let exit_rect = Rect::new(1. + h * slope - w, top - dy_btn - h, w, h);
         Self::tran(&mut gl, btn_p * 0.085);
         draw_parallelogram(exit_rect, None, btn_bg, true);
@@ -651,9 +698,10 @@ impl Scene for CrashScene {
             WHITE,
             false,
         );
+        let exit_text = if self.fake_crash { "继续" } else { "退出游戏" };
         draw_text_aligned(
             ui,
-            "退出游戏",
+            exit_text,
             exit_rect.center().x,
             exit_rect.center().y,
             (0.5, 0.5),
@@ -667,9 +715,26 @@ impl Scene for CrashScene {
             for touch in Judge::get_touches() {
                 if touch.phase == TouchPhase::Ended {
                     if exit_rect.contains(touch.position) {
-                        std::process::exit(0);
+                        if self.fake_crash {
+                            // 剧情代码已注释（2026-10-05）：剧情入口音效与 story_sfx 播放
+                            // let sfx = self.audio.as_mut().and_then(|audio| {
+                            //     AudioClip::new(STORY_SOUND.to_vec())
+                            //         .ok()
+                            //         .and_then(|clip| audio.create_sfx(clip, None).ok())
+                            // });
+                            // if let Some(sfx) = sfx {
+                            //     self.story_sfx = Some(sfx);
+                            //     if let Some(sfx) = &mut self.story_sfx {
+                            //         let _ = sfx.play(PlaySfxParams::default());
+                            //     }
+                            // }
+                            self.next_override = self.custom_next.take();
+                        } else {
+                            std::process::exit(0);
+                        }
                     }
-                    if complain_rect.contains(touch.position) {
+                    if !self.fake_crash {
+                        if complain_rect.contains(touch.position) {
                         Dialog::plain("投诉", "是否前往投诉页面？")
                             .buttons(vec!["取消".to_string(), "前往投诉".to_string()])
                             .listener(|_dialog, pos| {
@@ -698,6 +763,7 @@ impl Scene for CrashScene {
                         unsafe { get_internal_gl() }.quad_context.clipboard_set(&report);
                         self.copy_toast_time = now;
                     }
+                        }
                 }
             }
         }
@@ -750,6 +816,6 @@ impl Scene for CrashScene {
     }
 
     fn next_scene(&mut self, _tm: &mut TimeManager) -> NextScene {
-        NextScene::None
+        self.next_override.take().unwrap_or(NextScene::None)
     }
 }

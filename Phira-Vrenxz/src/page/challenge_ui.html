@@ -1,0 +1,2079 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>曲库</title>
+<style>
+  @font-face {
+    font-family: 'cmdysj';
+    src: url('cmdysj.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'cmdysj', sans-serif; color: #fff; }
+  @supports (height: 100dvh) { html, body { height: 100dvh; } }
+
+  html, body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+  body { -webkit-user-select: none; user-select: none; }
+  input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text; }
+  .song-scroll-container { touch-action: none; }
+  .cat-tab, .adv-btn, .control-group, .start-button, .back-btn, .diff-item,
+  .add-item, .more-item, .score-container { touch-action: manipulation; }
+
+  #loading { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 10000; font-size: 28px; color: rgba(255,255,255,.75); letter-spacing: 3px; pointer-events: none; }
+  #err { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 10000; color: #ff6b6b; font-size: 18px; display: none; white-space: pre-wrap; text-align: center; }
+
+  .bg-blur {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: url('beijing.jpeg') center / cover no-repeat;
+    filter: brightness(0.6);
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  #main-canvas {
+    position: fixed; top: 0; left: 0; z-index: 2;
+    display: block; width: 100vw; height: 100vh;
+    background: transparent;
+  }
+
+  #flash-overlay {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: #fff; opacity: 0; pointer-events: none; z-index: 9999;
+  }
+
+  #stage {
+    position: absolute; left: 50%; top: 50%;
+    width: 1920px; height: 1080px;
+    transform: translate(-50%, -50%);
+    transform-origin: center center;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .ui-layer {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 1080px;
+    pointer-events: none;
+  }
+
+  .list-bg {
+    position: absolute; top: 0; bottom: 0;
+    left: 100px; width: 780px;
+    background: rgba(0, 0, 0, 0.45);
+    transform: skewX(-15deg); transform-origin: left center;
+    z-index: 1; pointer-events: none;
+  }
+
+  .active-bg {
+    position: absolute; top: 50%; left: 70px;
+    width: 800px; height: 95px; margin-top: -47.5px;
+    background: rgba(0, 0, 0, 0.85);
+    transform: skewX(-15deg); transform-origin: left center;
+    z-index: 2; pointer-events: none;
+  }
+
+  .diff-indicator {
+    position: absolute; top: 50%; left: 745px;
+    width: 130px; height: 115px; margin-top: -57.5px;
+    background: #ffffff; color: #000000;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    transform: skewX(-15deg); transform-origin: left center;
+    z-index: 5; pointer-events: none;
+    opacity: 0; transition: opacity 0.15s ease;
+  }
+  .diff-level { font-size: 44px; font-weight: normal; line-height: 1; transform: skewX(15deg); }
+  .diff-name { font-size: 14px; font-weight: normal; margin-top: 4px; transform: skewX(15deg); }
+
+  .jacket-container {
+    position: absolute; top: 213px; right: 40px;
+    width: 860px; height: 484px; overflow: hidden;
+    clip-path: polygon(15% 0, 100% 0, 85% 100%, 0 100%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+    z-index: 4; pointer-events: none; background: #111;
+  }
+  .jacket-bg {
+    position: absolute; left: -6%; top: -6%; width: 112%; height: 112%;
+    object-fit: cover; display: block;
+    filter: brightness(0.9) saturate(1.1);
+    transition: opacity 0.3s ease;
+  }
+  .jacket-fg {
+    position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+    object-fit: contain; display: block;
+    filter: drop-shadow(0 8px 30px rgba(0, 0, 0, 0.5));
+    transition: opacity 0.3s ease, filter 0.25s ease;
+  }
+  .jacket-lock {
+    position: absolute; left: 50%; top: 50%;
+    width: 104px; height: 114px;
+    transform: translate(-50%, -50%);
+    z-index: 3; display: none; pointer-events: none;
+    filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.6));
+  }
+  .jacket-container.locked .jacket-lock { display: block; }
+
+  .song-scroll-container {
+    position: absolute; top: 0; left: 0;
+    width: 1920px; height: 1080px; overflow: hidden;
+    pointer-events: auto; z-index: 3;
+    mask-image: linear-gradient(to bottom, transparent 0%, #000 15%, #000 85%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 15%, #000 85%, transparent 100%);
+  }
+
+  .song-list {
+    position: absolute; top: 0; left: 100px; width: 780px;
+    display: flex; flex-direction: column;
+    padding: 540px 0;
+    transition: transform 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+    pointer-events: none; will-change: transform;
+  }
+
+  .song-item {
+    display: flex; flex-direction: column; justify-content: center;
+    width: 100%; box-sizing: border-box;
+    height: 80px; font-size: 24px; color: #a0a0a0;
+    font-style: normal; font-weight: normal; white-space: nowrap;
+    position: relative; z-index: 1; padding-left: 70px; padding-right: 76px;
+    transform: translateX(calc((var(--active-i) - var(--i)) * 20px)) translateZ(0);
+    transition: transform 0.25s cubic-bezier(0.25, 1, 0.5, 1), color 0.25s ease;
+  }
+
+  .song-item.active { font-size: 38px; color: #ffffff; z-index: 2; }
+  .song-item .row-cover {
+    position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+    width: 52px; height: 52px; border-radius: 8px; object-fit: cover;
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+  }
+  .song-item .row-grade {
+    position: absolute; right: 24px; top: 50%; transform: translateY(-50%);
+    height: 80px; width: auto; display: block; pointer-events: none;
+  }
+  .song-item .row-grade-q {
+    position: absolute; right: 24px; top: 50%; transform: translateY(-50%);
+    width: 70px; text-align: center; font-size: 56px; line-height: 80px;
+    color: #8a8a8a; pointer-events: none;
+  }
+  .song-item.active .row-grade,
+  .song-item.active .row-grade-q { display: none; }
+  .song-title { line-height: 1.2; overflow: hidden; text-overflow: ellipsis; }
+  .song-artist { font-size: 14px; font-weight: normal; color: #888888; line-height: 1.2; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; }
+
+  .add-item { cursor: pointer; pointer-events: auto; }
+  .song-list.challenge .song-item { pointer-events: auto; cursor: pointer; }
+  .add-box {
+    width: 220px; height: 45px; border: 2px dashed rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.08); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border-radius: 4px; display: flex; align-items: center; justify-content: center;
+    transform: skewX(-15deg);
+  }
+  .add-icon { font-size: 24px; color: rgba(255, 255, 255, 0.7); transform: skewX(15deg); font-weight: 300; line-height: 1; }
+  .add-item.active .add-box { border-color: rgba(255, 255, 255, 0.8); background: rgba(255, 255, 255, 0.15); }
+
+  .more-item { cursor: pointer; pointer-events: auto; }
+  .more-item .song-title { color: #8fd3ff; }
+
+  .start-button {
+    position: absolute; right: 0px; bottom: -30px;
+    width: 400px; height: 200px;
+    transform: skewX(-15deg); transform-origin: right bottom;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 6; pointer-events: auto; cursor: pointer;
+  }
+  .start-button img {
+    width: 100%; height: 100%; object-fit: contain;
+    transform: skewX(15deg);
+  }
+
+  .elem1-wrapper {
+    position: absolute; top: 20px; left: 180px;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
+    pointer-events: auto; z-index: 20;
+  }
+
+  .back-btn {
+    position: absolute; top: 0px; left: 0px;
+    width: 200px; height: 200px;
+    pointer-events: auto; z-index: 21; cursor: pointer;
+  }
+  .back-btn img { width: 100%; height: 100%; object-fit: contain; }
+
+  .main-panel {
+      width: 850px; height: 120px;
+      background: rgba(0, 0, 0, 0.55);
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 0 60px 0 60px;
+      transform: skewX(-15deg); transform-origin: left center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  }
+
+  .main-panel > * { transform: skewX(15deg); }
+
+  .left-section {
+    display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 6px;
+    transform: skewX(15deg); cursor: pointer;
+  }
+  .sort-by { font-size: 16px; color: #6b7280; letter-spacing: 0.5px; line-height: 1; }
+  .difficulty-row { display: flex; align-items: center; gap: 8px; }
+  .icon { width: 24px; height: 24px; object-fit: contain; }
+  .difficulty { font-size: 24px; color: #ffffff; font-weight: normal; line-height: 1; }
+
+  .right-section { display: flex; align-items: center; gap: 12px; }
+  .control-group { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .control-icon { width: 26px; height: 26px; object-fit: contain; }
+  .control-text { font-size: 18px; color: #ffffff; font-weight: normal; }
+  .divider { font-size: 18px; color: #4b5563; font-weight: normal; }
+
+  .adv-panel { width: 850px; display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
+  .adv-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .search-box {
+    flex: 1; height: 46px; background: rgba(0, 0, 0, 0.55);
+    transform: skewX(-15deg); transform-origin: left center;
+    display: flex; align-items: center; padding: 0 18px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  }
+  .search-box input {
+    transform: skewX(15deg); background: transparent; border: none; outline: none;
+    color: #fff; font-family: 'cmdysj', sans-serif; font-size: 18px; width: 100%; letter-spacing: 0.5px;
+  }
+  .search-box input::placeholder { color: rgba(255, 255, 255, 0.42); }
+
+  .cat-tabs { display: flex; gap: 8px; flex-shrink: 0; }
+  .cat-tab {
+    height: 46px; padding: 0 18px; background: rgba(0, 0, 0, 0.55); color: #a0a0a0;
+    transform: skewX(-15deg); transform-origin: left center;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 17px; letter-spacing: 1px;
+    transition: background 0.2s, color 0.2s;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+    pointer-events: auto; position: relative; z-index: 1;
+    -webkit-user-select: none; user-select: none;
+  }
+  .cat-tab span { transform: skewX(15deg); }
+  .cat-tab.active { background: rgba(255, 255, 255, 0.92); color: #000; font-weight: bold; }
+
+  .adv-btn {
+    height: 46px; padding: 0 20px; background: rgba(0, 0, 0, 0.55); color: #fff;
+    transform: skewX(-15deg); transform-origin: left center;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 17px; letter-spacing: 1px;
+    transition: background 0.2s;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  }
+  .adv-btn > span { transform: skewX(15deg); }
+  .adv-btn:hover { background: rgba(255, 255, 255, 0.16); }
+  .adv-btn.active {
+    background: rgba(56, 226, 255, 0.22);
+    color: #a8f4ff;
+    box-shadow: 0 0 0 1px rgba(56, 226, 255, 0.7), 0 6px 18px rgba(0, 0, 0, 0.4);
+  }
+  .badge-dot {
+    display: inline-block; min-width: 16px; height: 16px; padding: 0 4px; margin-left: 6px;
+    border-radius: 8px; background: #fff; color: #000; font-size: 10px; line-height: 16px;
+    text-align: center; font-weight: bold; transform: skewX(15deg);
+  }
+
+  .re-label { font-size: 16px; color: #a0a0a0; letter-spacing: 1px; }
+  .re-input { display: flex; align-items: center; gap: 6px; height: 46px; padding: 0 14px; background: rgba(0,0,0,.55); transform: skewX(-15deg); box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+  .re-input label { transform: skewX(15deg); font-size: 14px; color: #a0a0a0; white-space: nowrap; }
+  .re-input input { transform: skewX(15deg); width: 60px; background: transparent; border: none; outline: none; color: #fff; font-family: 'cmdysj', sans-serif; font-size: 16px; text-align: center; }
+
+  .elem2-wrapper {
+    position: absolute; top: 10px; right: 20px;
+    pointer-events: auto; z-index: 20;
+  }
+  .ui-container { display: flex; align-items: center; gap: 0; }
+
+  /* 结算页样式：右上角玩家信息面板（黑斜主面板 + 名字黑条 + 斜切头像 + 白底 RKS 块） */
+  .result-player {
+      position: relative;
+      display: flex; align-items: center;
+      height: 92px;
+      background: rgba(0, 0, 0, 0.65);
+      transform: skewX(-15deg);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.7);
+      padding-right: 6px;
+  }
+  .rp-name {
+      position: relative; z-index: 3;
+      display: flex; align-items: center;
+      height: 100%;
+      padding: 0 22px 0 34px;
+      background: rgba(0, 0, 0, 0.85);
+      margin-left: -18px;
+  }
+  .rp-name span { font-size: 26px; color: #ffffff; white-space: nowrap; letter-spacing: 1px; transform: skewX(15deg); }
+  .rp-avatar {
+      position: relative; z-index: 2;
+      width: 136px; height: 92px; overflow: hidden;
+      clip-path: polygon(20% 0, 100% 0, 80% 100%, 0 100%);
+      margin: 0 -12px 0 -18px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+  }
+  .rp-avatar img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
+  .rp-rks {
+      position: relative; z-index: 3;
+      display: flex; align-items: center;
+      height: 56px;
+      padding: 0 16px 0 24px;
+      background: #ffffff;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+      margin-left: -12px;
+  }
+  .rp-rks span { font-size: 24px; color: #000000; font-weight: normal; letter-spacing: 1px; transform: skewX(15deg); white-space: nowrap; }
+
+  .elem3-wrapper {
+    position: absolute; top: 730px; right: 70px;
+    width: 860px; height: 160px;
+    pointer-events: auto; z-index: 20;
+  }
+
+  .ui-wrapper {
+      position: relative; width: 100%; height: 100%;
+      display: flex; align-items: center;
+      padding: 0 40px;
+  }
+  .ui-content {
+      position: relative; display: flex; justify-content: space-between; align-items: center; width: 100%;
+  }
+  .black-bg {
+      position: absolute; right: 0; top: 50%;
+      transform: translateY(-50%) skewX(-15deg);
+      height: 80px; background: rgba(0, 0, 0, 0.6); z-index: 0;
+  }
+  .stats-group { position: relative; display: flex; align-items: center; z-index: 2; }
+  .diff-list {
+      display: flex; align-items: center; background: #ffffff; height: 80px;
+      transform: skewX(-15deg); padding-right: 5px; position: relative;
+  }
+
+  .slider {
+      position: absolute; top: -10px; left: 0; width: 80px; height: 100px;
+      background-color: #cc2929; z-index: 1; pointer-events: none;
+      transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.3s ease;
+  }
+  .diff-item {
+      width: 80px; height: 80px; display: flex; justify-content: center; align-items: center;
+      cursor: pointer; position: relative; z-index: 2;
+  }
+  .diff-item .stat {
+      transform: skewX(15deg) scale(1); display: flex; flex-direction: column;
+      align-items: center; justify-content: center; line-height: 1; white-space: nowrap; color: #000000;
+      transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.3s ease;
+  }
+  .diff-item.active .stat { color: #ffffff; transform: skewX(15deg) scale(1.15); }
+  .diff-item .num { font-size: 30px; letter-spacing: -1px; }
+  .diff-item .sub { font-size: 13px; margin-top: 2px; letter-spacing: 1px; }
+
+  .challenge-box {
+      position: absolute; left: 0; top: 50%;
+      transform: translateY(-50%) skewX(-15deg);
+      display: flex; align-items: stretch;
+      width: 780px; height: 152px;
+      padding: 0; gap: 0; box-sizing: border-box;
+      background: rgba(0, 0, 0, 0.62);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      overflow-x: auto; overflow-y: hidden; z-index: 3;
+  }
+  .ch-slot {
+      flex: 1 0 260px; height: 100%; min-width: 0;
+      position: relative; cursor: pointer; overflow: hidden;
+      padding: 18px 30px 18px 26px; box-sizing: border-box;
+      border-right: 1px solid rgba(255, 255, 255, 0.14);
+      display: flex; flex-direction: column; justify-content: center;
+  }
+  .ch-slot:last-child { border-right: none; }
+  .ch-slot.focused { background: rgba(56, 226, 255, 0.16); }
+  .ch-slot .ch-inner { transform: skewX(15deg); min-width: 0; }
+  .ch-slot .ch-ord { font-size: 20px; color: #ffffff; letter-spacing: 1px; }
+  .ch-slot .ch-name {
+      font-size: 17px; color: #ffffff; margin-top: 8px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ch-slot .ch-diff { font-size: 13px; color: rgba(255, 255, 255, 0.78); margin-top: 5px; }
+  .ch-slot .ch-empty { font-size: 15px; color: rgba(255, 255, 255, 0.72); margin-top: 8px; }
+  .ch-slot .ch-cover {
+      position: absolute; top: 0; left: -16%; width: 132%; height: 100%;
+      object-fit: cover; z-index: 0; display: block;
+      transform: skewX(15deg);
+  }
+  .ch-slot .ch-ord-badge {
+      position: absolute; left: 10px; top: 8px; z-index: 2;
+      padding: 2px 8px; border-radius: 6px;
+      background: rgba(0, 0, 0, 0.55); color: #ffffff; font-size: 13px;
+      transform: skewX(15deg);
+  }
+  .ch-slot.focused { box-shadow: inset 0 0 0 2px rgba(56, 226, 255, 0.85); }
+  .ch-slot .ch-x {
+      position: absolute; right: 12px; top: 6px; width: 30px; height: 30px;
+      line-height: 30px; text-align: center; font-size: 22px; color: #ff8a8a;
+      cursor: pointer; transform: skewX(15deg); z-index: 2;
+      background: rgba(0, 0, 0, 0.45); border-radius: 8px;
+  }
+
+  .score-group {
+      position: relative; display: flex; align-items: center; gap: 10px;
+      z-index: 1; margin-right: 10px;
+  }
+  .score-rank-img { height: 90px; width: auto; display: block; position: relative; top: -30px; }
+  .score-number { font-size: 42px; font-weight: normal; letter-spacing: 1px; color: #ffffff; line-height: 1; }
+  .score-percent { font-size: 16px; font-weight: normal; color: #a0a5b5; letter-spacing: 1px; position: relative; top: 13px; }
+  .score-rank { font-size: 15px; font-weight: normal; color: #ffffff; margin-left: 8px; letter-spacing: 2px; opacity: 0.9; }
+
+  .pl-mask { position: fixed; inset: 0; z-index: 9000; display: none; }
+  .pl-mask.open { display: block; }
+  .pl-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  .pl-card {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 900px; max-width: 92vw; max-height: 82vh; overflow-y: auto;
+    background: rgba(18, 18, 20, 0.97); border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 18px; padding: 30px 34px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  }
+  .pl-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+  .pl-head h2 { font-size: 30px; font-weight: normal; letter-spacing: 2px; }
+  .pl-head p { margin-top: 10px; font-size: 15px; color: rgba(255, 255, 255, 0.5); line-height: 1.7; max-width: 640px; }
+  .pl-close { width: 44px; height: 44px; border: none; background: rgba(255, 255, 255, 0.08); color: #fff; font-size: 22px; border-radius: 50%; cursor: pointer; flex-shrink: 0; }
+  .pl-close:hover { background: rgba(255, 255, 255, 0.18); }
+  .pl-actions { display: flex; align-items: center; gap: 12px; margin: 22px 0 18px; }
+  .pl-actions button { height: 40px; padding: 0 22px; border: none; border-radius: 20px; cursor: pointer; font-family: 'cmdysj', sans-serif; font-size: 15px; letter-spacing: 1px; }
+  #plugin-import { background: #fff; color: #000; font-weight: bold; }
+  #plugin-import:disabled { opacity: 0.5; cursor: default; }
+  #plugin-reload { background: rgba(255, 255, 255, 0.1); color: #fff; }
+  #plugin-status { color: rgba(255, 255, 255, 0.45); font-size: 14px; }
+  #plugin-errors { display: none; margin-bottom: 16px; padding: 14px 18px; border-radius: 12px; background: rgba(220, 60, 60, 0.14); border: 1px solid rgba(220, 60, 60, 0.4); color: #ff9b9b; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+  #plugin-list { display: flex; flex-direction: column; gap: 12px; }
+  .pl-empty { padding: 40px 0; text-align: center; color: rgba(255, 255, 255, 0.4); letter-spacing: 2px; }
+  .pl-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 18px 20px; border-radius: 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); }
+  .pl-row:hover { background: rgba(255, 255, 255, 0.08); }
+  .pl-row-main { min-width: 0; flex: 1; }
+  .pl-row-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .p-name { font-size: 20px; }
+  .p-version { font-size: 12px; color: rgba(255, 255, 255, 0.4); letter-spacing: 1px; }
+  .p-badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; letter-spacing: 1px; background: rgba(255, 255, 255, 0.15); color: #fff; }
+  .p-badge.on { background: #1f9d55; }
+  .p-badge.off { background: rgba(255, 255, 255, 0.18); color: rgba(255, 255, 255, 0.6); }
+  .p-id { margin-top: 4px; font-size: 12px; color: rgba(255, 255, 255, 0.35); font-family: monospace; }
+  .p-desc { margin-top: 8px; font-size: 14px; color: rgba(255, 255, 255, 0.6); line-height: 1.6; }
+  .p-author { margin-top: 6px; font-size: 12px; color: rgba(255, 255, 255, 0.4); }
+  .pl-row-btns { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .pl-row-btns button { height: 36px; padding: 0 16px; border: 1px solid rgba(255, 255, 255, 0.2); background: transparent; color: #fff; border-radius: 18px; cursor: pointer; font-family: 'cmdysj', sans-serif; font-size: 14px; }
+  .pl-row-btns button:hover { background: rgba(255, 255, 255, 0.12); }
+  .p-del:hover { border-color: rgba(255, 90, 90, 0.6); color: #ff8b8b; }
+
+</style>
+</head>
+<body>
+<h1 id="loading">Loading ...</h1>
+<div id="err"></div>
+
+<div class="bg-blur" id="bgBlur"></div>
+<canvas id="main-canvas"></canvas>
+<div id="flash-overlay"></div>
+
+<div id="stage">
+  <div class="ui-layer">
+
+    <div class="list-bg"></div>
+    <div class="active-bg"></div>
+    <div class="song-scroll-container" id="scrollContainer">
+      <div class="song-list" id="songList"></div>
+    </div>
+
+    <div class="diff-indicator" id="diffIndicator">
+      <div class="diff-level" id="diffLevel">17</div>
+      <div class="diff-name" id="diffName">IN</div>
+    </div>
+
+    <div class="jacket-container" id="jacketContainer">
+      <img id="jacketBg" class="jacket-bg" src="3.jpg" alt="" onerror="this.onerror=null;this.src='3.jpg';">
+      <img id="jacketImg" class="jacket-fg" src="3.jpg" alt="曲绘" onerror="this.onerror=null;this.src='3.jpg';">
+      <img id="jacketLock" class="jacket-lock" src="lock.png" alt="">
+    </div>
+
+    <div class="start-button" id="start-btn">
+      <img src="play.png" alt="Play">
+    </div>
+
+    <div class="back-btn" id="back-btn"><img src="左上角2.png" alt="返回"></div>
+
+    <div class="elem1-wrapper">
+      <div class="main-panel">
+        <div class="left-section" id="sort-section">
+          <span class="sort-by">Sort by</span>
+          <div class="difficulty-row">
+            <img src="sort.png" alt="sort" class="icon">
+            <span class="difficulty">Difficulty</span>
+          </div>
+        </div>
+        <div class="right-section">
+          <div class="control-group" id="tb-random">
+            <img src="Random.png" alt="random" class="control-icon">
+            <span class="control-text">Random</span>
+          </div>
+          <span class="divider">/</span>
+          <div class="control-group" id="tb-import">
+            <img src="sort.png" alt="import" class="control-icon">
+            <span class="control-text">Import</span>
+          </div>
+          <span class="divider">/</span>
+          <div class="control-group" id="tb-settings">
+            <img src="setting.png" alt="settings" class="control-icon">
+            <span class="control-text">Settings</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="adv-panel">
+        <div class="adv-row">
+          <div class="search-box"><input id="search-input" type="text" placeholder="搜索曲名或曲师…"></div>
+          <div class="cat-tabs" id="cat-tabs">
+            <div class="cat-tab active" data-cat="local"><span>本地</span></div>
+            <div class="cat-tab" data-cat="ranked"><span>上架</span></div>
+            <div class="cat-tab" data-cat="special"><span>特殊</span></div>
+            <div class="cat-tab" data-cat="unstable"><span>未上架</span></div>
+            <div class="cat-tab" data-cat="popular"><span>热门</span></div>
+          </div>
+        </div>
+        <div class="adv-row">
+          <div class="adv-btn active" id="adv-challenge"><span data-i18n="课题">课题</span></div>
+          <div class="adv-btn" id="adv-re"><span data-i18n="Re:课题">Re:课题</span></div>
+          <div class="adv-btn" id="re-undo"><span>Undo</span></div>
+          <div class="adv-btn" id="re-clear"><span>清空</span></div>
+        </div>
+        <div class="adv-row" id="re-settings" style="display:none">
+          <div class="re-label">判定</div>
+          <div class="re-input"><label>Perfect ±</label><input id="re-p" type="number" value="40" min="1" max="200">ms</div>
+          <div class="re-input"><label>Good ±</label><input id="re-g" type="number" value="75" min="1" max="300">ms</div>
+          <div class="re-input"><label>Bad ±</label><input id="re-b" type="number" value="140" min="1" max="400">ms</div>
+        </div>
+        <div class="adv-row" id="hp-settings" style="display:none">
+          <div class="adv-btn" id="hp-toggle"><span>HP 血量: 关</span></div>
+          <div class="adv-btn" id="hp-val"><span>档位: 1</span></div>
+          <div class="adv-btn" id="hp-cond"><span>扣血: 非Perfect</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="elem2-wrapper">
+      <div class="ui-container">
+        <div class="result-player">
+          <div class="rp-name"><span id="user-name">GUEST</span></div>
+          <div class="rp-avatar"><img id="user-avatar" src="Introduction.png" alt="Avatar"></div>
+          <div class="rp-rks"><span id="user-rks">16.24</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="elem3-wrapper">
+      <div class="ui-wrapper">
+        <div class="ui-content">
+          <div class="black-bg" id="blackBg"></div>
+          <div class="stats-group" id="statsGroup">
+            <div class="diff-list" id="diffList">
+              <div class="slider" id="slider"></div>
+              <div class="diff-item" data-color="#2ecc71"><div class="stat"><span class="num">9</span><span class="sub">EZ</span></div></div>
+              <div class="diff-item" data-color="#3498db"><div class="stat"><span class="num">14</span><span class="sub">HD</span></div></div>
+              <div class="diff-item active" data-color="#cc2929"><div class="stat"><span class="num">17</span><span class="sub">IN</span></div></div>
+              <div class="diff-item" data-color="#111111"><div class="stat"><span class="num">18</span><span class="sub">AT</span></div></div>
+            </div>
+            <div class="challenge-box" id="challengeBox" style="display:none"></div>
+          </div>
+          <div class="score-group">
+            <span class="score-number">0991175</span>
+            <span class="score-percent">99.03%</span>
+            <span class="score-rank">V</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="plugin-panel" class="pl-mask">
+  <div class="pl-backdrop" id="plugin-mask"></div>
+  <div class="pl-card">
+    <div class="pl-head">
+      <div>
+        <h2>插件</h2>
+        <p>导入 <span style="font-family:monospace">.phc</span> 文件即可扩展曲库。支持两种形态：① ZIP（根目录含 manifest.json，可带 main.js 与资源）　② 单个 JSON（脚本写在 script 字段）</p>
+      </div>
+      <button class="pl-close" id="plugin-close">✕</button>
+    </div>
+    <div class="pl-actions">
+      <button id="plugin-import">导入 .phc</button>
+      <button id="plugin-reload">重新加载全部</button>
+      <span id="plugin-status"></span>
+    </div>
+    <div id="plugin-errors"></div>
+    <div id="plugin-list"></div>
+    <div id="plugin-row-template" style="display:none">
+      <div class="pl-row">
+        <div class="pl-row-main">
+          <div class="pl-row-title"><span class="p-name"></span><span class="p-version"></span><span class="p-badge"></span></div>
+          <div class="p-id"></div>
+          <div class="p-desc"></div>
+          <div class="p-author"></div>
+        </div>
+        <div class="pl-row-btns"><button class="p-toggle">启用</button><button class="p-del">删除</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function safeInsets() {
+  var d = document.createElement('div');
+  d.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;' +
+    'padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);';
+  document.body.appendChild(d);
+  var cs = getComputedStyle(d);
+  var v = {
+    top: parseFloat(cs.paddingTop) || 0,
+    right: parseFloat(cs.paddingRight) || 0,
+    bottom: parseFloat(cs.paddingBottom) || 0,
+    left: parseFloat(cs.paddingLeft) || 0
+  };
+  d.remove();
+  return v;
+}
+var STAGE_SCALE = 1;
+function fit() {
+  var ins = safeInsets();
+  var aw = Math.max(1, window.innerWidth - ins.left - ins.right);
+  var ah = Math.max(1, window.innerHeight - ins.top - ins.bottom);
+  var s = Math.min(ah / 1080, aw / 1920);
+  var stageW = Math.max(1920, aw / s);
+  var st = document.getElementById('stage');
+  st.style.width = stageW + 'px';
+  st.style.transform = 'translate(-50%, -50%) scale(' + s + ')';
+  st.style.left = (ins.left + aw / 2) + 'px';
+  st.style.top = (ins.top + ah / 2) + 'px';
+  STAGE_SCALE = s;
+}
+window.addEventListener('resize', fit);
+window.addEventListener('orientationchange', function () { setTimeout(fit, 120); });
+fit();
+
+(() => {
+  const cv = document.createElement("canvas");
+  const gl = cv.getContext("webgl") || cv.getContext("experimental-webgl");
+  if (gl === null) {
+    window["createGLProgram"] = () => null;
+    window["GLERR"] = null;
+    window["drawGL"] = () => null;
+    console.warn("WebGL 不支持，跳过 trigrid 背景");
+    return;
+  }
+  gl.enable(gl.BLEND);
+  const positions = [-1, 1, 1, 1, -1, -1, 1, -1];
+  const texCoords = [0, 1, 1, 1, 0, 0, 1, 0];
+  const vs_s = `attribute vec2 a_position; attribute vec2 a_texCoord; varying vec2 uv; void main() { gl_Position = vec4(a_position, 0, 1); uv = a_texCoord; }`;
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.clearColor(0, 0, 0, 0);
+
+  window["createGLProgram"] = (fs_s) => {
+    window["GLERR"] = null;
+    const vs = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs, vs_s); gl.compileShader(vs);
+    const fs = gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs, fs_s); gl.compileShader(fs);
+    const program = gl.createProgram();
+    if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) { window["GLERR"] = gl.getShaderInfoLog(fs); console.log({ err: gl.getShaderInfoLog(fs), scoure: fs_s }); program.invtag = true; return; }
+    gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program); gl.useProgram(program);
+    const positionBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+    const posAttrLocation = gl.getAttribLocation(program, "a_position"); gl.vertexAttribPointer(posAttrLocation, 2, gl.FLOAT, false, 0, 0); gl.enableVertexAttribArray(posAttrLocation);
+    const texCoordBuffer = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STATIC_DRAW);
+    const texCoordAttrLocation = gl.getAttribLocation(program, "a_texCoord"); gl.vertexAttribPointer(texCoordAttrLocation, 2, gl.FLOAT, false, 0, 0); gl.enableVertexAttribArray(texCoordAttrLocation);
+    const textureLocation = gl.getUniformLocation(program, "screenTexture"); gl.uniform1i(textureLocation, 0);
+    return program;
+  };
+
+  const default_program = createGLProgram(`varying lowp vec2 uv; uniform sampler2D screenTexture; void main() { gl_FragColor = texture2D(screenTexture, uv); }`);
+  const _seted_locations = new Map();
+  const _set_location = (location, value) => {
+    if (typeof value === "boolean") gl.uniform1i(location, value ? 1 : 0);
+    else gl[`uniform${value.length}fv`](location, value);
+    _seted_locations.set(location, value);
+  };
+  const _reset_locations = () => {
+    if (!_seted_locations.size) return;
+    _seted_locations.forEach((value, location) => {
+      if (typeof value === "boolean") gl.uniform1i(location, 0);
+      else gl[`uniform${value.length}fv`](location, new Array(value.length).fill(0));
+    });
+    _seted_locations.clear();
+  };
+
+  window["drawGL"] = (program, im, uniforms) => {
+    if (program.invtag) program = default_program;
+    if (uniforms.__enableAlpha) gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(program);
+    for (const uniform_key in uniforms) {
+      let value = uniforms[uniform_key];
+      if (typeof value === "number") value = [value];
+      if (!program[`${uniform_key}_location`]) program[`${uniform_key}_location`] = gl.getUniformLocation(program, uniform_key);
+      const location = program[`${uniform_key}_location`];
+      _set_location(location, value);
+    }
+    cv.width = im.width; cv.height = im.height;
+    gl.viewport(0, 0, im.width, im.height);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, im);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    _reset_locations(program);
+    if (uniforms.__enableAlpha) gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    return cv;
+  };
+})();
+
+class ShaderLoader {
+  constructor() { this.pgs = new Map(); }
+  load(name, glsl) { if (this.pgs.has(name)) return; let pg = createGLProgram(glsl); this.pgs.set(name, pg); }
+  render(im, name, uniforms) { let pg = this.pgs.get(name); if (pg === undefined || pg === null) return null; return drawGL(pg, im, uniforms); }
+  renderToCanvas(ctx, name, uniforms) {
+    const cv = ctx.canvas; uniforms["screenSize"] = [cv.width, cv.height];
+    let result = this.render(cv, name, uniforms);
+    if (result === null) return;
+    ctx.drawImage(result, 0, 0);
+  }
+}
+
+const TRIGRID_GLSL = `// webgl shader for trigrid
+#version 100
+precision highp float;
+varying lowp vec2 uv;
+uniform sampler2D screenTexture;
+uniform bool use_texture;
+uniform vec2 tex_size;
+uniform vec4 base_color;
+uniform vec4 face_color;
+uniform float face_brightness;
+uniform vec4 grid_color;
+uniform float grid_brightness;
+uniform vec4 glow_color;
+uniform float glow_brightness;
+uniform bool always_on;
+uniform bool glow_ooroff;
+uniform float t;
+
+void main() {
+    vec2 uv2 = uv;
+    vec2 w = uv2 - 0.5;
+    uv2.x += pow(abs(w.y), 2.) * (-w.x);
+    uv2.x += tex_size.x / 2.;
+    vec2 new_uv = mod(uv2 / tex_size, 1.0);
+    vec4 texColor;
+    if (use_texture) {
+        texColor = texture2D(screenTexture, new_uv);
+    } else {
+        float fx = new_uv.x; float fy = new_uv.y;
+        float r = 0.0; float g = 0.0; float b = 0.0;
+        if (fx < 0.05 || fx > 0.95 || fy < 0.05 || fy > 0.95) r = 1.0;
+        if (fx < 0.15 || fx > 0.85 || fy < 0.15 || fy > 0.85) g = 1.0;
+        if (abs(fx - 0.5) + abs(fy - 0.5) < 0.5) b = 1.0;
+        texColor = vec4(r, g, b, 1.0);
+    }
+    float k = 0.8;
+    float k2 = 1.6;
+    float p = max(0., min(1., ((sin((uv2.y + t) * k2) - k) * (1. / (1. - k)))));
+    p = 0.35 + 0.65 * p;
+    if (always_on) { p = 1.; }
+    float k3 = 2.; float k4 = 5.; float k5 = 1.;
+    float grid_w = 1.;
+    float face_w = p * k3;
+    float glow_w = p * k4;
+    if (glow_ooroff) { grid_w *= p; }
+    vec4 finalColor = base_color + (
+        grid_color * grid_brightness * texColor.r * grid_w +
+        face_color * face_brightness * texColor.b * face_w +
+        glow_color * pow(glow_brightness * texColor.g * glow_w, k5)
+    );
+    finalColor.a = texColor.a * (finalColor.r + finalColor.b + finalColor.g) / 3. * 0.4;
+    gl_FragColor = finalColor;
+}
+`;
+
+var I18N = {
+  'zh-CN': {},
+  'en-US': { '本地':'Local','上架':'Published','特殊':'Special','未上架':'Unlisted','热门':'Popular','搜索曲名或曲师…':'Search title or artist…','返回':'Back','导入谱面':'Import charts','收藏夹':'Favorites','最佳谱面榜':'Best board','课题模式':'Challenge Mode','正在载入曲库…':'Loading the library…','读取失败：':'Failed to load: ','未登录，无法查看在线分类':'Sign in to view online categories','需先接受服务条款':'Please accept the terms first','离线模式已开启':'Offline mode is on','没有找到匹配的谱面':'No charts matched','暂无谱面，请先导入':'No charts yet — import some first','在线分类':'Online','本地曲库':'Local','张谱面':'charts','加载更多':'Load more','正在打开…':'Opening…','请先在谱面工具箱导入':'Import charts via the Chart Toolbox','回放':'Replays','插件':'Plugins','课题':'Challenge','Re:课题':'Re:Challenge','无记录':'No record' },
+  'zh-TW': { '本地':'本地','上架':'上架','特殊':'特殊','未上架':'未上架','热门':'熱門','搜索曲名或曲师…':'搜尋曲名或曲師…','返回':'返回','导入谱面':'匯入譜面','收藏夹':'收藏夾','最佳谱面榜':'最佳譜面榜','课题模式':'課題模式','正在载入曲库…':'正在載入曲庫…','读取失败：':'讀取失敗：','未登录，无法查看在线分类':'尚未登入，無法查看線上分類','需先接受服务条款':'請先接受服務條款','离线模式已开启':'已開啟離線模式','没有找到匹配的谱面':'找不到符合的譜面','暂无谱面，请先导入':'尚無譜面，請先匯入','在线分类':'線上分類','本地曲库':'本機曲庫','张谱面':'張譜面','加载更多':'載入更多','正在打开…':'正在開啟…','请先在谱面工具箱导入':'請先在譜面工具箱匯入','Re:课题':'Re:課題' },
+  'ja-JP': { '本地':'ローカル','上架':'公開済み','特殊':'特殊','未上架':'未公開','热门':'人気','搜索曲名或曲师…':'曲名・作曲者で検索…','返回':'戻る','导入谱面':'譜面を読み込む','收藏夹':'お気に入り','最佳谱面榜':'ベストボード','课题模式':'課題モード','正在载入曲库…':'ライブラリを読み込み中…','读取失败：':'読み込みに失敗：','未登录，无法查看在线分类':'オンライン分類を見るにはログインしてください','需先接受服务条款':'先に規約に同意してください','离线模式已开启':'オフラインモードが有効です','没有找到匹配的谱面':'該当する譜面はありません','暂无谱面，请先导入':'譜面がまだありません','在线分类':'オンライン','本地曲库':'ローカルライブラリ','张谱面':'譜面','加载更多':'さらに読み込む','正在打开…':'開いています…','请先在谱面工具箱导入':'先に譜面を読み込んでください','回放':'リプレイ','插件':'プラグイン','课题':'課題','Re:课题':'Re:課題','无记录':'記録なし' },
+  'ko-KR': { '本地':'로컬','上架':'등록됨','特殊':'특수','未上架':'미등록','热门':'인기','搜索曲名或曲师…':'곡명 또는 아티스트 검색…','返回':'뒤로','导入谱面':'차트 가져오기','收藏夹':'즐겨찾기','最佳谱面榜':'베스트 보드','课题模式':'과제 모드','正在载入曲库…':'라이브러리 불러오는 중…','读取失败：':'불러오기 실패: ','未登录，无法查看在线分类':'온라인 분류를 보려면 로그인하세요','需先接受服务条款':'먼저 약관에 동의하세요','离线模式已开启':'오프라인 모드가 켜져 있습니다','没有找到匹配的谱面':'맞는 차트가 없습니다','暂无谱面，请先导入':'차트가 아직 없습니다','在线分类':'온라인','本地曲库':'로컬 라이브러리','张谱面':'차트','加载更多':'더 불러오기','正在打开…':'여는 중…','请先在谱面工具箱导入':'먼저 차트를 가져오세요','Re:课题':'Re:과제' }
+};
+var CAT_KEY = { local: '本地', ranked: '上架', special: '特殊', unstable: '未上架', popular: '热门' };
+var CUR_LANG = 'zh-CN';
+function t(k) { var d = I18N[CUR_LANG] || I18N['zh-CN']; return (d && d[k] !== undefined) ? d[k] : k; }
+function applyI18n() {
+  document.querySelectorAll('.cat-tab[data-cat]').forEach(function (b) {
+    var label = b.querySelector('span');
+    if (label) label.textContent = t(CAT_KEY[b.getAttribute('data-cat')]);
+  });
+  var si = document.getElementById('search-input');
+  if (si) si.placeholder = t('搜索曲名或曲师…');
+  var titles = { 'adv-challenge': '课题模式' };
+  Object.keys(titles).forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.title = t(titles[id]);
+  });
+  document.querySelectorAll('[data-i18n]').forEach(function (el) {
+    var v = t(el.getAttribute('data-i18n'));
+    if (v) el.textContent = v;
+  });
+}
+function detectLang() {
+  return Promise.resolve().then(function () {
+    if (window.phirc && typeof window.phirc.listLanguages === 'function') {
+      return Promise.resolve(window.phirc.listLanguages()).then(function (r) { return (r && r.current) || null; }).catch(function () { return null; });
+    }
+    return null;
+  }).then(function (c) { CUR_LANG = c || 'zh-CN'; });
+}
+
+function checkLangLive() {
+  if (!window.phirc || typeof window.phirc.listLanguages !== 'function') return;
+  Promise.resolve(window.phirc.listLanguages()).then(function (r) {
+    var c = (r && r.current) || 'zh-CN';
+    if (c !== CUR_LANG) location.reload();
+  }).catch(function () {});
+}
+window.addEventListener('pageshow', function (e) {
+  if (e && e.persisted) location.reload();
+  else checkLangLive();
+});
+window.addEventListener('focus', checkLangLive);
+
+(async () => {
+  const DIFF_ORDER = ['EZ', 'HD', 'IN', 'AT', 'SP', 'GL', 'LG'];
+  const DIFF_COLOR = { EZ: '#2ecc71', HD: '#3498db', IN: '#cc2929', AT: '#111111', SP: '#7b2ff7', GL: '#f39c12', LG: '#e84393' };
+  const FAMILIES = ['EZ', 'HD', 'IN', 'AT'];
+  const DEFAULT_LEVEL = { EZ: '9', HD: '14', IN: '17', AT: '18' };
+
+  const songListEl = document.getElementById('songList');
+  const scrollContainer = document.getElementById('scrollContainer');
+  const jacketImg = document.getElementById('jacketImg');
+  const jacketBg = document.getElementById('jacketBg');
+  const jacketContainer = document.getElementById('jacketContainer');
+  const diffIndicator = document.getElementById('diffIndicator');
+  const diffLevel = document.getElementById('diffLevel');
+  const diffName = document.getElementById('diffName');
+  const slider = document.getElementById('slider');
+  const diffList = document.getElementById('diffList');
+  const searchInput = document.getElementById('search-input');
+  const catTabs = document.getElementById('cat-tabs');
+
+  var state = { cat: 'local', page: 0, totalPage: 0, loading: false, kw: '', loadError: '' };
+
+  // wry 只把 http://phirc.localhost* 请求转发给 serve_dir，绝对 phirc:// scheme 无法被 WebView 加载；
+  // 转成相对路径（基于当前 http://phirc.localhost/challenge_ui.html 自动解析）即可命中转发。
+  function webUrl(u) {
+    if (typeof u === 'string' && u.indexOf('phirc://localhost/') === 0) {
+      return u.slice('phirc://localhost/'.length);
+    }
+    return u;
+  }
+
+  function probe(ev, data) {
+    var line = '[probe] ' + ev + (data === undefined ? '' : ' ' + JSON.stringify(data));
+    try { console.log(line); } catch (e) {}
+    try {
+      if (window.phirc && typeof window.phirc.log === 'function') window.phirc.log(line);
+      else if (window.ipc && typeof window.ipc.postMessage === 'function') {
+        window.ipc.postMessage(JSON.stringify({ cmd: 'log', args: { msg: line } }));
+      }
+    } catch (e) {}
+  }
+
+  var CAT_ERR_KEY = {
+    'no-bridge': '无法连接程序桥（window.phirc 不可用）',
+    'must-login': '未登录，无法查看在线分类',
+    'offline-mode': '离线模式已开启',
+    'must-accept-tos': '需先接受服务条款'
+  };
+  function catErrText(e) {
+    var m = String((e && e.message) || e || '');
+    if (CAT_ERR_KEY[m]) return t(CAT_ERR_KEY[m]);
+    return '加载失败：' + m.replace(/^Error:\s*/, '');
+  }
+
+  var catClickSeq = 0;
+  function selectCategory(cat, tab) {
+    if (!cat) return;
+    var mySeq = ++catClickSeq;
+    if (catTabs) {
+      Array.from(catTabs.children).forEach(function (x) {
+        x.classList.toggle('active', x.getAttribute('data-cat') === cat);
+      });
+    }
+    state.page = 0; state.kw = ''; if (searchInput) searchInput.value = '';
+    activeIndex = 1;
+    probe('cat-click', {
+      cat: cat,
+      bridge: typeof window.phirc,
+      hasOnline: !!(window.phirc && typeof window.phirc.listOnlineCharts === 'function'),
+      loading: !!state.loading
+    });
+    loadCategory(cat, false).then(function () {
+      if (mySeq !== catClickSeq) return;
+      activeIndex = SONGS.length ? 1 : 0;
+      renderList();
+    });
+  }
+
+  if (!window.__phircCatDelegated) {
+    window.__phircCatDelegated = true;
+    document.addEventListener('click', function (e) {
+      var t = e.target;
+      var tab = (t && t.closest) ? t.closest('.cat-tab[data-cat]') : null;
+      if (!tab) return;
+      selectCategory(tab.getAttribute('data-cat'), tab);
+    }, true);
+  }
+
+  var CH = { active: false, re: false, slots: [null, null, null], focus: 0, hpOn: true, hpIdx: 3, hpVal: 'nonperfect' };
+
+  // 接收 Rust 推送的状态（HP 开关/档位/扣血条件、课题结算等）
+  var HP_OPTIONS = ['Off', '1', '20', '50', '100', '200'];
+  function hpLabel() {
+    var idx = CH.hpOn ? (CH.hpIdx + 1) : 0;
+    return HP_OPTIONS[Math.min(idx, HP_OPTIONS.length - 1)] || 'Off';
+  }
+  function hpCondLabel() {
+    return CH.hpVal === 'badmiss' ? 'Bad/Miss' : '非Perfect';
+  }
+  function updateHpBar() {
+    var tg = document.getElementById('hp-toggle');
+    var vl = document.getElementById('hp-val');
+    var cd = document.getElementById('hp-cond');
+    if (tg && tg.querySelector('span')) tg.querySelector('span').textContent = 'HP 血量: ' + (CH.hpOn ? '开' : '关');
+    if (vl && vl.querySelector('span')) vl.querySelector('span').textContent = '档位: ' + hpLabel();
+    if (cd && cd.querySelector('span')) cd.querySelector('span').textContent = '扣血: ' + hpCondLabel();
+  }
+  function showResult(text) {
+    var box = document.getElementById('ch-result');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'ch-result';
+      box.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:99999;' +
+        'background:rgba(10,12,18,.94);border:1px solid rgba(255,255,255,.2);border-radius:16px;' +
+        'padding:26px 38px;min-width:420px;max-width:70vw;box-shadow:0 12px 60px rgba(0,0,0,.6);' +
+        'font-family:system-ui,sans-serif;';
+      var title = document.createElement('div');
+      title.style.cssText = 'font-size:22px;font-weight:700;color:#fff;letter-spacing:1px;margin-bottom:14px;';
+      title.textContent = '课题结算';
+      box.appendChild(title);
+      var body = document.createElement('div');
+      body.id = 'ch-result-body';
+      body.style.cssText = 'font-size:17px;color:#e8e8ec;line-height:1.8;white-space:pre-wrap;word-break:break-all;';
+      box.appendChild(body);
+      var close = document.createElement('div');
+      close.style.cssText = 'margin-top:18px;padding:8px 26px;background:rgba(255,255,255,.14);border-radius:8px;' +
+        'color:#fff;font-size:15px;text-align:center;display:inline-block;cursor:pointer;';
+      close.textContent = '关闭';
+      close.addEventListener('click', function () { box.remove(); });
+      box.appendChild(close);
+      document.body.appendChild(box);
+    }
+    var body = document.getElementById('ch-result-body');
+    if (body) body.textContent = text;
+    box.style.display = 'block';
+  }
+  window.__phira_push = function (s) {
+    try {
+      if (!s || typeof s !== 'object') return;
+      if (typeof s.hp === 'boolean') CH.hpOn = s.hp;
+      if (typeof s.hpIdx === 'number' && s.hpIdx >= 0 && s.hpIdx < HP_OPTIONS.length - 1) CH.hpIdx = s.hpIdx;
+      if (s.hpVal === 'badmiss' || s.hpVal === 'nonperfect') CH.hpVal = s.hpVal;
+      updateHpBar();
+      if (s.result_text) showResult(String(s.result_text));
+    } catch (e) {}
+  };
+  var RAW = [];
+  var GROUPS = [];
+  var SONGS = [];
+  var LAST_CARDS = [];
+  var demoMode = false;
+  var sortMode = 'diff';
+  var activeIndex = 1;
+  var wheelAccumulator = 0;
+  var resetTimeout = null;
+  var searchDeb = null;
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function toast(msg) {
+    var el = document.getElementById('toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'toast';
+      el.style.cssText = 'position:fixed;left:50%;bottom:40px;transform:translateX(-50%);z-index:99999;' +
+        'background:rgba(0,0,0,.82);color:#fff;padding:12px 26px;border-radius:10px;font-size:18px;' +
+        'opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;max-width:80vw;overflow:hidden;text-overflow:ellipsis;';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.opacity = '1';
+    clearTimeout(el._t);
+    el._t = setTimeout(function () { el.style.opacity = '0'; }, 2000);
+  }
+
+  function diffFamily(level, difficulty) {
+    var m = String(level || '').match(/^([A-Za-z]+)/);
+    var fam = m ? m[1].toUpperCase() : '';
+    if (DIFF_ORDER.indexOf(fam) >= 0) return fam;
+    var n = Number(difficulty);
+    if (n >= 17) return 'AT';
+    if (n >= 13) return 'IN';
+    if (n >= 8) return 'HD';
+    return 'EZ';
+  }
+  function levelNum(level) {
+    var m = String(level || '').match(/(\d+(?:\.\d+)?)/);
+    return m ? m[1] : '?';
+  }
+
+  function gradeOf(score, fullCombo) {
+    if (score >= 1000000) return 'φ';
+    if (score >= 960000) return fullCombo ? 'V' : 'S';
+    if (score >= 920000) return 'S';
+    if (score >= 880000) return 'A';
+    if (score >= 820000) return 'B';
+    if (score >= 700000) return 'C';
+    return 'F';
+  }
+  function gradeFile(g) {
+    if (!g) return null;
+    return g === 'φ' ? 'phi' : g;
+  }
+  function bestGrade(g) {
+    if (!g || !g.charts) return null;
+    var best = null, bestScore = -1;
+    g.charts.forEach(function (c) {
+      if (!c.record) return;
+      var s = Number(c.record.score) || 0;
+      if (s > bestScore) { bestScore = s; best = gradeOf(s, !!c.record.fullCombo); }
+    });
+    return best;
+  }
+
+  function chartForFamily(g, fam) {
+    if (!g || !g.charts) return null;
+    for (var i = 0; i < g.charts.length; i++) if (g.charts[i].diff === fam) return g.charts[i];
+    return null;
+  }
+  function familyLevel(g, fam) {
+    var ch = chartForFamily(g, fam);
+    return ch ? ch.level : (DEFAULT_LEVEL[fam] || '?');
+  }
+  function activeChart(g) {
+    if (!g || !g.charts || !g.charts.length) return null;
+    return chartForFamily(g, g.activeFamily) || g.charts[0];
+  }
+
+  function waitForBridge(ms) {
+    return new Promise(function (resolve) {
+      var t0 = Date.now();
+      (function poll() {
+        if (window.phirc && typeof window.phirc.listCharts === 'function') return resolve(true);
+        if (Date.now() - t0 > (ms || 4000)) return resolve(false);
+        setTimeout(poll, 80);
+      })();
+    });
+  }
+
+  function filteredGroups() {
+    if (state.cat !== 'local' || !state.kw) return GROUPS;
+    var kw = state.kw.toLowerCase();
+    return GROUPS.filter(function (g) {
+      return (g.name + ' ' + g.artist).toLowerCase().indexOf(kw) >= 0;
+    });
+  }
+
+  function sortGroups() {
+    GROUPS.sort(function (a, b) {
+      if (sortMode === 'name') return String(a.name).localeCompare(String(b.name), 'zh-CN');
+      var la = Number((a.charts[0] || {}).level) || 0;
+      var lb = Number((b.charts[0] || {}).level) || 0;
+      if (lb !== la) return lb - la;
+      return String(a.name).localeCompare(String(b.name), 'zh-CN');
+    });
+  }
+
+  function rebuildGroups() {
+    var map = new Map();
+    RAW.forEach(function (c) {
+      var nm = String(c.name || '').trim().toLowerCase();
+      var key = nm ? ('n:' + nm) : ('p:' + (c.path || c.id || ''));
+      var g = map.get(key);
+      if (!g) { g = { key: key, name: c.name || '未知曲目', artist: c.composer || c.charter || '', charts: [] }; map.set(key, g); }
+      if (!g.artist && (c.composer || c.charter)) g.artist = c.composer || c.charter;
+      g.charts.push({
+        name: c.name || '',
+        artist: c.composer || c.charter || '',
+        level: levelNum(c.level),
+        levelRaw: c.level || '',
+        diff: diffFamily(c.level, c.difficulty),
+        cover: c.coverBig || c.cover || '3.jpg',
+        path: c.path || '',
+        id: c.id,
+        local: !!c.local,
+        record: c.record || null
+      });
+    });
+    GROUPS = Array.from(map.values());
+    GROUPS.forEach(function (g) {
+      g.charts.sort(function (a, b) { return DIFF_ORDER.indexOf(a.diff) - DIFF_ORDER.indexOf(b.diff); });
+    });
+    sortGroups();
+    rebuildSongs();
+  }
+
+  function rebuildSongs() {
+    SONGS = filteredGroups().map(function (g) {
+      var a = g.charts[g.activeDiff || 0] || g.charts[0] || {};
+      return { name: g.name, artist: g.artist, level: a.level, diff: a.diff, jacketUrl: a.cover || '3.jpg', _group: g };
+    });
+  }
+
+  var loadSeq = 0;
+  async function loadCategory(cat, append) {
+    var seq = ++loadSeq;
+    state.loading = true;
+    state.loadError = '';
+    try {
+      if (cat === 'local') {
+        if (!window.phirc || typeof window.phirc.listCharts !== 'function') throw new Error('no-bridge');
+        var res = await window.phirc.listCharts();
+        RAW = Array.isArray(res) ? res : ((res && res.data) || []);
+        state.page = 0; state.totalPage = 1;
+        demoMode = false;
+      } else {
+        if (!window.phirc || typeof window.phirc.listOnlineCharts !== 'function') throw new Error('no-bridge');
+        var page = append ? state.page + 1 : 0;
+        var data = await window.phirc.listOnlineCharts(cat, page, state.kw, 'updated');
+        var charts = (data && data.charts) || [];
+        RAW = append ? RAW.concat(charts) : charts;
+        state.page = page;
+        state.totalPage = (data && data.total_page) || 0;
+        demoMode = false;
+      }
+      if (seq !== loadSeq) return;
+      state.cat = cat;
+      rebuildGroups();
+      probe('cat-loaded', { cat: cat, charts: RAW.length, totalPage: state.totalPage, append: !!append });
+    } catch (e) {
+      if (seq !== loadSeq) return;
+      state.loadError = catErrText(e);
+      console.warn('[library] 分类加载失败：', state.loadError, e);
+      probe('cat-load-fail', {
+        cat: cat, err: String((e && e.message) || e),
+        bridge: typeof window.phirc,
+        keys: (window.phirc ? Object.keys(window.phirc).join('|') : '')
+      });
+      if (!append) {
+        demoMode = true;
+        if (cat === 'local') {
+          RAW = Array.from({ length: 12 }).map(function (_, i) {
+            return { name: '曲名 ' + (i + 1), composer: '曲师', level: 'IN ' + (7 + i % 10), difficulty: 7 + i % 10, cover: '3.jpg', path: '', local: true };
+          });
+          rebuildGroups();
+        } else {
+          RAW = []; GROUPS = []; SONGS = [];
+        }
+      }
+      toast(state.loadError);
+    } finally {
+      if (seq === loadSeq) state.loading = false;
+    }
+  }
+
+  const renderList = () => {
+    songListEl.innerHTML = '';
+    LAST_CARDS = [];
+
+    var addBtn = document.createElement('div');
+    addBtn.className = 'song-item add-item';
+    addBtn.innerHTML = '<div class="add-box"><div class="add-icon">+</div></div>';
+    addBtn.addEventListener('click', function (e) { e.stopPropagation(); openImport(); });
+    songListEl.appendChild(addBtn);
+
+    if (!SONGS.length) {
+      var empty = document.createElement('div');
+      empty.className = 'song-item';
+      var emptyText = state.loadError
+        ? state.loadError
+        : (state.kw ? t('没有找到匹配的谱面') : t('暂无谱面，请先导入'));
+      empty.innerHTML = '<div class="song-title" style="font-size:22px;color:' +
+        (state.loadError ? '#ff9b9b' : '#8a8a8a') + ';">' + esc(emptyText) + '</div>';
+      songListEl.appendChild(empty);
+    }
+
+    SONGS.forEach(function (song, i) {
+      var div = document.createElement('div');
+      div.className = 'song-item';
+      var bg = bestGrade(song._group);
+      var gHtml = bg
+        ? '<img class="row-grade" src="assets/rank/' + gradeFile(bg) + '.png" alt="">'
+        : '<span class="row-grade-q">?</span>';
+      div.innerHTML = '<img class="row-cover" src="' + esc(song.jacketUrl) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' +
+        '<div class="song-title">' + esc(song.name) + '</div><div class="song-artist">' + esc(song.artist) + '</div>' + gHtml;
+      div.addEventListener('click', function () {
+        if (CH.active) {
+          var c = activeChart(song._group);
+          if (c) challengeAdd(c);
+        }
+      });
+      songListEl.appendChild(div);
+      LAST_CARDS.push(div);
+      try { firePlugin('cardRender', div, song._group); } catch (e) {}
+      pushPluginEvent('cardRender', { index: i, chart: song._group });
+    });
+
+    if (state.cat !== 'local' && state.page + 1 < state.totalPage) {
+      var more = document.createElement('div');
+      more.className = 'song-item more-item';
+      more.innerHTML = '<div class="song-title" style="font-size:22px;">' + esc(t('加载更多')) + ' …</div>';
+      more.addEventListener('click', function (e) {
+        e.stopPropagation();
+        loadCategory(state.cat, true).then(renderList);
+      });
+      songListEl.appendChild(more);
+    }
+
+    Array.from(songListEl.children).forEach(function (item, i) { item.style.setProperty('--i', i); });
+    if (SONGS.length === 0) activeIndex = 0;
+    else { if (activeIndex < 1) activeIndex = 1; if (activeIndex > SONGS.length) activeIndex = SONGS.length; }
+    updateSelection();
+    try { firePlugin('charts', SONGS, { cat: state.cat, total: SONGS.length }); } catch (e) {}
+    pushPluginEvent('charts', { cat: state.cat, total: SONGS.length, list: RAW.slice() });
+  };
+
+  const updateSelection = () => {
+    var items = Array.from(songListEl.children);
+    songListEl.style.setProperty('--active-i', activeIndex);
+    items.forEach(function (item, i) { item.classList.toggle('active', i === activeIndex); });
+
+    var itemHeight = 80;
+    var targetY = -(activeIndex * itemHeight + itemHeight / 2);
+    songListEl.style.transform = 'translateY(' + targetY + 'px)';
+
+    var song = SONGS[activeIndex - 1];
+    if (song && song._group) {
+      var g = song._group;
+      if (!g.activeFamily) g.activeFamily = chartForFamily(g, 'IN') ? 'IN' : (g.charts[0] ? g.charts[0].diff : 'IN');
+      var a = activeChart(g);
+      if (a) {
+        diffLevel.textContent = familyLevel(g, g.activeFamily);
+        diffName.textContent = g.activeFamily;
+        diffIndicator.style.opacity = 1;
+        jacketImg.style.opacity = 0;
+        if (jacketBg) jacketBg.style.opacity = 0;
+        setTimeout(function () {
+          var src = a.cover || '3.jpg';
+          var applyJacket = function (url, tries) {
+            url = webUrl(url);
+            jacketImg.src = url;
+            if (jacketBg) jacketBg.src = url;
+            var bg = document.getElementById('bgBlur');
+            if (bg) bg.style.backgroundImage = "url('" + url + "')";
+            if (a.cover && tries > 0) {
+              jacketImg.onerror = function () {
+                if (tries > 0) {
+                  setTimeout(function () { applyJacket(url, tries - 1); }, 800);
+                } else {
+                  jacketImg.onerror = null; jacketImg.src = '3.jpg';
+                  if (jacketBg) { jacketBg.onerror = null; jacketBg.src = '3.jpg'; }
+                }
+              };
+            } else {
+              jacketImg.onerror = null;
+            }
+          };
+          applyJacket(src, 3);
+          jacketImg.style.opacity = 1;
+          if (jacketBg) jacketBg.style.opacity = 1;
+        }, 150);
+        if (jacketContainer) jacketContainer.classList.toggle('locked', !(a && a.local));
+        rebuildDiffBar(g);
+        updateScore(g);
+      }
+    } else {
+      diffIndicator.style.opacity = 0;
+      rebuildDiffBar(null);
+    }
+  };
+
+  function rebuildDiffBar(g) {
+    Array.from(diffList.querySelectorAll('.diff-item')).forEach(function (n) { n.remove(); });
+    slider.style.opacity = 1;
+    var activeFam = g ? g.activeFamily : null;
+    FAMILIES.forEach(function (fam) {
+      var d = document.createElement('div');
+      d.className = 'diff-item' + (g && fam === activeFam ? ' active' : '');
+      d.setAttribute('data-color', DIFF_COLOR[fam] || '#cc2929');
+      d.innerHTML = '<div class="stat"><span class="num">' + esc(familyLevel(g, fam)) + '</span><span class="sub">' + fam + '</span></div>';
+      d.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (!g) return;
+        g.activeFamily = fam;
+        updateSelection();
+      });
+      diffList.appendChild(d);
+    });
+    requestAnimationFrame(function () { positionSlider(g); });
+  }
+
+  function positionSlider(g) {
+    var fam = g ? g.activeFamily : 'IN';
+    var idx = FAMILIES.indexOf(fam);
+    if (idx < 0) idx = 0;
+    var items = diffList.querySelectorAll('.diff-item');
+    var item = items[idx];
+    if (!item) return;
+    slider.style.transform = 'translateX(' + item.offsetLeft + 'px)';
+    slider.style.backgroundColor = item.getAttribute('data-color') || '#cc2929';
+    updateBlackBg();
+  }
+
+  function updateScore(g) {
+    var num = document.querySelector('.score-number');
+    var pct = document.querySelector('.score-percent');
+    var rank = document.querySelector('.score-rank');
+    var a = activeChart(g);
+    var rec = a && a.record;
+    if (rec) {
+      var score = Number(rec.score) || 0;
+      var acc = Number(rec.accuracy) || 0;
+      if (num) num.textContent = String(score).padStart(7, '0');
+      if (pct) pct.textContent = (acc * 100).toFixed(2) + '%';
+      if (rank) {
+        var grd = gradeOf(score, !!rec.fullCombo);
+        rank.innerHTML = '<img class="score-rank-img" src="assets/rank/' + gradeFile(grd) + '.png" alt="">';
+      }
+    } else {
+      if (num) num.textContent = '——';
+      if (pct) pct.textContent = t('无记录');
+      if (rank) rank.innerHTML = '';
+    }
+  }
+
+  function updateBlackBg() {
+    var statsGroup = document.getElementById('statsGroup');
+    var dl = document.getElementById('diffList');
+    var blackBg = document.getElementById('blackBg');
+    if (!statsGroup || !dl || !blackBg) return;
+    var leftOffset = statsGroup.offsetLeft + dl.offsetLeft + dl.offsetWidth - 5;
+    blackBg.style.left = leftOffset + 'px';
+  }
+  window.addEventListener('resize', updateBlackBg);
+
+  function ensureSlotCount(n) {
+    while (CH.slots.length < n) CH.slots.push(null);
+    if (CH.slots.length > n) CH.slots.length = n;
+  }
+
+  function challengeRender() {
+    var box = document.getElementById('challengeBox');
+    if (!box) return;
+    box.innerHTML = '';
+
+    var n = CH.re ? Math.max(3, CH.slots.length + (CH.slots.every(function (s) { return s; }) ? 1 : 0)) : 3;
+    ensureSlotCount(n);
+
+    for (var i = 0; i < CH.slots.length; i++) {
+      (function (i) {
+        var slot = document.createElement('div');
+        slot.className = 'ch-slot' + (CH.focus === i ? ' focused' : '');
+        slot.setAttribute('data-i', i);
+        var s = CH.slots[i];
+        if (s) {
+          slot.innerHTML = '<img class="ch-cover" src="' + esc(s.cover || '3.jpg') + '" alt="">' +
+            '<div class="ch-ord-badge">第 ' + (i + 1) + ' 首</div>' +
+            '<div class="ch-x">×</div>';
+        } else {
+          slot.innerHTML = '<div class="ch-inner">' +
+            '<div class="ch-ord">第 ' + (i + 1) + ' 首</div>' +
+            '<div class="ch-empty">点击曲目加入</div>' +
+            '</div>';
+        }
+        slot.addEventListener('click', function (e) {
+          var idx = parseInt(this.getAttribute('data-i'), 10);
+          if (e.target && e.target.classList && e.target.classList.contains('ch-x')) {
+            CH.slots[idx] = null;
+            CH.focus = idx;
+            challengeRender();
+            e.stopPropagation();
+            return;
+          }
+          CH.focus = idx;
+          challengeRender();
+        });
+        box.appendChild(slot);
+      })(i);
+    }
+  }
+
+  function setChallengeMode(on, re) {
+    CH.active = !!on;
+    if (re !== undefined) CH.re = !!re;
+
+    var dl = document.getElementById('diffList');
+    var box = document.getElementById('challengeBox');
+    var bb = document.getElementById('blackBg');
+    if (dl) dl.style.display = CH.active ? 'none' : 'flex';
+    if (box) box.style.display = CH.active ? 'flex' : 'none';
+    if (bb) bb.style.display = CH.active ? 'none' : '';
+
+    var btnC = document.getElementById('adv-challenge');
+    var btnR = document.getElementById('adv-re');
+    if (btnC) btnC.classList.toggle('active', CH.active && !CH.re);
+    if (btnR) btnR.classList.toggle('active', CH.active && CH.re);
+
+    var reSet = document.getElementById('re-settings');
+    if (reSet) reSet.style.display = (CH.active && CH.re) ? 'flex' : 'none';
+    var hpSet = document.getElementById('hp-settings');
+    if (hpSet) hpSet.style.display = CH.active ? 'flex' : 'none';
+    updateHpBar();
+
+    var list = document.querySelector('.song-list');
+    if (list) list.classList.toggle('challenge', CH.active);
+    var sg = document.querySelector('.score-group');
+    if (sg) sg.style.display = CH.active ? 'none' : '';
+
+    if (CH.active) {
+      if (!CH.re) ensureSlotCount(3);
+      if (CH.focus >= CH.slots.length) CH.focus = 0;
+      challengeRender();
+    }
+  }
+
+  function challengeAdd(c) {
+    if (!c || !c.path) { toast('这张谱面没有本地文件，无法加入课题'); return; }
+    for (var k = 0; k < CH.slots.length; k++) {
+      if (CH.slots[k] && CH.slots[k].path === c.path) { toast('不能重复选择同一个谱面'); return; }
+    }
+    if (!CH.re) ensureSlotCount(3);
+    CH.slots[CH.focus] = {
+      path: c.path,
+      name: c.name,
+      level: c.levelRaw || ('Lv.' + c.level),
+      cover: c.cover || '3.jpg'
+    };
+    var next = -1;
+    for (var i = 0; i < CH.slots.length; i++) { if (!CH.slots[i]) { next = i; break; } }
+    if (next >= 0) CH.focus = next;
+    challengeRender();
+  }
+
+  function challengeUndo() {
+    if (!CH.active) return;
+    for (var i = CH.slots.length - 1; i >= 0; i--) {
+      if (CH.slots[i]) {
+        CH.slots[i] = null;
+        CH.focus = i;
+        if (!CH.re && CH.slots.length > 3) ensureSlotCount(3);
+        challengeRender();
+        return;
+      }
+    }
+    toast('没有可撤销的谱面');
+  }
+
+  function challengeClear() {
+    if (!CH.active) return;
+    CH.slots = [null, null, null];
+    CH.focus = 0;
+    challengeRender();
+  }
+
+  function challengeStart() {
+    var picked = CH.slots.filter(function (s) { return s && s.path; });
+    if (CH.re) {
+      if (picked.length < 1) { toast('至少选 1 张谱面'); return; }
+    } else {
+      if (picked.length !== 3) { toast('选满 3 张后开始'); return; }
+    }
+    var paths = picked.map(function (s) { return s.path; });
+
+    var opts = { re: CH.re, hp: { on: CH.hpOn, idx: CH.hpIdx, cond: CH.hpVal } };
+    if (CH.re) {
+      var p = parseInt((document.getElementById('re-p') || {}).value, 10);
+      var g = parseInt((document.getElementById('re-g') || {}).value, 10);
+      var b = parseInt((document.getElementById('re-b') || {}).value, 10);
+      if (!(p > 0 && g > p && b > g)) { toast('判定区间需满足 Perfect < Good < Bad'); return; }
+      opts.judge = { perfect: p, good: g, bad: b };
+    }
+
+    if (!window.phirc || typeof window.phirc.startChallenge !== 'function') { toast('当前环境不支持课题模式'); return; }
+    Promise.resolve(window.phirc.startChallenge(paths, opts)).catch(function (e) {
+      toast('开始课题失败：' + ((e && e.message) || e));
+    });
+  }
+
+  function openImport() {
+    if (!window.phirc || typeof window.phirc.importChart !== 'function') { toast('当前环境不支持导入'); return; }
+    toast('请选择谱面文件…');
+    Promise.resolve(window.phirc.importChart()).then(function (data) {
+      var name = (data && data.name) || '';
+      toast('已导入：' + (name || '谱面'));
+      loadCategory(state.cat, false).then(function () {
+        activeIndex = SONGS.length ? 1 : 0;
+        renderList();
+      });
+    }).catch(function (e) {
+      var m = (e && e.message) || String(e);
+      if (m !== 'canceled') toast('导入失败：' + m);
+    });
+  }
+  function openPage(name) {
+    if (window.phirc && typeof window.phirc.openPage === 'function') {
+      Promise.resolve(window.phirc.openPage(name)).catch(function (e) { toast(String((e && e.message) || e)); });
+    } else { toast('openPage 不可用'); }
+  }
+  function openOverlay(name) {
+    if (window.phirc && typeof window.phirc.openOverlay === 'function') {
+      Promise.resolve(window.phirc.openOverlay(name)).catch(function (e) { toast(String((e && e.message) || e)); });
+    } else { toast('openOverlay 不可用'); }
+  }
+
+  function playActive() {
+    var song = SONGS[activeIndex - 1];
+    if (!song || !song._group) { toast('没有可播放的曲目'); return; }
+    var g = song._group;
+    var a = activeChart(g);
+    if (!a) { toast('没有可播放的曲目'); return; }
+    if (a.local) {
+      if (!a.path) { toast(demoMode ? '演示数据，请从 PhigrOS 内打开' : '缺少谱面路径'); return; }
+      if (!window.phirc || typeof window.phirc.startGame !== 'function') { toast('startGame 不可用'); return; }
+      toast(t('正在打开…') + ' ' + (a.name || ''));
+      Promise.resolve(window.phirc.startGame(a.path)).catch(function (e) { toast(t('读取失败：') + ((e && e.message) || e)); });
+    } else {
+      if (a.id == null) { toast('缺少谱面 id'); return; }
+      if (!window.phirc || typeof window.phirc.startOnlineChart !== 'function') { toast('startOnlineChart 不可用'); return; }
+      toast(t('正在打开…') + ' ' + (a.name || ''));
+      Promise.resolve(window.phirc.startOnlineChart(a.id)).catch(function (e) { toast(t('读取失败：') + ((e && e.message) || e)); });
+    }
+  }
+
+  var PLUGIN_HOOKS = {};
+  var PLUGIN_ERRORS = [];
+  var PLUGIN_LIST = [];
+  var SIDECAR = {};
+
+  function sidecarWants(id, ev) { var m = SIDECAR[id]; return !!(m && (m.hooks || []).indexOf(ev) >= 0); }
+  function pushPluginEvent(ev, data) {
+    var ids = Object.keys(SIDECAR);
+    if (!ids.length) return;
+    ids.forEach(function (id) {
+      if (!sidecarWants(id, ev)) return;
+      var payload = { event: ev };
+      if (data) { for (var k in data) { if (Object.prototype.hasOwnProperty.call(data, k)) payload[k] = data[k]; } }
+      try { window.phirc.pluginEvent(id, payload); } catch (e) {}
+    });
+  }
+  function stopAllSidecars() {
+    Object.keys(SIDECAR).forEach(function (id) { try { window.phirc.stopPlugin(id); } catch (e) {} });
+    SIDECAR = {};
+  }
+  function startSidecar(p) {
+    return window.phirc.startPlugin(p.id).then(function (r) {
+      SIDECAR[p.id] = { meta: p, hooks: p.hooks || ['ready', 'charts'], pid: r && r.pid };
+      if (window.phirc.log) { try { window.phirc.log('[plugin] 已启动 ' + p.runtime + ' 插件 ' + p.id + '（pid ' + (r && r.pid) + '）'); } catch (_) {} }
+    }).catch(function (e) {
+      pluginFail(p.id, new Error('启动失败：' + ((e && e.message) || e)));
+    });
+  }
+
+  function applyPluginCommand(id, msg) {
+    var cmd = msg && msg.cmd;
+    if (cmd === 'log') {
+      if (window.phirc && window.phirc.log) { try { window.phirc.log('[plugin:' + id + '] ' + (msg.msg || '')); } catch (_) {} }
+    } else if (cmd === 'toast') {
+      toast(String(msg.msg == null ? '' : msg.msg));
+    } else if (cmd === 'addToolbarButton') {
+      var box = document.getElementById('plugin-buttons');
+      if (!box) return;
+      var bid = String(msg.id || '');
+      var b = document.createElement('div');
+      b.className = 'adv-btn';
+      b.title = msg.title || '';
+      b.innerHTML = '<span>' + esc(msg.label || msg.title || bid || id) + '</span>';
+      b.addEventListener('click', function () {
+        try { window.phirc.pluginEvent(id, { event: 'click', button: bid }); } catch (e) { pluginFail(id, e); }
+      });
+      box.appendChild(b);
+    } else if (cmd === 'badge') {
+      var el = LAST_CARDS[Number(msg.index)];
+      if (!el) return;
+      var tag = document.createElement('div');
+      tag.textContent = String(msg.text || '');
+      var color = msg.color || '#18181b';
+      tag.style.cssText = 'position:absolute;left:12px;top:12px;z-index:20;padding:3px 8px;border-radius:999px;' +
+        'font:700 9px/1.4 system-ui,sans-serif;letter-spacing:1.5px;background:' + color + ';color:#fff;' +
+        'box-shadow:0 2px 8px rgba(0,0,0,.35);pointer-events:none;';
+      if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
+      el.appendChild(tag);
+    } else if (cmd === 'storageSet') {
+      if (window.phirc.pluginStorageSet) { try { window.phirc.pluginStorageSet(id, String(msg.key), msg.value); } catch (e) {} }
+    } else if (cmd === 'startGame') {
+      if (msg.path) { try { window.phirc.startGame(msg.path).catch(function (e) { toast('开局失败：' + ((e && e.message) || e)); }); } catch (e) {} }
+    } else if (cmd === 'openPage') {
+      if (window.phirc.openPage) { try { window.phirc.openPage(String(msg.name)); } catch (e) {} }
+    } else if (cmd === 'openUrl') {
+      if (window.phirc.openUrl) { try { window.phirc.openUrl(String(msg.url)); } catch (e) {} }
+    } else if (cmd === 'reload') {
+      loadCategory(state.cat, false).then(renderList);
+    } else if (cmd === 'exited') {
+      delete SIDECAR[id];
+      if (window.phirc.log) { try { window.phirc.log('[plugin] ' + id + ' 进程已退出'); } catch (_) {} }
+      renderPluginList();
+    }
+  }
+  window.__phcPluginCommand = function (pluginId, msg) {
+    try { applyPluginCommand(String(pluginId), msg || {}); } catch (e) { pluginFail(String(pluginId), e); }
+  };
+
+  function firePlugin(event) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    var list = (PLUGIN_HOOKS || {})[event] || [];
+    list.forEach(function (h) { try { h.fn.apply(null, args); } catch (e) { pluginFail(h.id, e); } });
+  }
+  function pluginFail(id, e) {
+    var msg = (e && e.message) ? e.message : String(e);
+    PLUGIN_ERRORS.push({ id: id, msg: msg });
+    if (window.phirc && window.phirc.log) { try { window.phirc.log('[plugin] ' + id + ' 出错：' + msg); } catch (_) {} }
+    renderPluginErrors();
+  }
+  function renderPluginErrors() {
+    var box = document.getElementById('plugin-errors');
+    if (!box) return;
+    if (!PLUGIN_ERRORS.length) { box.style.display = 'none'; box.textContent = ''; return; }
+    box.style.display = 'block';
+    box.textContent = '插件报错（不影响其它功能）：\n' + PLUGIN_ERRORS.map(function (e) { return '· ' + e.id + '：' + e.msg; }).join('\n');
+  }
+  function addPluginToolbarButton(meta, o) {
+    o = o || {};
+    var box = document.getElementById('plugin-buttons');
+    if (!box) return;
+    var b = document.createElement('div');
+    b.className = 'adv-btn';
+    b.title = o.title || meta.name || '';
+    b.innerHTML = '<span>' + esc(o.label || o.title || meta.name || meta.id) + '</span>';
+    b.addEventListener('click', function () { try { if (typeof o.onClick === 'function') o.onClick(); } catch (e) { pluginFail(meta.id, e); } });
+    box.appendChild(b);
+  }
+  function makePluginApi(meta) {
+    var ns = 'phc:' + meta.id + ':';
+    return {
+      id: meta.id, name: meta.name, version: meta.version,
+      bridge: window.phirc,
+      log: function () {
+        var s = Array.prototype.slice.call(arguments).join(' ');
+        if (window.phirc && window.phirc.log) { try { window.phirc.log('[plugin:' + meta.id + '] ' + s); } catch (_) {} }
+      },
+      toast: function (m) { toast(String(m)); },
+      on: function (ev, fn) { if (typeof fn === 'function') (PLUGIN_HOOKS[ev] = PLUGIN_HOOKS[ev] || []).push({ id: meta.id, fn: fn }); },
+      addToolbarButton: function (o) { addPluginToolbarButton(meta, o); },
+      cards: function () { return RAW.slice(); },
+      reload: function () { loadCategory(state.cat, false).then(renderList); },
+      storage: {
+        get: function (k, d) { try { var v = localStorage.getItem(ns + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+        set: function (k, v) { try { localStorage.setItem(ns + k, JSON.stringify(v)); } catch (e) {} },
+        remove: function (k) { try { localStorage.removeItem(ns + k); } catch (e) {} }
+      }
+    };
+  }
+  function runPluginScript(meta, code) {
+    var api = makePluginApi(meta);
+    var sandbox = {
+      register: function (def) {
+        try { if (def && typeof def.onLoad === 'function') def.onLoad(api); } catch (e) { pluginFail(meta.id, e); }
+      }
+    };
+    try {
+      var fn = new Function('PhiraPlugin', 'api', 'console', code + '\n//# sourceURL=phc://' + meta.id + '/main.js');
+      fn(sandbox, api, console);
+    } catch (e) { pluginFail(meta.id, e); }
+  }
+
+  function updatePluginCount() {
+    var el = document.getElementById('plugin-count');
+    if (!el) return;
+    if (PLUGIN_LIST.length > 0) { el.textContent = String(PLUGIN_LIST.length); el.style.display = 'inline-block'; }
+    else el.style.display = 'none';
+  }
+  function loadPlugins() {
+    PLUGIN_HOOKS = {};
+    PLUGIN_ERRORS = [];
+    renderPluginErrors();
+    stopAllSidecars();
+    var box = document.getElementById('plugin-buttons');
+    if (box) box.innerHTML = '';
+    if (!window.phirc || typeof window.phirc.listPlugins !== 'function') return Promise.resolve([]);
+    return window.phirc.listPlugins().then(function (list) {
+      PLUGIN_LIST = Array.isArray(list) ? list : [];
+      updatePluginCount();
+      var jobs = PLUGIN_LIST.filter(function (p) { return p.enabled; }).map(function (p) {
+        if ((p.runtime || 'js') === 'js') {
+          if (!p.hasScript) return Promise.resolve();
+          return window.phirc.readPluginScript(p.id).then(function (code) { runPluginScript(p, code || ''); }).catch(function (e) { pluginFail(p.id, e); });
+        }
+        return startSidecar(p);
+      });
+      return Promise.all(jobs).then(function () {
+        firePlugin('ready', PLUGIN_LIST);
+        pushPluginEvent('ready', { plugins: PLUGIN_LIST.map(function (p) { return { id: p.id, name: p.name, version: p.version, runtime: p.runtime }; }) });
+      });
+    }).catch(function (e) {
+      if (window.phirc && window.phirc.log) { try { window.phirc.log('[plugin] 列表读取失败：' + (e && e.message)); } catch (_) {} }
+    });
+  }
+
+  function openPluginPanel() { var p = document.getElementById('plugin-panel'); if (!p) return; p.classList.add('open'); renderPluginList(); }
+  function closePluginPanel() { var p = document.getElementById('plugin-panel'); if (p) p.classList.remove('open'); }
+  function renderPluginList() {
+    var box = document.getElementById('plugin-list');
+    if (!box) return;
+    var st = document.getElementById('plugin-status');
+    if (st) st.textContent = PLUGIN_LIST.length ? (PLUGIN_LIST.length + ' 个插件') : '';
+    box.innerHTML = '';
+    if (!PLUGIN_LIST.length) { box.innerHTML = '<div class="pl-empty">还没有插件 —— 点「导入 .phc」开始</div>'; return; }
+    var tpl = document.querySelector('#plugin-row-template > div');
+    PLUGIN_LIST.forEach(function (p) {
+      var row = tpl.cloneNode(true);
+      row.querySelector('.p-name').textContent = p.name || p.id;
+      row.querySelector('.p-version').textContent = p.version ? ('v' + p.version) : '';
+      var badge = row.querySelector('.p-badge');
+      var rt = (p.runtime || 'js').toUpperCase();
+      if (!p.enabled) { badge.textContent = '已停用'; badge.className = 'p-badge off'; }
+      else if (rt === 'JS' && !p.hasScript) { badge.textContent = '无脚本'; badge.className = 'p-badge off'; }
+      else { var label = rt === 'JS' ? 'JS' : (rt === 'PYTHON' ? 'PY' : 'RS'); badge.textContent = label + (SIDECAR[p.id] ? ' · 运行中' : ''); badge.className = 'p-badge' + (SIDECAR[p.id] ? ' on' : ''); }
+      row.querySelector('.p-id').textContent = p.id;
+      row.querySelector('.p-desc').textContent = p.description || '';
+      row.querySelector('.p-author').textContent = p.author ? ('作者：' + p.author) : '';
+      var tg = row.querySelector('.p-toggle');
+      tg.textContent = p.enabled ? '停用' : '启用';
+      tg.addEventListener('click', function () {
+        window.phirc.setPluginEnabled(p.id, !p.enabled).then(function () {
+          toast(p.enabled ? ('已停用 ' + (p.name || p.id)) : ('已启用 ' + (p.name || p.id)));
+          return loadPlugins();
+        }).then(renderPluginList).catch(function (e) { toast('操作失败：' + ((e && e.message) || e)); });
+      });
+      row.querySelector('.p-del').addEventListener('click', function () {
+        window.phirc.deletePlugin(p.id).then(function () {
+          toast('已删除 ' + (p.name || p.id));
+          return loadPlugins();
+        }).then(renderPluginList).catch(function (e) { toast('删除失败：' + ((e && e.message) || e)); });
+      });
+      box.appendChild(row);
+    });
+  }
+  function bindPluginUI() {
+    var close = document.getElementById('plugin-close');
+    if (close) close.addEventListener('click', closePluginPanel);
+    var mask = document.getElementById('plugin-mask');
+    if (mask) mask.addEventListener('click', closePluginPanel);
+    var imp = document.getElementById('plugin-import');
+    if (imp) imp.addEventListener('click', function () {
+      if (!window.phirc || typeof window.phirc.importPlugin !== 'function') { toast('当前环境不支持导入'); return; }
+      imp.disabled = true;
+      window.phirc.importPlugin().then(function (r) {
+        imp.disabled = false;
+        toast('已导入 ' + ((r && r.name) || '插件'));
+        return loadPlugins();
+      }).then(renderPluginList).catch(function (e) {
+        imp.disabled = false;
+        var m = (e && e.message) || String(e);
+        toast(m === 'canceled' ? '已取消导入' : ('导入失败：' + m));
+      });
+    });
+    var re = document.getElementById('plugin-reload');
+    if (re) re.addEventListener('click', function () { loadPlugins().then(renderPluginList); toast('已重新加载插件'); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closePluginPanel(); });
+  }
+
+  function bindEvents() {
+    if (window.__libraryEventsBound) return;
+    window.__libraryEventsBound = true;
+    var backBtn = document.getElementById('back-btn');
+    if (backBtn) backBtn.addEventListener('click', function () {
+      if (history.length > 1) history.back();
+      else location.href = 'index.html';
+    });
+
+    var startBtn = document.getElementById('start-btn');
+    if (startBtn) startBtn.addEventListener('click', function () {
+      if (CH.active) { challengeStart(); return; }
+      var flash = document.getElementById('flash-overlay');
+      flash.style.transition = 'none';
+      flash.style.opacity = '1';
+      setTimeout(function () { flash.style.transition = 'opacity 0.2s ease'; flash.style.opacity = '0'; }, 300);
+      playActive();
+    });
+
+    var tbRandom = document.getElementById('tb-random');
+    if (tbRandom) tbRandom.addEventListener('click', function () {
+      if (SONGS.length <= 1) return;
+      activeIndex = 1 + Math.floor(Math.random() * SONGS.length);
+      updateSelection();
+    });
+    var tbImport = document.getElementById('tb-import');
+    if (tbImport) tbImport.addEventListener('click', openImport);
+    var tbSettings = document.getElementById('tb-settings');
+    if (tbSettings) tbSettings.addEventListener('click', function () { openPage('settings'); });
+
+    var sortSec = document.getElementById('sort-section');
+    if (sortSec) sortSec.addEventListener('click', function () {
+      sortMode = (sortMode === 'diff') ? 'name' : 'diff';
+      var label = sortSec.querySelector('.difficulty');
+      if (label) label.textContent = sortMode === 'diff' ? 'Difficulty' : 'Name';
+      sortGroups(); rebuildSongs();
+      activeIndex = SONGS.length ? 1 : 0;
+      renderList();
+    });
+
+    if (searchInput) searchInput.addEventListener('input', function () {
+      clearTimeout(searchDeb);
+      searchDeb = setTimeout(function () {
+        state.kw = searchInput.value.trim();
+        if (state.cat === 'local') {
+          rebuildSongs();
+          activeIndex = SONGS.length ? 1 : 0;
+          renderList();
+        } else {
+          state.page = 0;
+          loadCategory(state.cat, false).then(function () { activeIndex = SONGS.length ? 1 : 0; renderList(); });
+        }
+      }, 300);
+    });
+
+    var adv = {
+      'adv-challenge': function () { setChallengeMode(true, false); },
+      'adv-re': function () { setChallengeMode(true, true); }
+    };
+    Object.keys(adv).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('click', adv[id]);
+    });
+
+    var undoBtn = document.getElementById('re-undo');
+    if (undoBtn) undoBtn.addEventListener('click', challengeUndo);
+    var clearBtn = document.getElementById('re-clear');
+    if (clearBtn) clearBtn.addEventListener('click', challengeClear);
+
+    var hpToggle = document.getElementById('hp-toggle');
+    if (hpToggle) hpToggle.addEventListener('click', function () {
+      CH.hpOn = !CH.hpOn;
+      if (!CH.hpOn) { CH.hpIdx = 0; CH.hpVal = 'nonperfect'; }
+      updateHpBar();
+      playTap();
+    });
+    var hpVal = document.getElementById('hp-val');
+    if (hpVal) hpVal.addEventListener('click', function () {
+      CH.hpIdx = (CH.hpIdx + 1) % (HP_OPTIONS.length - 1);
+      updateHpBar();
+      playTap();
+    });
+    var hpCond = document.getElementById('hp-cond');
+    if (hpCond) hpCond.addEventListener('click', function () {
+      CH.hpVal = (CH.hpVal === 'badmiss') ? 'nonperfect' : 'badmiss';
+      updateHpBar();
+      playTap();
+    });
+
+    var scoreContainer = document.getElementById('score-container');
+
+    scrollContainer.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      wheelAccumulator += e.deltaY * 0.6;
+      var threshold = 60;
+      if (Math.abs(wheelAccumulator) >= threshold) {
+        var steps = Math.trunc(wheelAccumulator / threshold);
+        wheelAccumulator -= steps * threshold;
+        steps = Math.max(-2, Math.min(2, steps));
+        var newIndex = Math.max(0, Math.min(SONGS.length, activeIndex + steps));
+        if (newIndex !== activeIndex) { activeIndex = newIndex; updateSelection(); }
+      }
+      if (resetTimeout) clearTimeout(resetTimeout);
+      resetTimeout = setTimeout(function () { wheelAccumulator = 0; }, 150);
+    }, { passive: false });
+
+    var startY = null, startIndex = 0, dragging = false, suppressClick = false;
+    scrollContainer.addEventListener('touchstart', function (e) {
+      if (!e.touches.length) return;
+      startY = e.touches[0].clientY; startIndex = activeIndex; dragging = true; suppressClick = false;
+    }, { passive: true });
+    scrollContainer.addEventListener('touchmove', function (e) {
+      if (!dragging || startY == null || !e.touches.length) return;
+      if (Math.abs(e.touches[0].clientY - startY) > 8) suppressClick = true;
+      var steps = Math.round((e.touches[0].clientY - startY) / (80 * (STAGE_SCALE || 1)));
+      var ni = Math.max(0, Math.min(SONGS.length, startIndex - steps));
+      if (ni !== activeIndex) { activeIndex = ni; updateSelection(); }
+    }, { passive: true });
+    scrollContainer.addEventListener('touchend', function () { dragging = false; startY = null; }, { passive: true });
+    scrollContainer.addEventListener('touchcancel', function () { dragging = false; startY = null; }, { passive: true });
+    scrollContainer.addEventListener('click', function (e) {
+      if (suppressClick) { e.preventDefault(); e.stopPropagation(); suppressClick = false; }
+    }, true);
+  }
+
+  function loadRks() {
+    try {
+      if (window.phirc && typeof window.phirc.getUserInfo === 'function') {
+        Promise.resolve(window.phirc.getUserInfo()).then(function (res) {
+          var d = (res && typeof res === 'object') ? res : ((res && res.data) || {});
+          if (typeof d.rks === 'number') {
+            var el = document.getElementById('user-rks');
+            if (el) el.textContent = d.rks.toFixed(2);
+          }
+          if (typeof d.name === 'string' && d.name) {
+            var ne = document.getElementById('user-name');
+            if (ne) ne.textContent = d.name;
+          }
+          if (typeof d.avatar === 'string' && d.avatar) {
+            var img = document.getElementById('user-avatar');
+            if (img) {
+              img.onerror = function () { img.src = 'Introduction.png'; };
+              img.src = d.avatar;
+            }
+          }
+        }).catch(function () {
+          // 桥接取数失败时静默回退，保留静态占位
+        });
+      }
+    } catch (e) {}
+  }
+
+  bindEvents();
+  bindPluginUI();
+
+  probe('library-init', {
+    href: String(location.href),
+    bridge: typeof window.phirc,
+    hasListCharts: !!(window.phirc && typeof window.phirc.listCharts === 'function'),
+    hasOnline: !!(window.phirc && typeof window.phirc.listOnlineCharts === 'function'),
+    ipc: typeof window.ipc
+  });
+  await waitForBridge(4000);
+  probe('bridge-ready', {
+    bridge: typeof window.phirc,
+    hasListCharts: !!(window.phirc && typeof window.phirc.listCharts === 'function'),
+    hasOnline: !!(window.phirc && typeof window.phirc.listOnlineCharts === 'function')
+  });
+  await detectLang();
+  applyI18n();
+  await loadCategory('local', false);
+  activeIndex = SONGS.length ? 1 : 0;
+  renderList();
+  setChallengeMode(true, false);
+  loadRks();
+  loadPlugins().then(renderPluginList).catch(function () {});
+
+  const cv = document.getElementById("main-canvas");
+  const ctx = cv.getContext("2d");
+
+  const load_img = async (src) => {
+    const img = new Image();
+    const loadp = new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error("图片加载失败: " + src));
+    });
+    img.src = src;
+    await loadp;
+    return img;
+  };
+
+  function createFallbackGrid() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 100; canvas.height = 100;
+    const c2 = canvas.getContext('2d');
+    c2.fillStyle = '#000';
+    c2.fillRect(0, 0, 100, 100);
+    return canvas;
+  }
+
+  const DEFAULTS = {
+    tex_size: [0.16, 0.2],
+    base_color: [0.018, 0.018, 0.018, 0.4],
+    face_color: [0.702, 0.9449554, 1, 1],
+    face_brightness: 0.1,
+    grid_color: [1, 1, 1, 1],
+    grid_brightness: 0.4,
+    glow_color: [0.383, 0.8843222, 1, 1],
+    glow_brightness: 1.0,
+    always_on: false,
+    glow_ooroff: false,
+    use_texture: true
+  };
+
+  let trigrid_base;
+  const mainShaderLoader = new ShaderLoader();
+
+  try {
+    mainShaderLoader.load("trigrid", TRIGRID_GLSL);
+    trigrid_base = await load_img("./TriGridBase.png");
+  } catch (e) {
+    console.warn("TriGridBase.png 加载失败，使用程序化网格。");
+    trigrid_base = createFallbackGrid();
+    DEFAULTS.use_texture = false;
+  }
+
+  var loadingEl = document.getElementById("loading");
+  if (loadingEl) loadingEl.remove();
+
+  setTimeout(function () {
+    var activeItem = document.querySelector('.diff-item.active');
+    if (activeItem) {
+      slider.style.transform = 'translateX(' + activeItem.offsetLeft + 'px)';
+      slider.style.backgroundColor = activeItem.getAttribute('data-color') || '#cc2929';
+    }
+    updateBlackBg();
+  }, 100);
+
+  function resizeCanvas() {
+    cv.width = window.innerWidth;
+    cv.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  const textureCanvas = document.createElement('canvas');
+  const textureCtx = textureCanvas.getContext('2d');
+
+  const draw = () => {
+    textureCanvas.width = cv.width;
+    textureCanvas.height = cv.height;
+    textureCtx.clearRect(0, 0, cv.width, cv.height);
+    textureCtx.drawImage(trigrid_base, 0, 0, cv.width, cv.height);
+
+    const uniforms = Object.assign({}, DEFAULTS, { t: performance.now() / 1000 });
+    uniforms.__enableAlpha = true;
+
+    const result = mainShaderLoader.render(textureCanvas, "trigrid", uniforms);
+
+    if (result) {
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      ctx.drawImage(result, 0, 0, cv.width, cv.height);
+    }
+
+    requestAnimationFrame(draw);
+  };
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

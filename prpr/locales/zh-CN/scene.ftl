@@ -9,3 +9,6 @@ confirm = 确定
 read-file-failed = 读取文件失败
 pasted = 从剪贴板加载成功
 audio-backend-init-failed = 无法初始化音频后端，将静音运行
+select-all = 全选
+copy = 复制
+paste = 粘贴

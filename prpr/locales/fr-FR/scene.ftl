@@ -8,3 +8,6 @@ confirm = Confirmer
 
 read-file-failed = Impossible de lire le fichier
 pasted = Collé depuis le presse-papiers
+select-all = All
+copy = Copy
+paste = Paste

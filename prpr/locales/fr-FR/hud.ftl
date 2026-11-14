@@ -1,0 +1,17 @@
+hud-page-home = Accueil
+hud-page-library = Bibliothèque
+hud-page-settings = Paramètres
+hud-snap-on = Aimantation : ACTIVÉE
+hud-snap-off = Aimantation : DÉSACTIVÉE
+hud-reset-page = Réinitialiser la page
+hud-reset-all = Tout réinitialiser
+hud-done = Terminé
+hud-cols = Colonnes
+hud-row-h = Hauteur des cases
+hud-page-favorites = Favoris
+hud-page-message = Messages
+hud-page-tabs = Onglets
+hud-page-respack = Textures
+hud-scene-game = Jeu
+hud-scene-loading = Chargement
+hud-scene-ending = Résultat

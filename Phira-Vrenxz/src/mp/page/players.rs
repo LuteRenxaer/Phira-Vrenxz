@@ -1,7 +1,3 @@
-//! 房主对单个玩家的管理页（整屏）。
-//!
-//! 玩家列表不再是独立页面：房间页右侧那一列就是用户列表，房主直接点行进入本页
-//! （见 [`super::room`]）。所以这里只剩下「对某个玩家做什么」这一张卡片 + 两个按钮。
 
 use macroquad::prelude::*;
 use prpr::{
@@ -12,14 +8,12 @@ use prpr::{
 use super::super::theme::{self, *};
 use crate::mp::L10N_LOCAL;
 
-/// 房主管理页可执行的动作。
 pub enum ManageAction {
     Back,
     Transfer,
     Kick,
 }
 
-/// 房主管理页需要的只读状态。
 pub struct ManageView<'a> {
     pub id: i32,
     pub name: &'a str,
@@ -64,7 +58,7 @@ impl ManagePage {
             ui,
             &mut self.transfer,
             t,
-            Rect::new(x, f.bar.y, bw, BAR_BTN_H),
+            Rect::new(x, f.bar.y, bw, f.bar.h),
             mtl!("mp-manage-transfer"),
             FS_BUTTON,
             primary(accent),
@@ -74,7 +68,7 @@ impl ManagePage {
             ui,
             &mut self.kick,
             t,
-            Rect::new(x + bw + BAR_COL_GAP, f.bar.y, bw, BAR_BTN_H),
+            Rect::new(x + bw + BAR_COL_GAP, f.bar.y, bw, f.bar.h),
             mtl!("mp-manage-kick"),
             FS_BUTTON,
             danger(),

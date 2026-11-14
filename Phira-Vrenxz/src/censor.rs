@@ -1,10 +1,3 @@
-//! Banned-word detection.
-//!
-//! [`CensorManager`] fetches the word list on first use (or when the cache is
-//! older than a week), builds a `daachorse` double-array Aho-Corasick automaton,
-//! and caches the *serialized* automaton (zstd-compressed) to disk. Caching the
-//! built automaton rather than the raw words turns a ~300ms startup rebuild
-//! (55k patterns) into a ~10ms deserialize — important for mobile cold starts.
 
 #![allow(dead_code)]
 
@@ -27,15 +20,13 @@ const REFRESH_INTERVAL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const ZSTD_LEVEL: i32 = 19;
 const WORD_SEPARATOR: char = '|';
 const CACHE_MAGIC: &[u8; 4] = b"CSAC";
-/// Bump whenever the daachorse version or our serialization changes, so an
-/// incompatible cache triggers a rebuild instead of an unchecked deserialize (UB).
+
 const CACHE_VERSION: u8 = 1;
 
 type Matcher = CharwiseDoubleArrayAhoCorasick<u32>;
 
 static INSTANCE: OnceCell<CensorManager> = OnceCell::const_new();
 
-/// Endpoint response; `data` is base64 of the `|`-separated word list.
 #[derive(Deserialize)]
 struct WordsResponse {
     code: i32,
@@ -53,8 +44,6 @@ impl CensorManager {
         Ok(format!("{}/censor.bin", crate::dir::cache()?).into())
     }
 
-    /// Initialize (or return) the singleton with a specific cache path.
-    /// If already initialized, the passed path is ignored (first caller wins).
     pub async fn init(url: String) -> Result<&'static CensorManager> {
 
         INSTANCE.get_or_try_init(|| async move { Self::new(url).await }).await
@@ -209,7 +198,6 @@ fn load_cache(path: &Path) -> Result<Matcher> {
 
     let serialized = zstd::decode_all(&raw[header_len..]).context("failed to zstd-decompress cache")?;
 
-
     let (ac, rest) = unsafe { CharwiseDoubleArrayAhoCorasick::deserialize_unchecked(&serialized) };
     anyhow::ensure!(rest.is_empty(), "cache has trailing bytes after automaton");
     tracing::debug!("loaded censor automaton from cache ({} states)", ac.num_states());
@@ -226,9 +214,7 @@ pub fn check_text(text: &str) -> Result<()> {
 /// enabled.
 ///
 /// If the automaton hasn't finished loading yet (a brief window right after
-/// startup, before [`preload`] completes) the text is allowed through: local
-/// data isn't safety-critical on its own, and anything later uploaded is still
-/// caught by server-side moderation.
+
 pub fn check_texts<'a>(texts: impl IntoIterator<Item = &'a str>) -> Result<()> {
     if !cfg!(feature = "hykb") {
         return Ok(());

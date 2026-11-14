@@ -13,6 +13,7 @@ static SHADERS: phf::Map<&'static str, &'static str> = phf_map! {
     "circleBlur" => include_str!("shaders/circle_blur.glsl"),
     "fisheye" => include_str!("shaders/fisheye.glsl"),
     "glitch" => include_str!("shaders/glitch.glsl"),
+    "glitch_dog" => include_str!("shaders/glitch_dog.glsl"),
     "grayscale" => include_str!("shaders/grayscale.glsl"),
     "noise" => include_str!("shaders/noise.glsl"),
     "pixel" => include_str!("shaders/pixel.glsl"),
@@ -108,6 +109,7 @@ pub struct Effect {
     material: Material,
     defaults: Vec<Box<dyn Uniform>>,
     uniforms: Vec<Box<dyn Uniform>>,
+    extra_textures: Vec<(String, Texture2D)>,
     pub global: bool,
 }
 
@@ -121,6 +123,16 @@ impl Effect {
     }
 
     pub fn new(time_range: Range<f64>, shader: &str, uniforms: Vec<Box<dyn Uniform>>, global: bool) -> Result<Self> {
+        Self::new_with_textures(time_range, shader, uniforms, global, Vec::new())
+    }
+
+    pub fn new_with_textures(
+        time_range: Range<f64>,
+        shader: &str,
+        uniforms: Vec<Box<dyn Uniform>>,
+        global: bool,
+        extra_textures: Vec<(String, Texture2D)>,
+    ) -> Result<Self> {
         static DEF_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"uniform\s+(\w+)\s+(\w+);\s+//\s+%([^%]+)%").unwrap());
         let defaults = DEF_REGEX
             .captures_iter(shader)
@@ -170,11 +182,18 @@ impl Effect {
                 shader,
                 MaterialParams {
                     uniforms: new_uniforms,
-                    textures: vec!["screenTexture".to_owned()],
+                    textures: {
+                        let mut names = vec!["screenTexture".to_owned()];
+                        for (name, _) in &extra_textures {
+                            names.push(name.clone());
+                        }
+                        names
+                    },
                     ..Default::default()
                 },
             )?,
             uniforms,
+            extra_textures,
             global,
         })
     }
@@ -207,6 +226,9 @@ impl Effect {
         target.swap();
         let tex = target.old().texture;
         self.material.set_texture("screenTexture", tex);
+        for (name, extra_tex) in &self.extra_textures {
+            self.material.set_texture(name, *extra_tex);
+        }
         let screen_dim = vec2(tex.width(), tex.height());
         self.material.set_uniform("screenSize", screen_dim);
         gl.quad_gl.render_pass(Some(target.output().render_pass));

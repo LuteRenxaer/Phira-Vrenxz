@@ -1,4 +1,3 @@
-//! Logging utilities.
 
 use colored::Colorize;
 use miniquad::{debug, error, info, trace, warn};

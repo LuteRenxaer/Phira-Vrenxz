@@ -1,6 +1,3 @@
-//! 房间消息流：把服务端下发的 `Message` 渲染成滚动列表，并把聊天输入
-//! 送出去。房间页要显示的“当前谱面名”也顺带从这里取出（服务端只把谱面名放在
-//! 选谱消息里，房间状态里没有），因此 [`MessageLog::ingest`] 会返回 [`RoomNotice`]。
 
 use macroquad::prelude::*;
 use phira_mp_client::Client;
@@ -13,7 +10,6 @@ use prpr::{
 use super::theme::{FS_BODY, FS_SMALL};
 use crate::mp::L10N_LOCAL;
 
-/// 消息流里的一条消息（坐标由渲染时测量写入）。
 struct Message {
     content: String,
     y: f32,

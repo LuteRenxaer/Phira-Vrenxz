@@ -26,12 +26,8 @@ pub const MAX_SIZE: usize = 64;
 pub static DPI_VALUE: AtomicU32 = AtomicU32::new(250);
 pub const BUFFER_SIZE: usize = 1024;
 
-/// 低分辨率 Note 贴图的缩放因子（宽高各缩小为 1/factor）
 const NOTE_LOW_RES_FACTOR: u32 = 2;
 
-/// 将贴图按 `factor` 等比例降采样（盒式平均），返回低分辨率版本。
-///
-/// 尺寸不足 factor 的贴图原样返回，避免放大。
 fn downscale_texture(tex: &SafeTexture, factor: u32) -> SafeTexture {
     let f = factor.max(1) as usize;
     let (w, h) = (tex.width() as usize, tex.height() as usize);
@@ -201,7 +197,6 @@ impl NoteStyle {
         Ok(())
     }
 
-    /// 根据当前贴图重建 hold_body（Repeat 环绕贴图，去掉头部/尾部行）
     fn build_hold_body(&mut self) {
         let pixels = self.hold.get_texture_data();
         let width = self.hold.width() as u16;
@@ -217,9 +212,6 @@ impl NoteStyle {
         self.hold_body = Some(res.into());
     }
 
-    /// 生成低分辨率版本：所有贴图按 `factor` 等比例缩小，atlas 偏移同步缩放。
-    ///
-    /// 用于屏幕上 Note 数量较多时降分辨率渲染，降低纹理采样带宽。
     pub fn downscaled(&self, hold_repeat: bool, factor: u32) -> Self {
         let factor = factor.max(1);
         let mut low = Self {
@@ -267,9 +259,9 @@ pub struct ResourcePack {
     pub info: ResPackInfo,
     pub note_style: NoteStyle,
     pub note_style_mh: NoteStyle,
-    /// 低分辨率版本（Note 数量较多时使用），与 `note_style` 一一对应
+
     pub note_style_low: NoteStyle,
-    /// 低分辨率版本（Note 数量较多时使用），与 `note_style_mh` 一一对应
+
     pub note_style_mh_low: NoteStyle,
     pub sfx_click: AudioClip,
     pub challenge_texture: SafeTexture,
@@ -280,7 +272,7 @@ pub struct ResourcePack {
 }
 
 impl ResourcePack {
-    /// 按 (是否多指提示, 是否低分辨率) 选择 Note 贴图样式
+
     pub fn style_for(&self, mh: bool, low: bool) -> &NoteStyle {
         match (mh, low) {
             (true, true) => &self.note_style_mh_low,
@@ -336,7 +328,7 @@ impl ResourcePack {
             note_style.build_hold_body();
             note_style_mh.build_hold_body();
         }
-        // 预生成低分辨率 Note 贴图（屏幕上 Note 数量较多时降分辨率渲染，降低纹理采样开销）
+
         let note_style_low = note_style.downscaled(info.hold_repeat, NOTE_LOW_RES_FACTOR);
         let note_style_mh_low = note_style_mh.downscaled(info.hold_repeat, NOTE_LOW_RES_FACTOR);
         let hit_fx = image::load_from_memory(&fs.load_file("hit_fx.png").await.context("Missing hit_fx.png")?)?.into();
@@ -368,8 +360,7 @@ impl ResourcePack {
                 {
                     sfx
                 } else {
-                    // 全局 assets 目录（整理后的布局把音效放在 assets/sfx/ 下；
-                    // 兼容旧的平铺 assets/ 根目录）
+
                     let name = format!("{}.ogg", $path);
                     let data = match load_file(format!("sfx/{name}").as_str()).await {
                         Ok(data) => data,
@@ -403,7 +394,7 @@ pub struct ParticleEmitter {
     pub emitter: Emitter,
     pub emitter_square: Emitter,
     pub hide_particles: bool,
-    /// 粒子削减模式下的交替计数（每两次发射只发一次）
+
     reduce_tick: bool,
 }
 
@@ -452,13 +443,10 @@ impl ParticleEmitter {
         Ok(res)
     }
 
-    /// 普通模式发射（保留：UI/预览等场景直接使用）
     pub fn emit_at(&mut self, pt: Vec2, rotation: f32, color: Color) {
         self.emit_at_impl(pt, rotation, color, false);
     }
 
-    /// 削减模式发射：保留 hit_fx 主粒子、去掉碎屑粒子，且连续发射每两次只发一次。
-    /// 由“性能优化档位”的完全积极 / 自定义触发。
     pub(crate) fn emit_at_reduced(&mut self, pt: Vec2, rotation: f32, color: Color) {
         self.emit_at_impl(pt, rotation, color, true);
     }
@@ -477,7 +465,7 @@ impl ParticleEmitter {
         }
         if !reduce && !self.hide_particles {
             self.emitter_square.config.base_color = color;
-            self.emitter_square.emit(pt, 4);
+            self.emitter_square.emit(pt, 2);
         }
     }
 
@@ -486,7 +474,6 @@ impl ParticleEmitter {
         self.emitter_square.draw(vec2(0., 0.), dt);
     }
 
-    /// 当前是否没有任何存活粒子
     pub fn is_empty(&self) -> bool {
         self.emitter.is_empty() && self.emitter_square.is_empty()
     }
@@ -536,6 +523,8 @@ pub struct Resource {
     pub aspect_ratio: f32,
     pub dpi: u32,
     pub last_vp: (i32, i32, i32, i32),
+
+    pub last_aspect: (Option<f32>, f32, bool),
     pub note_width: f32,
 
     pub time: f64,
@@ -571,11 +560,8 @@ pub struct Resource {
     pub chart_target: Option<MSRenderTarget>,
     pub no_effect: bool,
 
-    /// 当前屏幕上可见的 Note 数量达到阈值（见 `LOW_RES_NOTE_THRESHOLD`），
-    /// Note 渲染改用低分辨率贴图。由游戏场景每帧更新。
     pub low_res_notes: bool,
-    /// 未来 1 秒内需要击打的 Note 数量过多（见 `HIT_FX_DENSITY_THRESHOLD`），
-    /// 打击特效（粒子）被禁用。由游戏场景每帧更新。
+
     pub suppress_hit_fx: bool,
 
     pub note_buffer: RefCell<NoteBuffer>,
@@ -627,13 +613,14 @@ impl Resource {
         background: SafeTexture,
         illustration: SafeTexture,
         has_no_effect: bool,
+        hud_preview: bool,
     ) -> Result<Self> {
         macro_rules! load_tex {
             ($path:literal) => {
                 SafeTexture::from(Texture2D::from_image(&load_image($path).await?))
             };
         }
-        // 整理后的布局把这类素材放进分类目录；优先新路径，回退旧的平铺 assets/ 根目录
+
         macro_rules! load_tex_fb {
             ($flat:literal, $org:literal) => {
                 match load_image($org).await {
@@ -652,14 +639,17 @@ impl Resource {
         };
 
         let mut audio = create_audio_manger(&config)?;
-        let music = AudioClip::new(fs.load_file(&info.music).await?)?;
+        let music = if hud_preview {
+            // HUD 编辑预览：不加载真实音乐，用空音频占位（不播放）
+            AudioClip::from_raw(Vec::new(), 48000)
+        } else {
+            AudioClip::new(fs.load_file(&info.music).await?)?
+        };
         let track_length = music.length();
         let buffer_size = Some(BUFFER_SIZE);
         let sfx_click = audio.create_sfx(res_pack.sfx_click.clone(), buffer_size)?;
         let sfx_drag = audio.create_sfx(res_pack.sfx_drag.clone(), buffer_size)?;
         let sfx_flick = audio.create_sfx(res_pack.sfx_flick.clone(), buffer_size)?;
-
-
 
         let aspect_ratio = config.aspect_ratio.unwrap_or(info.aspect_ratio);
         let note_width = config.note_scale * NOTE_WIDTH_RATIO_BASE as f32;
@@ -676,6 +666,7 @@ impl Resource {
             aspect_ratio,
             dpi: DPI_VALUE.load(std::sync::atomic::Ordering::SeqCst),
             last_vp: (0, 0, 0, 0),
+            last_aspect: (None, 0., false),
             note_width,
 
             time: 0.,
@@ -691,7 +682,14 @@ impl Resource {
             arc_icon: load_tex!("rank/FC_ARC.png"),
             mod_icons: Self::load_mod_icons().await?,
             res_pack,
-            player: if let Some(player) = player { player } else { load_tex_fb!("player.jpg", "backgrounds/player.jpg") },
+            player: if let Some(player) = player {
+                player
+            } else {
+                // 没有登录头像时的兜底：内置默认头像 backgrounds/player.png。
+                // 原来回退的是 player.jpg / backgrounds/player.jpg，这两个文件工程里都不存在，
+                // 于是「教学谱面」这种 player=None 的入口会直接 "Failed to load resources" 进不去。
+                load_tex_fb!("backgrounds/player.png", "backgrounds/player.png")
+            },
             icon_back: load_tex_fb!("back.png", "icons/back.png"),
             icon_retry: load_tex_fb!("retry.png", "icons/retry.png").with_mipmap(),
             icon_resume: load_tex_fb!("resume.png", "icons/resume.png"),
@@ -733,21 +731,27 @@ impl Resource {
             if self.config.flip_y() { pt.y } else { -pt.y },
         );
         let rotation = if self.res_pack.info.hit_fx_rotate { rotation.to_radians() } else { 0. };
-        if self.config.eff_fx_reduce() {
-            self.emitter.emit_at_reduced(pt, rotation, color);
-        } else {
-            self.emitter.emit_at(pt, rotation, color);
-        }
+        self.emitter.emit_at(pt, rotation, color);
     }
 
     pub fn update_size(&mut self, vp: (i32, i32, i32, i32)) -> bool {
-        if self.last_vp == vp {
+
+        let aspect_cfg = (
+            self.config.aspect_ratio,
+            self.info.aspect_ratio,
+            self.info.force_aspect_ratio,
+        );
+        if self.last_vp == vp && self.last_aspect == aspect_cfg {
             return false;
         }
+        let vp_changed = self.last_vp != vp;
         self.last_vp = vp;
-        if !self.no_effect || self.config.sample_count != 1 {
+        self.last_aspect = aspect_cfg;
+
+        if vp_changed && (!self.no_effect || self.config.sample_count != 1) {
             self.chart_target = Some(MSRenderTarget::new((vp.2 as u32, vp.3 as u32), self.config.sample_count));
         }
+
         fn viewport(aspect_ratio: f32, (x, y, w, h): (i32, i32, i32, i32)) -> (i32, i32, i32, i32) {
             let w = w as f32;
             let h = h as f32;
@@ -765,12 +769,12 @@ impl Resource {
         let aspect_ratio = self.config.aspect_ratio.unwrap_or(self.info.aspect_ratio);
         if self.info.force_aspect_ratio {
             self.aspect_ratio = aspect_ratio;
-            self.camera.viewport = Some(viewport(aspect_ratio, vp));
         } else {
             self.aspect_ratio = aspect_ratio.min(vp.2 as f32 / vp.3 as f32);
             self.camera.zoom.y = -self.aspect_ratio;
-            self.camera.viewport = Some(viewport(self.aspect_ratio, vp));
-        };
+        }
+
+        self.camera.viewport = Some(viewport(self.aspect_ratio, vp));
         true
     }
 

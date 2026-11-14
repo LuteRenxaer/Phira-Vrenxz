@@ -6,11 +6,58 @@ pub use chart_order::ChartOrder;
 mod chapter;
 pub use chapter::ChapterScene;
 
+mod lan_scene;
+pub use lan_scene::LanScene;
+
+mod debug;
+pub use debug::DEBUG_LISTENER;
+
+// Debug 场景请求
+pub static DEBUG_REQUEST_CRASH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub static DEBUG_REQUEST_LOADING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub static DEBUG_REQUEST_GAME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub static DEBUG_REQUEST_ENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn request_debug_crash() {
+    DEBUG_REQUEST_CRASH.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn take_debug_crash() -> bool {
+    DEBUG_REQUEST_CRASH.swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
+pub fn request_debug_loading() {
+    DEBUG_REQUEST_LOADING.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn take_debug_loading() -> bool {
+    DEBUG_REQUEST_LOADING.swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
+pub fn request_debug_game() {
+    DEBUG_REQUEST_GAME.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn take_debug_game() -> bool {
+    DEBUG_REQUEST_GAME.swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
+pub fn request_debug_ending() {
+    DEBUG_REQUEST_ENDING.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn take_debug_ending() -> bool {
+    DEBUG_REQUEST_ENDING.swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
 pub(crate) mod event;
 pub use event::EventScene;
 
 mod main;
-pub use main::{MainScene, BGM_VOLUME_UPDATED};
+pub use main::{
+    home_background_index, MainScene, BACKGROUND_UPDATED, BGM_VOLUME_UPDATED, BUILTIN_HOME_BACKGROUNDS,
+    HOME_VIDEO_UPDATED,
+};
 
 mod song;
 pub use song::{compress_folder, Downloading, SongScene, RECORD_ID, LAST_MP_FINISH};
@@ -28,10 +75,10 @@ pub use startup::StartupLoadingScene;
 mod studio_logo;
 pub use studio_logo::StudioLogoScene;
 
-mod login_scene;
-pub use login_scene::LoginScene;
-
 mod setup_scene;
+
+// 剧情代码已注释（2026-10-05）：mod story;
+// pub use story::StoryScene;
 pub use setup_scene::SetupScene;
 
 use crate::{
@@ -45,7 +92,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use once_cell::sync::{Lazy, OnceCell};
 use prpr::{
-    config::Mods,
+    config::{HpMode, Mods},
     core::{BOLD_FONT, PGR_FONT},
     ext::{semi_white, unzip_into, RectExt, SafeTexture},
     fs::{self, FileSystem},
@@ -68,15 +115,48 @@ use std::{
 };
 use tracing::{error, info, warn};
 use uuid::Uuid;
+use sasa::Music;
+
+/// 开屏 → 主页共用的那首 BGM：开屏场景切走时把它放这里，主场景 enter 时取走继续播。
+/// `Music` 一旦 drop 就会停，所以不能靠两个场景各存一份。
+thread_local! {
+    static CARRIED_BGM: RefCell<Option<Music>> = const { RefCell::new(None) };
+}
+
+pub fn carry_bgm(bgm: Music) {
+    CARRIED_BGM.with(|it| *it.borrow_mut() = Some(bgm));
+}
+
+pub fn take_carried_bgm() -> Option<Music> {
+    CARRIED_BGM.with(|it| it.borrow_mut().take())
+}
+
+/// 加载「开屏 / 主页」共用的 BGM 字节：
+/// 自定义音乐（设置里合并后的那一项）> `bgm/NewSplashSceneBGM.ogg`。
+/// `custom_startup_bgm_path` 是旧字段，只有旧数据还在用时才兜底读取。
+pub fn load_shared_bgm_bytes() -> Result<Vec<u8>> {
+    let custom = get_data()
+        .custom_bgm_path
+        .clone()
+        .or_else(|| get_data().custom_startup_bgm_path.clone());
+    if let Some(path) = custom {
+        match std::fs::read(&path) {
+            Ok(bytes) => return Ok(bytes),
+            Err(err) => warn!("failed to read custom BGM {path}: {err}; falling back to splash BGM"),
+        }
+    }
+    let path = assets_root().join("bgm/NewSplashSceneBGM.ogg");
+    std::fs::read(&path).with_context(|| format!("read {}", path.display()))
+}
 
 thread_local! {
     pub static TEX_BACKGROUND: RefCell<Option<SafeTexture>> = const { RefCell::new(None) };
     pub static TEX_ICON_BACK: RefCell<Option<SafeTexture>> = const { RefCell::new(None) };
-    /// 谱面成绩等级图标（`assets/rank/*.png`，顺序同 [prpr::judge::icon_index]）。
-    ///
-    /// 与 [TEX_ICON_BACK] 一样在启动时装载：选曲页是通过 `ChartItem` 传进来的，
-    /// 但多人房间页没有那条链路，左下角的「最好成绩」又必须和选曲页长得一样，
-    /// 所以这里留一份全局的。
+    /// 设置页左上角返回键使用的 proceed 图标（绘制时水平镜像）。
+    pub static TEX_ICON_PROCEED: RefCell<Option<SafeTexture>> = const { RefCell::new(None) };
+    /// 设置页左上角返回键整块贴图（icons/左上角2.png）
+
+
     pub static TEX_RANK_ICONS: RefCell<Option<[SafeTexture; 8]>> = const { RefCell::new(None) };
 }
 
@@ -86,8 +166,7 @@ type LoadTosTask = Task<Result<Option<(String, String)>>>;
 pub static LOAD_TOS_TASK: Lazy<Mutex<Option<LoadTosTask>>> = Lazy::new(Mutex::default);
 pub static JUST_ACCEPTED_TOS: Lazy<AtomicBool> = Lazy::new(AtomicBool::default);
 pub static JUST_LOADED_TOS: Lazy<AtomicBool> = Lazy::new(AtomicBool::default);
-/// Set once the policy has been verified against the server this session and
-/// found unchanged, so a still-accepted policy isn't re-fetched or re-prompted.
+
 pub static TOS_VERIFIED: Lazy<AtomicBool> = Lazy::new(AtomicBool::default);
 
 #[derive(Clone)]
@@ -308,9 +387,6 @@ pub fn dispatch_tos_task() -> Option<bool> {
                 }
                 Ok(None) => {
 
-
-
-
                     info!("terms and policy unchanged");
                     if get_data().terms_modified.is_some() {
                         TOS_VERIFIED.store(true, Ordering::Relaxed);
@@ -339,8 +415,6 @@ pub fn load_tos_and_policy(show_loading: bool) {
         let modified = get_data().terms_modified.clone();
         let loading = show_loading.then(|| FullLoadingView::begin_text(ttl!("loading_tos_policy")));
         *guard = Some(Task::new(async move {
-
-
 
             let ret = Client::fetch_terms(modified.as_deref()).await.context("failed to fetch terms");
             drop(loading);
@@ -414,6 +488,7 @@ pub async fn import_chart_to(dir: &Path, local_path: String, file: File) -> Resu
             local_path,
             record: None,
             mods: Mods::default(),
+            hp: HpMode::Off,
             played_unlock: false,
         },
         warnings,
@@ -541,13 +616,5 @@ pub fn render_release_to_refresh(ui: &mut Ui, cx: f32, off: f32) {
 
 #[cfg(test)]
 mod tests {
-
-
-
-
-
-
-
-
 
 }

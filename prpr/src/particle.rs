@@ -1,13 +1,3 @@
-//! This is from https://raw.githubusercontent.com/not-fl3/macroquad/master/particles/src/lib.rs
-//! We can't use macroquad-particles directly, since it implicitly depends on quad-snd (which is
-//! obviously a mistake) and that conflicts with kira.
-
-//! Edits:
-//! 1. nanoserde related parts are removed for simplicity's sake.
-//! 2. apply_viewport
-//! 3. clippy
-//! 4. time can be customized by input argument
-//! 5. Remove EmittersCache
 
 use macroquad::prelude::*;
 use macroquad::window::miniquad::*;
@@ -20,12 +10,11 @@ pub enum Interpolation {
 
 #[derive(Debug, Clone)]
 pub struct Curve {
-    /// Key points for building a curve
+
     pub points: Vec<(f32, f32)>,
-    /// The way middle points is interpolated during building a curve
-    /// Only Linear is implemented now
+
     pub interpolation: Interpolation,
-    /// Interpolation steps used to build the curve from the key points
+
     pub resolution: usize,
 }
 
@@ -107,89 +96,67 @@ impl Default for ColorCurve {
 
 #[derive(Debug, Clone)]
 pub struct EmitterConfig {
-    /// If false - particles spawns at position supplied to .draw(), but afterwards lives in current camera coordinate system.
-    /// If false particles use coordinate system originated to the emitter draw position
+
     pub local_coords: bool,
-    /// Particles will be emitted inside that region.
+
     pub emission_shape: EmissionShape,
-    /// If true only one emission cycle occurs. May be re-emitted by .emit() call.
+
     pub one_shot: bool,
-    /// Lifespan of individual particle.
+
     pub lifetime: f32,
-    /// Particle lifetime randomness ratio.
-    /// Each particle will spawned with "lifetime = lifetime - lifetime * rand::gen_range(0.0, lifetime_randomness)".
+
     pub lifetime_randomness: f32,
-    /// 0..1 value, how rapidly particles in emission cycle are emitted.
-    /// With 0 particles will be emitted with equal gap.
-    /// With 1 all the particles will be emitted at the beginning of the cycle.
+
     pub explosiveness: f32,
-    /// Amount of particles emitted in one emission cycle.
+
     pub amount: u32,
-    /// Shape of each individual particle mesh.
+
     pub shape: ParticleShape,
-    /// Particles are emitting when "emitting" is true.
-    /// If its a "one-shot" emitter, emitting will switch to false after active emission cycle.
+
     pub emitting: bool,
-    /// Unit vector specifying emission direction.
+
     pub initial_direction: Vec2,
-    /// Angle from 0 to "2 * Pi" for random fluctuation for direction vector.
+
     pub initial_direction_spread: f32,
-    /// Initial speed for each emitted particle.
-    /// Direction of the initial speed vector is affected by "direction" and "spread"
+
     pub initial_velocity: f32,
-    /// Initial velocity randomness ratio.
-    /// Each particle will spawned with "initial_velocity = initial_velocity - initial_velocity * rand::gen_range(0.0, initial_velocity_randomness)".
+
     pub initial_velocity_randomness: f32,
-    /// Velocity acceleration applied to each particle in the direction of motion.
+
     pub linear_accel: f32,
 
-
     pub initial_rotation: f32,
-    /// Initial rotation randomness.
-    /// Each particle will spawned with "initial_rotation = initial_rotation - initial_rotation * rand::gen_range(0.0, initial_rotation_randomness)".
+
     pub initial_rotation_randomness: f32,
 
     pub initial_angular_velocity: f32,
-    /// Initial angular velocity randomness.
-    /// Each particle will spawned with "initial_angular_velocity = initial_angular_velocity - initial_angular_velocity * rand::gen_range(0.0, initial_angular_velocity_randomness)".
+
     pub initial_angular_velocity_randomness: f32,
-    /// Angular velocity acceleration applied to each particle .
+
     pub angular_accel: f32,
-    /// Angluar velocity damping
-    /// Each frame angular velocity will be transformed "angular_velocity *= (1.0 - angular_damping)".
+
     pub angular_damping: f32,
-    /// Each particle is a "size x size" square.
+
     pub size: f32,
-    /// Each particle will spawned with "size = size - size * rand::gen_range(0.0, size_randomness)".
+
     pub size_randomness: f32,
-    /// If curve is present in each moment of particle lifetime size would be multiplied by the value from the curve
+
     pub size_curve: Option<Curve>,
 
-    /// Particles rendering mode.
     pub blend_mode: BlendMode,
 
     pub base_color: Color,
-    /// How particles should change base color along the lifetime.
+
     pub colors_curve: ColorCurve,
 
-    /// Gravity applied to each individual particle.
     pub gravity: Vec2,
 
-    /// Particle texture. If none particles going to be white squares.
     pub texture: Option<Texture2D>,
 
-    /// For animated texture specify spritesheet layout.
-    /// If none the whole texture will be used.
     pub atlas: Option<AtlasConfig>,
 
-    /// Custom material used to shade each particle.
     pub material: Option<ParticleMaterial>,
 
-    /// If none particles will be rendered directly to the screen.
-    /// If not none all the particles will be rendered to a rectangle and than this rectangle
-    /// will be rendered to the screen.
-    /// This will allows some effects affecting particles as a whole.
-    /// NOTE: this is not really implemented and now Some will just make hardcoded downscaling
     pub post_processing: Option<PostProcessing>,
 }
 
@@ -295,9 +262,9 @@ impl ParticleMaterial {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlendMode {
-    /// Colors of overlapped particles will be blended by alpha channel.
+
     Alpha,
-    /// Colors of overlapped particles will be added to each other.
+
     Additive,
 }
 
@@ -423,11 +390,10 @@ pub struct Emitter {
 }
 
 impl Emitter {
-    const MAX_PARTICLES: usize = 12000;
+    const MAX_PARTICLES: usize = 100000;
 
     pub fn new(config: EmitterConfig) -> Emitter {
         let InternalGlContext { quad_context: ctx, .. } = unsafe { get_internal_gl() };
-
 
         let positions_vertex_buffer = Buffer::stream(ctx, BufferType::VertexBuffer, Self::MAX_PARTICLES * std::mem::size_of::<GpuParticle>());
 
@@ -660,7 +626,6 @@ impl Emitter {
 
         for (gpu, cpu) in self.gpu_particles.iter_mut().zip(&mut self.cpu_counterpart) {
 
-
             cpu.velocity += cpu.velocity * self.config.linear_accel * dt;
             cpu.angular_velocity += cpu.angular_velocity * self.config.angular_accel * dt;
             cpu.angular_velocity *= 1.0 - self.config.angular_damping;
@@ -684,7 +649,6 @@ impl Emitter {
                 gpu.data.y = cpu.lived / cpu.lifetime;
             }
 
-
             cpu.lived += dt;
             cpu.velocity += self.config.gravity * dt;
 
@@ -704,7 +668,6 @@ impl Emitter {
 
         for i in (0..self.gpu_particles.len()).rev() {
 
-
             if self.cpu_counterpart[i].lived >= self.cpu_counterpart[i].lifetime || self.cpu_counterpart[i].lived > self.config.lifetime {
                 if self.cpu_counterpart[i].lived != self.cpu_counterpart[i].lifetime {
                     self.particles_spawned -= 1;
@@ -717,7 +680,6 @@ impl Emitter {
         self.bindings.vertex_buffers[1].update(ctx, &self.gpu_particles[..]);
     }
 
-    /// Immediately emit N particles, ignoring "emitting" and "amount" params of EmitterConfig
     pub fn emit(&mut self, pos: Vec2, n: usize) {
         for _ in 0..n {
             self.emit_particle(pos);
@@ -725,7 +687,6 @@ impl Emitter {
         }
     }
 
-    /// 当前是否没有任何存活粒子（可用于跳过整帧的粒子渲染管线，节省大量开销）
     pub fn is_empty(&self) -> bool {
         self.gpu_particles.is_empty()
     }

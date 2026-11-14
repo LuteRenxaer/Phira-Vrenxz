@@ -93,7 +93,7 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
     }
 
     fn get_scale(&self, w: i32) -> f32 {
-        0.04 * self.size * w as f32
+        0.04 * (self.size - 0.04).max(0.02) * w as f32
     }
 
     fn bounds(&self, (x, y, w, h): (f32, f32, f32, f32)) -> Rect {
@@ -178,16 +178,10 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
                 0
             } else {
                 let glyph = &glyphs[index - 1];
-                // glyph_brush reports `byte_index` relative to the sub-`Text` the glyph
-                // belongs to (`section.text[glyph.section_index]`), not the whole
-                // string. When the text is split across fonts the sub-texts are
-                // contiguous slices of `text`, so translate the index into the full
-                // string before slicing, otherwise the slice may land inside a
-                // multi-byte UTF-8 char and panic.
+
                 section.text[..glyph.section_index].iter().map(|it| it.text.len()).sum::<usize>() + glyph.byte_index
             };
-            // Defensive: clamp and round down to a char boundary, so a future
-            // glyph_brush version reporting a non-boundary index cannot panic.
+
             let byte_index = text
                 .char_indices()
                 .map(|(i, _)| i)

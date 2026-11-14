@@ -6,3 +6,6 @@ confirm = Bestätigen
 read-file-failed = Datei konnte nicht gelesen werden
 pasted = Aus Zwischenablage eingefügt
 audio-backend-init-failed = Audio-Backend konnte nicht initialisiert werden; Betrieb im lautlosen Modus
+select-all = All
+copy = Copy
+paste = Paste

@@ -1,0 +1,17 @@
+hud-page-home = 主菜单
+hud-page-library = 谱面库
+hud-page-settings = 设置
+hud-snap-on = 吸附：开
+hud-snap-off = 吸附：关
+hud-reset-page = 重置本页
+hud-reset-all = 重置全部
+hud-done = 完成
+hud-cols = 列数
+hud-row-h = 格高
+hud-page-favorites = 收藏夹
+hud-page-message = 消息
+hud-page-respack = 资源包
+hud-page-tabs = 分页
+hud-scene-game = 游玩
+hud-scene-loading = 加载
+hud-scene-ending = 结算

@@ -373,7 +373,7 @@ impl Scene for EventScene {
     }
 
     fn render(&mut self, tm: &mut TimeManager, ui: &mut Ui) -> Result<()> {
-        // 背景使用原始比例，不随 UI 比例缩放
+
         set_camera(&ui.bg_camera());
         let t = tm.now() as f32;
         let rt = tm.real_time() as f32;
@@ -382,7 +382,6 @@ impl Scene for EventScene {
         ui.fill_rect(r, self.illu.shading(r, t));
         ui.fill_rect(r, semi_black(0.4));
 
-        // UI 使用带比例的 camera
         set_camera(&ui.camera());
 
         let p = 1. - (self.scroll.y_scroller.offset / 0.4).clamp(0., 1.);

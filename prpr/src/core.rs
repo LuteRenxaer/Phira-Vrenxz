@@ -1,14 +1,3 @@
-//! Core module for prpr, submodules:
-//!   - [crate::core::anim]
-//!   - [crate::core::chart]
-//!   - [crate::core::effect]
-//!   - [crate::core::line]
-//!   - [crate::core::note]
-//!   - [crate::core::object]
-//!   - [crate::core::render]
-//!   - [crate::core::resource]
-//!   - [crate::core::smooth]
-//!   - [crate::core::tween]
 
 pub use macroquad::color::Color;
 
@@ -17,9 +6,8 @@ pub const HEIGHT_RATIO: f64 = 0.83175;
 
 pub const EPS: f64 = 1e-5;
 
-/// 屏幕上可见的 Note 数量达到该值时，Note 改用低分辨率贴图渲染（性能优化）
 pub const LOW_RES_NOTE_THRESHOLD: usize = 100;
-/// 未来 1 秒内需要击打的 Note 数量超过该值时，关闭打击特效（性能优化）
+
 pub const HIT_FX_DENSITY_THRESHOLD: usize = 20;
 
 pub type Point = nalgebra::Point2<f32>;
@@ -29,8 +17,26 @@ pub type Matrix = nalgebra::Matrix3<f32>;
 mod anim;
 pub use anim::{Anim, AnimFloat, AnimVector, Keyframe};
 
+mod block;
+pub use block::{block_touch_blocked, touch_inset_world, BlockArea, BlockMoveEvent, BlockPhase, BlockRotateEvent, BlockScaleEvent, BlockTransform};
+
+mod block_shader;
+pub(crate) use block_shader::prepare_block_effects;
+pub(crate) use block_shader::{prepare_block_geometry, clear_prepared_block_geometry};
+pub(crate) use block_shader::zone_on_screen;
+pub(crate) use block_shader::zone_on_screen_lim;
+mod block_audio;
+pub(crate) use block_audio::BlockAudio;
+pub(crate) use block_shader::reset_block_effects;
+pub use block_shader::{draw_disabled_zones, draw_zones, draw_zones_with_touches, Zone};
+pub mod rpe_next_block;
+
 mod chart;
+mod block_timeline;
 pub use chart::{Chart, ChartExtra, ChartSettings, HitSoundMap};
+
+mod dynamic_background;
+pub use dynamic_background::DynamicBackground;
 
 mod effect;
 pub use effect::{Effect, Uniform};
@@ -73,6 +79,7 @@ use std::cell::RefCell;
 thread_local! {
     pub static PGR_FONT: RefCell<Option<TextPainter>> = RefCell::default();
     pub static BOLD_FONT: RefCell<Option<TextPainter>> = RefCell::default();
+    pub static MAIN_FONT: RefCell<Option<TextPainter>> = RefCell::default();
 }
 
 pub fn init_assets() {
@@ -91,7 +98,7 @@ pub fn init_assets() {
 }
 
 #[derive(serde::Deserialize)]
-/// `(i, n, d)`: `i + n / d`
+
 pub struct Triple(i32, u32, u32);
 impl Default for Triple {
     fn default() -> Self {
@@ -107,17 +114,14 @@ impl Triple {
 
 #[derive(Default)]
 pub struct BpmList {
-    /// (beats, time, bpm)
-    /// time in seconds
+
     elements: Vec<(f64, f64, f64)>,
-    /// cursor for searching, value is the index of `elements`
+
     cursor: usize,
 }
 
 impl BpmList {
-    /// Create a new BpmList from a list of (beats, bpm) pairs
-    ///
-    /// Basically just calculate the time for each pair(key frame)
+
     pub fn new(ranges: Vec<(f64, f64)>) -> Self {
         let mut elements = Vec::new();
         let mut time = 0.0;
@@ -134,7 +138,6 @@ impl BpmList {
         BpmList { elements, cursor: 0 }
     }
 
-    /// Get the time in seconds for a given beats
     pub fn time_beats(&mut self, beats: f64) -> f64 {
         while let Some(kf) = self.elements.get(self.cursor + 1) {
             if kf.0 > beats {
@@ -149,12 +152,10 @@ impl BpmList {
         time + (beats - start_beats) * (60. / bpm)
     }
 
-    /// Get the time in seconds for a given `i + n / d`
     pub fn time(&mut self, triple: &Triple) -> f64 {
         self.time_beats(triple.beats())
     }
 
-    /// Get the beat coordinate for a given time in seconds
     pub fn beat(&mut self, time: f64) -> f64 {
         while let Some(kf) = self.elements.get(self.cursor + 1) {
             if kf.1 > time {
@@ -169,7 +170,6 @@ impl BpmList {
         beats + (time - start_time) / (60. / bpm)
     }
 
-    /// 与 [`BpmList::time_beats`] 等价的只读版本（不修改内部游标），供并行渲染线程使用。
     pub(crate) fn time_beats_at(&self, beats: f64) -> f64 {
         let mut cursor = 0usize;
         while let Some(kf) = self.elements.get(cursor + 1) {
@@ -185,7 +185,6 @@ impl BpmList {
         time + (beats - start_beats) * (60. / bpm)
     }
 
-    /// 与 [`BpmList::beat`] 等价的只读版本（不修改内部游标），供并行渲染线程使用。
     pub(crate) fn beat_at(&self, time: f64) -> f64 {
         let mut cursor = 0usize;
         while let Some(kf) = self.elements.get(cursor + 1) {

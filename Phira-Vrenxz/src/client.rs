@@ -1,4 +1,3 @@
-//! Http client for Phira API.
 
 mod model;
 pub use model::*;
@@ -92,7 +91,6 @@ pub enum LoginParams<'a> {
     },
 }
 
-/// A freshly minted token pair returned by every login endpoint.
 #[cfg(feature = "hykb")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,7 +100,6 @@ struct LoginResp {
     refresh_token: String,
 }
 
-/// Response of `POST /login/hykb`: either an immediate login or a pending choice.
 #[cfg(feature = "hykb")]
 #[derive(Deserialize)]
 #[serde(tag = "status", rename_all = "camelCase")]
@@ -116,12 +113,11 @@ enum HykbLoginResp {
     },
 }
 
-/// Outcome of a HYKB login attempt surfaced to the UI.
 #[cfg(feature = "hykb")]
 pub enum HykbLoginOutcome {
-    /// The HYKB account was already bound; the user is now logged in.
+
     LoggedIn,
-    /// First time we see this HYKB account; the user must register or claim.
+
     NeedChoice { hykb_token: String },
 }
 
@@ -134,6 +130,18 @@ impl Client {
     #[inline]
     pub fn post<T: Serialize>(path: impl AsRef<str>, data: &T) -> RequestBuilder {
         Self::request(Method::POST, path).json(data)
+    }
+
+    /// 向指定 base URL 发起 POST（用于自定义成绩上传服务器，绕过固定 API_URL）。
+    #[inline]
+    pub fn post_to<T: Serialize>(base: &str, path: impl AsRef<str>, data: &T) -> RequestBuilder {
+        CLIENT.load().post(base.to_string() + path.as_ref()).json(data)
+    }
+
+    /// 向指定 base URL 发起 GET（用于自定义服务器拉取排行榜，绕过固定 API_URL）。
+    #[inline]
+    pub fn get_to(base: &str, path: impl AsRef<str>) -> RequestBuilder {
+        CLIENT.load().get(base.to_string() + path.as_ref())
     }
 
     #[inline]
@@ -259,11 +267,6 @@ impl Client {
         Ok(())
     }
 
-    /// Persist a freshly minted token pair and wire it into the HTTP client.
-    /// Shared by every login entry point (password, refresh, HYKB). `_id` is
-    /// kept in the signature so callers can pass the account id even though it
-    /// is no longer needed here (the native anti-addiction bridge that used it
-    /// is gone).
     async fn store_login(_id: i32, token: String, refresh_token: String) -> Result<()> {
         set_access_token(&token).await?;
         get_data_mut().tokens = Some((token, refresh_token));
@@ -272,9 +275,7 @@ impl Client {
     }
 
     #[cfg(feature = "hykb")]
-    /// Entry point for HYKB (好游快爆) login. The verified `(uid, access_token)`
-    /// come from the native SDK. Either logs the user straight in (account already
-    /// bound) or returns a short-lived `hykb_token` for the register/claim step.
+
     pub async fn login_hykb(uid: i64, access_token: &str) -> Result<HykbLoginOutcome> {
         let resp: HykbLoginResp = recv_raw(Self::post(
             "/login/hykb",
@@ -296,8 +297,7 @@ impl Client {
     }
 
     #[cfg(feature = "hykb")]
-    /// New player: create a fresh Phira account bound to the pending HYKB identity,
-    /// using the username chosen by the player.
+
     pub async fn login_hykb_register(hykb_token: &str, username: &str) -> Result<()> {
         let resp: LoginResp = recv_raw(Self::post(
             "/login/hykb/register",
@@ -314,8 +314,7 @@ impl Client {
     }
 
     #[cfg(feature = "hykb")]
-    /// Legacy migration: bind the pending HYKB identity to an existing email account
-    /// after verifying its email + password.
+
     pub async fn login_hykb_claim(hykb_token: &str, email: &str, password: &str) -> Result<()> {
         let resp: LoginResp = recv_raw(Self::post(
             "/login/hykb/claim",
@@ -333,7 +332,7 @@ impl Client {
     }
 
     #[cfg(feature = "hykb")]
-    /// Bind a HYKB account to the currently logged-in account.
+
     pub async fn bind_hykb(uid: i64, access_token: &str) -> Result<()> {
         recv_raw(Self::post(
             "/me/bind-hykb",
@@ -347,17 +346,14 @@ impl Client {
     }
 
     #[cfg(feature = "hykb")]
-    /// Unbind the HYKB account from the current account.
+
     pub async fn unbind_hykb() -> Result<()> {
         recv_raw(Self::post("/me/unbind-hykb", &())).await?;
         Ok(())
     }
 
     #[cfg(feature = "hykb")]
-    /// Request transferring the current HYKB-only account onto an existing email
-    /// account. Sends a confirmation email to `email`; the move happens only once
-    /// the user clicks the link. Returns Ok even when the email is unregistered
-    /// (the server intentionally does not reveal whether it exists).
+
     pub async fn transfer_request(email: &str) -> Result<()> {
         recv_raw(Self::post("/me/transfer-request", &json!({ "email": email }))).await?;
         Ok(())
@@ -365,8 +361,6 @@ impl Client {
 
     pub async fn get_me() -> Result<User> {
         let user: User = Self::get_me_unchecked().await?;
-
-
 
         #[cfg(feature = "hykb")]
         if user.hykb_uid.is_none() {
@@ -379,9 +373,6 @@ impl Client {
         Ok(user)
     }
 
-    /// Fetch `/me` without the HYKB binding guard. Used by the email-login flow,
-    /// which handles an unbound account by offering to bind HYKB rather than
-    /// forcing a logout.
     pub async fn get_me_unchecked() -> Result<User> {
         Ok(recv_raw(Self::get("/me")).await?.json().await?)
     }
@@ -402,7 +393,88 @@ impl Client {
         Ok(resp.id)
     }
 
-    /// Returns Some(new_terms, modified) if the terms have been updated.
+    /// 向指定 base URL 发起 raw body POST（用于上传谱面 zip 等），携带全局鉴权头。
+    #[inline]
+    pub fn post_raw(base: &str, path: impl AsRef<str>, body: Vec<u8>) -> RequestBuilder {
+        CLIENT
+            .load()
+            .post(base.to_string() + path.as_ref())
+            .header(header::CONTENT_TYPE, "application/octet-stream")
+            .body(body)
+    }
+
+    /// 本地服务器注册：POST {UPLOAD_BASE}/auth/register {email,password,nick}，
+    /// 成功返回并落盘本地会话（id/token/refreshToken），协议对齐本地 server.py。
+    pub async fn register_local(email: &str, username: &str, password: &str) -> Result<()> {
+        Self::ensure_local_client().await?;
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Resp {
+            id: i32,
+            token: String,
+            refresh_token: String,
+        }
+        let resp: Resp = recv_raw(Self::post_to(
+            crate::score_upload::UPLOAD_BASE,
+            "/auth/register",
+            &json!({
+                "email": email,
+                "nick": username,
+                "password": password,
+            }),
+        ))
+        .await?
+        .json()
+        .await?;
+        Self::store_login(resp.id, resp.token, resp.refresh_token).await?;
+        Ok(())
+    }
+
+    /// 本地服务器登录：POST {UPLOAD_BASE}/login {email,password,clientVersion}，
+    /// 成功返回并落盘本地会话（id/token/refreshToken），协议对齐本地 server.py。
+    pub async fn login_local(email: &str, password: &str) -> Result<()> {
+        Self::ensure_local_client().await?;
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Resp {
+            id: i32,
+            token: String,
+            refresh_token: String,
+        }
+        let resp: Resp = recv_raw(Self::post_to(
+            crate::score_upload::UPLOAD_BASE,
+            "/login",
+            &json!({
+                "email": email,
+                "password": password,
+                "clientVersion": env!("CARGO_PKG_VERSION"),
+            }),
+        ))
+        .await?
+        .json()
+        .await?;
+        Self::store_login(resp.id, resp.token, resp.refresh_token).await?;
+        Ok(())
+    }
+
+    /// 获取本地服务器当前登录用户信息：GET {UPLOAD_BASE}/me（Bearer）。
+    pub async fn get_me_local() -> Result<User> {
+        Ok(recv_raw(Self::get_to(crate::score_upload::UPLOAD_BASE, "/me"))
+            .await?
+            .json()
+            .await?)
+    }
+
+    /// 本地服务器使用自签证书，先兜底开启忽略证书校验并重建 client（与上传成绩路径一致）。
+    async fn ensure_local_client() -> Result<()> {
+        if !get_data().accept_invalid_cert {
+            get_data_mut().accept_invalid_cert = true;
+            save_data()?;
+            set_access_token_sync(CLIENT_TOKEN.load().as_ref().clone().as_deref())?;
+        }
+        Ok(())
+    }
+
     pub async fn fetch_terms(modified: Option<&str>) -> Result<Option<(String, String)>> {
         let mut req = CLIENT.load().get(format!("{API_URL}/terms/{}.txt", client_locale()));
         if let Some(modified) = modified {

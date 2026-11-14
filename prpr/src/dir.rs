@@ -1,4 +1,3 @@
-//! Directory helper
 
 use anyhow::{bail, Result};
 use std::{

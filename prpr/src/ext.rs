@@ -1,4 +1,3 @@
-//! Miscellaneous utilities.
 
 use crate::{
     config::Config,
@@ -8,7 +7,7 @@ use crate::{
 use anyhow::{anyhow, Result};
 use image::DynamicImage;
 use lyon::{
-    math::Box2D,
+    math::{point, Box2D},
     path::{builder::BorderRadii, Path, Winding},
 };
 use macroquad::prelude::*;
@@ -61,6 +60,8 @@ pub trait RectExt: Sized {
     fn nonuniform_feather(&self, x: f32, y: f32) -> Self;
     fn to_euclid(&self) -> Box2D;
     fn rounded(&self, radius: f32) -> Path;
+    /// 左上角与右下角各向右偏移 slope*h 的平行四边形路径（与 draw_parallelogram_ex 顶点一致）
+    fn parallelogram(&self, slope: f32) -> Path;
 }
 
 impl RectExt for Rect {
@@ -81,17 +82,21 @@ impl RectExt for Rect {
         path.add_rounded_rectangle(&self.to_euclid(), &BorderRadii::new(radius), Winding::Positive);
         path.build()
     }
+
+    fn parallelogram(&self, slope: f32) -> Path {
+        let l = self.h * slope;
+        let mut path = Path::builder();
+        path.begin(point(self.x + l, self.y));
+        path.line_to(point(self.right(), self.y));
+        path.line_to(point(self.x, self.bottom()));
+        path.line_to(point(self.right() - l, self.bottom()));
+        path.close();
+        path.build()
+    }
 }
 
 static PENDING_TEXTURE_DELETIONS: Lazy<Mutex<Vec<Texture2D>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
-/// Deletes all textures queued up by `SafeTexture` drops so far.
-///
-/// Deleting a GL texture from a thread other than the one owning the GL
-/// context crashes, so `SafeTextureInner::drop` cannot call `delete`
-/// directly (it may run on any thread, e.g. when a background task drops
-/// the last `Arc`). Instead it queues the texture here, and this must be
-/// called periodically from the main (rendering) thread.
 pub fn flush_pending_texture_deletions() {
     let textures = std::mem::take(&mut *PENDING_TEXTURE_DELETIONS.lock().unwrap());
     for texture in textures {
@@ -99,8 +104,6 @@ pub fn flush_pending_texture_deletions() {
     }
 }
 
-/// Queues a texture for deletion on the main thread instead of deleting it
-/// immediately. See [`flush_pending_texture_deletions`].
 pub fn queue_texture_deletion(texture: Texture2D) {
     PENDING_TEXTURE_DELETIONS.lock().unwrap().push(texture);
 }
@@ -259,10 +262,45 @@ pub fn draw_image(tex: Texture2D, rect: Rect, scale_type: ScaleType) {
     );
 }
 
-pub const PARALLELOGRAM_SLOPE: f32 = 0.13 / (7. / 13.);
+pub const PARALLELOGRAM_SLOPE: f32 = 0.268; // tan(15°)，Unity SongSelector 实测收敛值（参考图 6 处像素 + collider 全一致）
 
 pub fn draw_parallelogram(rect: Rect, texture: Option<(Texture2D, Rect)>, color: Color, shadow: bool) {
     draw_parallelogram_ex(rect, texture, color, color, shadow);
+}
+
+/// 水平方向渐变（左色 → 右色）的平行四边形，用于让封面条带右缘柔和地融进结算条底色。
+pub fn draw_parallelogram_lr(rect: Rect, texture: Option<(Texture2D, Rect)>, left: Color, right: Color, shadow: bool) {
+    let l = rect.h * PARALLELOGRAM_SLOPE;
+    let gl = unsafe { get_internal_gl() }.quad_gl;
+    let p = [
+        Point::new(rect.x + l, rect.y),
+        Point::new(rect.right(), rect.y),
+        Point::new(rect.x, rect.bottom()),
+        Point::new(rect.right() - l, rect.bottom()),
+    ];
+    let v = if let Some((tex, tex_rect)) = texture {
+        let lt = tex_rect.h * tex.height() * PARALLELOGRAM_SLOPE / tex.width();
+        gl.texture(Some(tex));
+        [
+            Vertex::new(p[0].x, p[0].y, 0., tex_rect.x + lt, tex_rect.y, left),
+            Vertex::new(p[1].x, p[1].y, 0., tex_rect.right(), tex_rect.y, right),
+            Vertex::new(p[2].x, p[2].y, 0., tex_rect.x, tex_rect.bottom(), left),
+            Vertex::new(p[3].x, p[3].y, 0., tex_rect.right() - lt, tex_rect.bottom(), right),
+        ]
+    } else {
+        gl.texture(None);
+        [
+            Vertex::new(p[0].x, p[0].y, 0., 0., 0., left),
+            Vertex::new(p[1].x, p[1].y, 0., 0., 0., right),
+            Vertex::new(p[2].x, p[2].y, 0., 0., 0., left),
+            Vertex::new(p[3].x, p[3].y, 0., 0., 0., right),
+        ]
+    };
+    gl.draw_mode(DrawMode::Triangles);
+    gl.geometry(&v, &[0, 2, 3, 0, 1, 3]);
+    if shadow {
+        drop_shadow(p, left.a.min(right.a));
+    }
 }
 
 pub fn draw_parallelogram_ex(rect: Rect, texture: Option<(Texture2D, Rect)>, top: Color, bottom: Color, shadow: bool) {

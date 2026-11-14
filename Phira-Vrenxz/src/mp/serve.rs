@@ -1,4 +1,3 @@
-//! 本地谱面分享：打包 / 解压 / 上传 / 下载
 
 use anyhow::{Context, Result};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -6,7 +5,6 @@ use std::sync::{Arc, Mutex};
 
 use crate::dir;
 
-/// 把本地谱面 `local_path`（相对 `dir::charts()` 的子路径）复制到 `download/{uuid}`
 pub fn stage_local_chart(local_path: &str, uuid: &str) -> Result<()> {
     let src = format!("{}/{}", dir::charts()?, local_path);
     let src_path = std::path::Path::new(&src);
@@ -41,7 +39,6 @@ fn copy_dir(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-/// 把 `charts/download/{chart_id}` 目录打包成 zip（内存中）
 pub fn pack_chart_dir(chart_id: &str) -> Result<Vec<u8>> {
     let root = format!("{}/download/{chart_id}", dir::charts()?);
     let root = std::path::Path::new(&root);
@@ -84,7 +81,6 @@ pub fn pack_chart_dir(chart_id: &str) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// 玩家从房主下载谱面时的共享状态
 pub struct ChartSyncing {
     pub done: AtomicBool,
     pub error: Mutex<Option<String>>,
@@ -118,14 +114,12 @@ impl ChartSyncing {
     }
 }
 
-/// 房主把本地谱面包上传到服务端（经 game 连接）
 pub async fn upload_chart(client: &phira_mp_client::Client, chart_id: &str) -> Result<()> {
     let zip = pack_chart_dir(chart_id)?;
     client.upload_chart(chart_id.to_string(), zip).await?;
     Ok(())
 }
 
-/// 玩家从服务端下载谱面包，解压到 `download/{chart_id}`
 pub async fn download_chart(
     client: &phira_mp_client::Client,
     chart_id: &str,

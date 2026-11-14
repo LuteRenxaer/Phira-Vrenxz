@@ -19,16 +19,12 @@ impl<T> Keyframe<T> {
 }
 
 #[derive(Clone)]
-/// Anim Tween Function is using the `tween` value of the first keyframe of an interval `(kf1, kf2)`
+
 pub struct Anim<T: Tweenable> {
     pub time: f64,
     pub keyframes: Box<[Keyframe<T>]>,
     pub cursor: usize,
-    /// Next Anim to chain
-    ///
-    /// e.g. `a1.next = a2` we have a1(t) = a1.keyframes(t) + a2(t)
-    /// and if `a2.next = a3` we have a1(t) = a1.keyframes(t) + a2.keyframes(t) + a3(t)
-    /// ...
+
     pub next: Option<Box<Anim<T>>>,
 }
 
@@ -46,7 +42,6 @@ impl<T: Tweenable> Default for Anim<T> {
 impl<T: Tweenable> Anim<T> {
     pub fn new(keyframes: Vec<Keyframe<T>>) -> Self {
         assert!(!keyframes.is_empty());
-
 
         Self {
             keyframes: keyframes.into_boxed_slice(),

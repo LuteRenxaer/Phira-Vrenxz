@@ -1,4 +1,4 @@
-﻿tip-count = 149
+tip-count = 149
 
 crash-title = 哇!你的PhiLie崩溃啦!看来error先生愤怒了呢
 crash-error-code = 错误代码:{ $code }

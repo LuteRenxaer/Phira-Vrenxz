@@ -22,13 +22,11 @@ const DEFAULT_FOLDER_PASSWORD: &str = "hlib";
 pub struct ExtensionPage {
     manager: Arc<Mutex<ExtensionManager>>,
 
-    // 列表
     items: Vec<ExtensionItem>,
     item_rects: Vec<Rect>,
     list_scroll: Scroll,
     selected: usize,
 
-    // 下载
     download_level_btn: DRectButton,
     refresh_btn: DRectButton,
     download_task: LocalTask<Result<String>>,
@@ -36,11 +34,9 @@ pub struct ExtensionPage {
     current_download_id: Option<String>,
     current_download_type: Option<String>,
 
-    // 操作按钮
     toggle_btn: DRectButton,
     delete_btn: DRectButton,
 
-    // 动画
     enter_time: f32,
 }
 
@@ -92,7 +88,6 @@ impl ExtensionPage {
             return;
         }
 
-        // 检测是否已有对应资源
         let asset_dir = std::env::current_dir().unwrap_or_default().join("assets");
         let target_dir = asset_dir.join("Level");
         if target_dir.exists() && target_dir.read_dir().map(|d| d.count() > 0).unwrap_or(false) {
@@ -238,13 +233,11 @@ impl Page for ExtensionPage {
         let t = s.t;
         let cr = ui.content_rect();
 
-        // 左侧列表
         let list_w = cr.w * 0.38;
         let list_r = Rect::new(cr.x, cr.y, list_w, cr.h);
         s.render_fader(ui, |ui| {
             ui.fill_path(&list_r.rounded(0.012), semi_black(0.3));
 
-            // 标题
             ui.text("已安装")
                 .pos(list_r.x + 0.04, list_r.y + 0.03)
                 .anchor(0., 0.)
@@ -252,7 +245,6 @@ impl Page for ExtensionPage {
                 .color(semi_white(0.9))
                 .draw();
 
-            // 数量
             ui.text(&format!("{} 个", self.items.len()))
                 .pos(list_r.right() - 0.04, list_r.y + 0.035)
                 .anchor(1., 0.)
@@ -288,7 +280,6 @@ impl Page for ExtensionPage {
                     let item_rect = Rect::new(pad, y, w, item_h);
                     let card_r = item_rect.feather(-0.004);
 
-                    // 背景
                     ui.fill_path(
                         &card_r.rounded(0.01),
                         if is_selected {
@@ -298,7 +289,6 @@ impl Page for ExtensionPage {
                         },
                     );
 
-                    // 选中指示条
                     if is_selected {
                         ui.fill_rect(
                             Rect::new(card_r.x, card_r.y, 0.006, card_r.h),
@@ -306,7 +296,6 @@ impl Page for ExtensionPage {
                         );
                     }
 
-                    // 名称
                     ui.text(&item.info.manifest.name)
                         .pos(card_r.x + 0.02, card_r.y + 0.018)
                         .anchor(0., 0.)
@@ -315,7 +304,6 @@ impl Page for ExtensionPage {
                         .color(WHITE)
                         .draw();
 
-                    // 类型标签
                     let type_text = Self::type_label(item.info.manifest.ext_type);
                     let type_color = Color::new(1.0, 0.7, 0.3, 0.8);
                     ui.text(type_text)
@@ -325,7 +313,6 @@ impl Page for ExtensionPage {
                         .color(type_color)
                         .draw();
 
-                    // 版本
                     ui.text(&format!("v{}", item.info.manifest.version))
                         .pos(card_r.right() - 0.02, card_r.bottom() - 0.018)
                         .anchor(1., 1.)
@@ -333,7 +320,6 @@ impl Page for ExtensionPage {
                         .color(semi_white(0.5))
                         .draw();
 
-                    // 启用状态点
                     let dot_x = card_r.right() - 0.025;
                     let dot_y = card_r.y + 0.025;
                     ui.fill_circle(
@@ -347,7 +333,6 @@ impl Page for ExtensionPage {
                         },
                     );
 
-                    // 记录全局位置用于触摸检测
                     self.item_rects.push(Rect::new(
                         list_r.x + pad,
                         top + y,
@@ -361,14 +346,13 @@ impl Page for ExtensionPage {
             });
         });
 
-        // 右侧详情
         let detail_x = list_r.right() + 0.02;
         let detail_r = Rect::new(detail_x, cr.y, cr.right() - detail_x, cr.h);
         s.render_fader(ui, |ui| {
             ui.fill_path(&detail_r.rounded(0.012), semi_black(0.3));
 
             if self.items.is_empty() {
-                // 空状态 - 显示下载引导
+
                 let ct = detail_r.center();
                 ui.text("扩展包下载")
                     .pos(ct.x, ct.y - 0.18)
@@ -383,7 +367,6 @@ impl Page for ExtensionPage {
                     .color(semi_white(0.6))
                     .draw();
 
-                // 检测完整版
                 let asset_dir = std::env::current_dir().unwrap_or_default().join("assets");
                 let has_level = asset_dir.join("Level").exists();
 
@@ -396,7 +379,6 @@ impl Page for ExtensionPage {
                         .draw();
                 }
 
-                // Level 下载按钮
                 let btn_w = 0.22;
                 let btn_h = 0.09;
                 let btn_y = ct.y + 0.02;
@@ -431,7 +413,6 @@ impl Page for ExtensionPage {
                         .draw();
                 });
 
-                // 下载进度
                 if let Some(progress) = &self.download_progress {
                     if let Ok(p) = progress.try_lock() {
                         let progress_y = btn_y + btn_h + 0.04;
@@ -470,7 +451,6 @@ impl Page for ExtensionPage {
                 let info = &item.info;
                 let pad = 0.05;
 
-                // 标题
                 ui.text(&info.manifest.name)
                     .pos(detail_r.x + pad, detail_r.y + 0.04)
                     .anchor(0., 0.)
@@ -479,7 +459,6 @@ impl Page for ExtensionPage {
                     .color(WHITE)
                     .draw();
 
-                // 类型标签
                 let type_text = Self::type_label(info.manifest.ext_type);
                 let type_color = Color::new(1.0, 0.7, 0.3, 0.9);
                 let type_w = 0.12;
@@ -492,7 +471,6 @@ impl Page for ExtensionPage {
                     .color(BLACK)
                     .draw();
 
-                // 版本
                 ui.text(&format!("版本 v{}", info.manifest.version))
                     .pos(type_r.right() + 0.02, type_r.center().y)
                     .anchor(0., 0.5)
@@ -500,14 +478,12 @@ impl Page for ExtensionPage {
                     .color(semi_white(0.6))
                     .draw();
 
-                // 分隔线
                 let line_y = detail_r.y + 0.18;
                 ui.fill_rect(
                     Rect::new(detail_r.x + pad, line_y, detail_r.w - pad * 2., 0.003),
                     semi_white(0.15),
                 );
 
-                // 详情信息
                 let info_start = line_y + 0.03;
                 let row_h = 0.06;
                 let mut row = 0;
@@ -554,12 +530,10 @@ impl Page for ExtensionPage {
                     row,
                 );
 
-                // 操作按钮区域
                 let btn_y = detail_r.bottom() - 0.1;
                 let btn_h = 0.07;
                 let btn_w = (detail_r.w - pad * 2. - 0.02) / 2.;
 
-                // 启用/禁用按钮
                 let toggle_r = Rect::new(detail_r.x + pad, btn_y, btn_w, btn_h);
                 let enabled = info.state.enabled;
                 self.toggle_btn.render_shadow(ui, toggle_r, t, move |ui, _path| {
@@ -579,7 +553,6 @@ impl Page for ExtensionPage {
                         .draw();
                 });
 
-                // 卸载按钮
                 let delete_r = Rect::new(toggle_r.right() + 0.02, btn_y, btn_w, btn_h);
                 self.delete_btn.render_shadow(ui, delete_r, t, |ui, _path| {
                     ui.fill_path(
@@ -594,7 +567,6 @@ impl Page for ExtensionPage {
                         .draw();
                 });
 
-                // 刷新按钮（右上角小按钮）
                 let refresh_size = 0.05;
                 let refresh_r = Rect::new(
                     detail_r.right() - pad - refresh_size,

@@ -1,0 +1,17 @@
+hud-page-home = Início
+hud-page-library = Biblioteca
+hud-page-settings = Configurações
+hud-snap-on = Encaixe: ATIVO
+hud-snap-off = Encaixe: DESATIVADO
+hud-reset-page = Redefinir página
+hud-reset-all = Redefinir tudo
+hud-done = Concluir
+hud-cols = Colunas
+hud-row-h = Altura da célula
+hud-page-favorites = Favoritos
+hud-page-message = Mensagens
+hud-page-tabs = Abas
+hud-page-respack = Pacotes de Skin
+hud-scene-game = Jogo
+hud-scene-loading = Carregando
+hud-scene-ending = Resultado

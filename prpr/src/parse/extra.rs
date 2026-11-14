@@ -1,6 +1,6 @@
 use super::RPE_TWEEN_MAP;
 use anyhow::{Context, Result};
-use macroquad::prelude::{Color, Vec2};
+use macroquad::prelude::{Color, Texture2D, Vec2};
 use serde::Deserialize;
 use std::{collections::HashMap, sync::Arc};
 
@@ -112,6 +112,12 @@ enum Variable {
 }
 
 #[derive(Deserialize)]
+struct ExtTexture {
+    name: String,
+    path: String,
+}
+
+#[derive(Deserialize)]
 struct ExtEffect {
     start: Triple,
     end: Triple,
@@ -120,6 +126,8 @@ struct ExtEffect {
     vars: HashMap<String, Variable>,
     #[serde(default)]
     global: bool,
+    #[serde(default)]
+    textures: Vec<ExtTexture>,
 }
 
 #[allow(dead_code)]
@@ -163,7 +171,22 @@ async fn parse_effect(r: &mut BpmList, rpe: ExtEffect, fs: &mut dyn FileSystem) 
         })
         .collect::<Result<_>>()?;
     let string;
-    Effect::new(
+    let mut extra_textures = Vec::new();
+    for texture in rpe.textures {
+        let bytes = fs
+            .load_file(&texture.path)
+            .await
+            .with_context(|| ptl!("shader-load-failed", "path" => texture.path.clone()))?;
+        if let Ok(img) = image::load_from_memory(&bytes) {
+            let rgba = img.to_rgba8();
+            let (w, h) = (rgba.width(), rgba.height());
+            extra_textures.push((
+                texture.name,
+                Texture2D::from_rgba8(w as u16, h as u16, &rgba.into_raw()),
+            ));
+        }
+    }
+    Effect::new_with_textures(
         range,
         if let Some(path) = rpe.shader.strip_prefix('/') {
             string = String::from_utf8(fs.load_file(path).await?).with_context(|| ptl!("shader-load-failed", "path" => path))?;
@@ -173,6 +196,7 @@ async fn parse_effect(r: &mut BpmList, rpe: ExtEffect, fs: &mut dyn FileSystem) 
         },
         vars,
         rpe.global,
+        extra_textures,
     )
 }
 
@@ -215,5 +239,6 @@ pub async fn parse_extra(source: &str, fs: &mut dyn FileSystem) -> Result<ChartE
         global_effects,
         #[cfg(feature = "video")]
         videos,
+        lyrics: Vec::new(),
     })
 }

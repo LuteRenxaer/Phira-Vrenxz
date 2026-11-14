@@ -1,14 +1,3 @@
-//! Binary serialization and deserialization for prpr data structures.
-//! Currently:
-//!   - [crate::core::Chart]
-//!   - [crate::core::ChartSettings]
-//!   - [crate::core::JudgeLine]
-//!   - [crate::core::Note]
-//!   - [crate::core::Object]
-//!   - [crate::core::CtrlObject]
-//!   - [crate::core::Anim]
-//!   - [crate::core::Keyframe]
-//!   - [macroquad::prelude::Color]
 
 use crate::{
     core::{
@@ -410,7 +399,7 @@ impl BinaryData for JudgeLine {
         let ctrl_obj = RefCell::new(r.read()?);
         let incline = r.read()?;
         let z_index = r.read()?;
-        // 向后兼容：版本 >= 1 才有 texture_anchor 字段
+
         let (anchor_x, anchor_y) = if r.version() >= 1 {
             (r.read::<f32>()?, r.read::<f32>()?)
         } else {
@@ -489,30 +478,30 @@ impl BinaryData for ChartSettings {
     }
 }
 
-const CHART_MAGIC: u32 = 0x52494850; // "PHIR" little-endian
+const CHART_MAGIC: u32 = 0x52494850;
 const CHART_VERSION: u32 = 1;
 
 impl BinaryData for Chart {
     fn read_binary<R: Read>(r: &mut BinaryReader<R>) -> Result<Self> {
-        // 尝试读取 magic number 判断版本
+
         let first = r.0.read_u32::<LE>()?;
         if first == CHART_MAGIC {
-            // 新版本
+
             let version = r.0.read_u32::<LE>()?;
             r.set_version(version);
             let offset = r.read()?;
             let mut lines = r.array()?;
             process_lines(&mut lines);
             let settings = r.read()?;
-            Ok(Chart::new(offset, lines, BpmList::new(vec![(0., 60.)]), settings, ChartExtra::default(), HashMap::new()))
+            Ok(Chart::new(offset, lines, BpmList::new(vec![(0., 60.)]), settings, ChartExtra::default(), HashMap::new(), Vec::new()))
         } else {
-            // 旧版本：first 是 offset 的位模式
+
             r.set_version(0);
             let offset = f32::from_bits(first);
             let mut lines = r.array()?;
             process_lines(&mut lines);
             let settings = r.read()?;
-            Ok(Chart::new(offset, lines, BpmList::new(vec![(0., 60.)]), settings, ChartExtra::default(), HashMap::new()))
+            Ok(Chart::new(offset, lines, BpmList::new(vec![(0., 60.)]), settings, ChartExtra::default(), HashMap::new(), Vec::new()))
         }
     }
 

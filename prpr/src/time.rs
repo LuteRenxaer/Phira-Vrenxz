@@ -1,4 +1,3 @@
-//! Time manager for music time and real time synchronization.
 
 use crate::config::Config;
 
@@ -39,7 +38,6 @@ impl TimeManager {
     }
 
     pub fn new(speed: f64, adjust_time: bool) -> Self {
-
 
         #[cfg(target_arch = "wasm32")]
         let get_time_fn = {

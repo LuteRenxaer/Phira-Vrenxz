@@ -149,7 +149,6 @@ macro_rules! i3 {
 #[inline]
 fn int_sine(x: f32) -> f32 {
 
-
     x - (x * PI / 2.).sin() * (2. / PI)
 }
 
@@ -176,14 +175,12 @@ fn int_quint(x: f32) -> f32 {
 #[inline]
 fn int_expo(x: f32) -> f32 {
 
-
     let ln2 = std::f32::consts::LN_2;
     ((2.0_f32).powf(10. * x - 10.) - (2.0_f32).powf(-10.)) / (10. * ln2)
 }
 
 #[inline]
 fn int_circ(x: f32) -> f32 {
-
 
     x - 0.5 * (x * (1. - x * x).sqrt() + x.asin())
 }
@@ -192,7 +189,6 @@ fn int_circ(x: f32) -> f32 {
 fn int_back(x: f32) -> f32 {
     const C1: f32 = 1.70158;
     const C3: f32 = C1 + 1.;
-
 
     (C3 * x / 4. - C1 / 3.) * x * x * x
 }
@@ -586,7 +582,7 @@ impl Tweenable for String {
             } else {
                 let x_val: f32 = x_str.parse().unwrap_or(0.0);
                 let y_val: f32 = y_str.parse().unwrap_or(0.0);
-                // 允许 t > 1 产生过冲效果（如 OutElastic / 自定义贝塞尔）
+
                 let value = x_val + t * (y_val - x_val);
                 if x_val.fract() == 0.0 && y_val.fract() == 0.0 {
                     format!("{:.0}", value)

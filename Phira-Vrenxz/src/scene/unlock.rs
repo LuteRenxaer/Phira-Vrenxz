@@ -10,9 +10,30 @@ use prpr::{
     time::TimeManager,
     ui::LoadingParams,
 };
-use sasa::{AudioClip, AudioManager, Music, MusicParams};
+use sasa::{AudioManager, Music, MusicParams};
 use tracing::warn;
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
+#[allow(unused)]
+fn trace_log(msg: &str) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(r"F:\RustProject\phirLie\unlock_trace.log")
+    {
+        let _ = writeln!(
+            f,
+            "{} {}",
+            chrono::Utc::now().format("%H:%M:%S%.3f"),
+            msg
+        );
+    }
+}
+
+#[derive(Debug)]
 enum State {
     Before,
     Playing,
@@ -27,14 +48,13 @@ struct Bgm {
 }
 
 pub struct UnlockScene {
-    loading_scene: Box<LoadingScene>,
+    loading_scene: Option<Box<LoadingScene>>,
     game_scene: Option<Box<dyn Scene>>,
     next_scene: Option<NextScene>,
 
     render_target: Option<RenderTarget>,
-    video: Video,
+    video: Option<Video>,
     bgm: Option<Bgm>,
-    music_length: f64,
 
     background: SafeTexture,
 
@@ -56,9 +76,8 @@ impl UnlockScene {
         let bytes = fs
             .load_file(&info.unlock_video.clone().unwrap_or_else(|| "unlock.mp4".to_owned()))
             .await?;
-        let video = Video::new(bytes, 0., ScaleType::Inside, Anim::new(vec![Keyframe::new(0., 1., 0)]), Anim::default())?;
-        let clip = demux_audio(video.video_file().path().to_str().unwrap())?;
-        let music_length = clip.as_ref().map_or(0., AudioClip::length);
+        let video = Some(Video::new(bytes, 0., ScaleType::Inside, Anim::new(vec![Keyframe::new(0., 1., 0)]), Anim::default())?);
+        let clip = demux_audio(video.as_ref().unwrap().video_file().path().to_str().unwrap())?;
 
         let bgm = match clip {
             Some(clip) => {
@@ -83,8 +102,6 @@ impl UnlockScene {
             let size = w as usize * h as usize;
             let blurred_rgb = image.to_rgb8();
 
-
-
             let mut blurred = Vec::with_capacity(size * 4);
             for input in blurred_rgb.chunks_exact(3) {
                 blurred.extend_from_slice(input);
@@ -99,7 +116,13 @@ impl UnlockScene {
                 BLACK_TEXTURE.clone()
             }
         };
-        let loading_scene = Box::new(LoadingScene::new(mode, info, config, fs, player, None, upload_fn, update_fn, save_fn, None).await?);
+        let loading_scene = Some(Box::new(LoadingScene::new(mode, info, config, fs, player, None, upload_fn, update_fn, save_fn, None, None).await?));
+
+        trace_log(&format!(
+            "UnlockScene::new done bgm={} video_dur={}",
+            bgm.is_some(),
+            video.as_ref().map(|v| v.duration).unwrap_or(-1.0)
+        ));
 
         Ok(UnlockScene {
             loading_scene,
@@ -107,9 +130,8 @@ impl UnlockScene {
             game_scene: None,
 
             render_target: None,
-            video,
+            video: video,
             bgm,
-            music_length,
 
             background,
 
@@ -147,8 +169,8 @@ impl Scene for UnlockScene {
         }
 
         if self.game_scene.is_none() {
-            self.loading_scene.update(tm)?;
-            let loading_next_scene = self.loading_scene.next_scene(tm);
+            self.loading_scene.as_mut().unwrap().update(tm)?;
+            let loading_next_scene = self.loading_scene.as_mut().unwrap().next_scene(tm);
             match loading_next_scene {
                 NextScene::PopWithResult(_) => self.next_scene = Some(loading_next_scene),
                 NextScene::Replace(game_scene) => self.game_scene = Some(game_scene),
@@ -157,9 +179,23 @@ impl Scene for UnlockScene {
         }
 
         let t = tm.now();
+        static FRAME: AtomicU32 = AtomicU32::new(0);
+        let f = FRAME.fetch_add(1, Ordering::Relaxed);
+        if f % 60 == 0 {
+            let pos = self.bgm.as_ref().map(|b| b.music.position()).unwrap_or(-1.0);
+            trace_log(&format!(
+                "update f={} state={:?} t={:.3} pos={:.3} game_scene={}",
+                f,
+                self.state,
+                t,
+                pos,
+                self.game_scene.is_some()
+            ));
+        }
         match self.state {
             State::Before => {
                 if t > 0.5 {
+                    trace_log(&format!("state Before->Playing t={:.3}", t));
                     self.state = State::Playing;
                     tm.reset();
                     if let Some(bgm) = &mut self.bgm {
@@ -169,35 +205,59 @@ impl Scene for UnlockScene {
                 }
             }
             State::Playing => {
-                if t > self.video.duration && t > self.music_length {
+                // 以视频时长为主判断结束；音频仅作伴奏，若其元数据异常（长度异常大/解析失败）
+                // 不作为卡死条件，避免"游玩完后一直停在高 FPS 空转"的假死现象
+                if t > self.video.as_ref().unwrap().duration + 0.5 {
+                    trace_log(&format!(
+                        "state Playing->Blanking t={:.3} dur={:.3}",
+                        t,
+                        self.video.as_ref().unwrap().duration
+                    ));
                     self.state = State::Blanking;
                     tm.reset();
                 } else {
                     if let Some(bgm) = &mut self.bgm {
-                        tm.update(bgm.music.position() as _);
+                        let pos = bgm.music.position();
+                        tm.update(pos as _);
+                        if f % 15 == 0 {
+                            trace_log(&format!("playing f={} t={:.3} pos={:.3}", f, t, pos));
+                        }
                     }
-                    self.video.update(t)?;
+                    self.video.as_mut().unwrap().update(t)?;
                 }
             }
             State::Blanking => {
-                if t > 1. && self.game_scene.is_some() {
-                    self.next_scene = self.game_scene.take().map(NextScene::Replace);
-                } else {
+                // 黑屏缓冲 1 秒，随后进入加载等待
+                if t > 1. {
+                    trace_log(&format!("state Blanking->Loading t={:.3}", t));
                     self.state = State::Loading;
                     tm.reset();
                 }
             }
             State::Loading => {
                 if t > 1. && self.game_scene.is_some() {
+                    trace_log(&format!("state Loading->Transforming t={:.3}", t));
+                    // 解锁音频不再需要，提前释放，避免与 GameScene 的音频设备冲突
+                    self.bgm = None;
                     self.state = State::Transforming;
+                    tm.reset();
                 }
             }
             State::Transforming => {
+                // 过渡动画从 t=0 重新计时，真正走完 Loading 淡出与背景渐入后再切换
                 if t > 1. {
                     if self.game_scene.is_none() {
-                        bail!("UnlockScene exited at State::Blank3 without GameScene");
+                        bail!("UnlockScene exited at State::Transforming without GameScene");
                     }
+                    trace_log("Transforming: dropping loading_scene/bgm");
+                    // 先释放所有资源，避免 drop 时阻塞主线程
+                    self.loading_scene = None;
+                    self.bgm = None;
+                    trace_log("Transforming: dropping video");
+                    self.video = None;
+                    trace_log("Transforming: video dropped, setting next_scene");
                     self.next_scene = self.game_scene.take().map(NextScene::Replace);
+                    trace_log("Transforming: next_scene set, exiting UnlockScene");
                 }
             }
         }
@@ -216,7 +276,7 @@ impl Scene for UnlockScene {
         match self.state {
             State::Playing => {
                 if t > 0.05 {
-                    self.video.render(t, asp, WHITE);
+                    self.video.as_ref().unwrap().render(t, asp, WHITE);
                 }
             }
             State::Loading => {

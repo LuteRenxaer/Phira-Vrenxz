@@ -1,4 +1,4 @@
-//! Chart parsers
+
 prpr_l10n::tl_file!("parser" ptl);
 
 mod extra;
@@ -12,6 +12,8 @@ pub use pgr::parse_phigros;
 
 mod rpe;
 pub use rpe::{lint, parse_rpe, RPE_HEIGHT, RPE_WIDTH};
+
+pub mod lyrics;
 
 #[derive(Debug, Default)]
 pub struct ParseWarnings {

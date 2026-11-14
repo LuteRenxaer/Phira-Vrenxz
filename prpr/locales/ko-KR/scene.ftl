@@ -8,3 +8,6 @@ confirm = 확인
 
 read-file-failed = 파일을 읽어드리지 못함
 pasted = 클립보드에서 붙여넣기
+select-all = All
+copy = Copy
+paste = Paste

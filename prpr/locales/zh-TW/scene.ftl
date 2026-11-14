@@ -6,3 +6,6 @@ confirm = 確定
 read-file-failed = 讀取檔案失敗
 pasted = 從剪貼簿載入成功
 audio-backend-init-failed = 音訊後端初始化失敗，將靜音運行
+select-all = 全选
+copy = 复制
+paste = 粘贴

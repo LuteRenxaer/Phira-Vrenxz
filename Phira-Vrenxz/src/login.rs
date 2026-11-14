@@ -37,23 +37,20 @@ use prpr::scene::take_input_cancelled;
 #[cfg(feature = "hykb")]
 use std::sync::Mutex;
 
-/// The user's choice in the HYKB "register or claim" dialog.
 #[cfg(feature = "hykb")]
 #[derive(Clone, Copy)]
 enum HykbChoice {
     Register,
     Claim,
-    /// The player dismissed the dialog without choosing; back out to the picker.
+
     Cancel,
 }
 
-/// Result of the initial HYKB login step.
 #[cfg(feature = "hykb")]
 enum HykbStep {
-    /// The HYKB account was already bound; carries the fetched user.
+
     LoggedIn(Box<User>),
-    /// The account is new; carries the short-lived token for register/claim and
-    /// the HYKB nickname used to prefill the username input.
+
     NeedChoice { hykb_token: String, nick: String },
 }
 
@@ -81,14 +78,9 @@ pub struct Login {
     fader: Fader,
     show: bool,
 
-    /// In HYKB builds an account is mandatory: while set, the panel is kept
-    /// open and cannot be dismissed by tapping outside — only a successful
-    /// login clears it.
     #[cfg(feature = "hykb")]
     forced: bool,
 
-    /// The method-choice panel ("email vs HYKB"), shown before the form when
-    /// HYKB is available.
     #[cfg(feature = "hykb")]
     picker_fader: Fader,
     #[cfg(feature = "hykb")]
@@ -109,6 +101,8 @@ pub struct Login {
     btn_reg: DRectButton,
     btn_login: DRectButton,
     btn_forget_pwd: RectButton,
+    btn_srv: DRectButton,
+    use_local: bool,
 
     t_email: String,
     t_pwd: String,
@@ -116,7 +110,6 @@ pub struct Login {
     t_reg_name: String,
     t_reg_pwd: String,
 
-    /// 当前处于“内联编辑”的输入框（None = 没有正在编辑，软键盘关闭）
     active: Option<LoginField>,
 
     start_time: f32,
@@ -131,24 +124,19 @@ pub struct Login {
     /// Pending HYKB token awaiting the user's register/claim choice.
     #[cfg(feature = "hykb")]
     hykb_pending_token: Option<String>,
-    /// HYKB token kept while the player types the username for their new account.
+
     #[cfg(feature = "hykb")]
     hykb_reg_token: Option<String>,
-    /// HYKB nickname, used only to prefill the username input for a new account.
+
     #[cfg(feature = "hykb")]
     hykb_nick: Option<String>,
-    /// Choice written by the register/claim dialog listener.
+
     #[cfg(feature = "hykb")]
     hykb_choice: Arc<Mutex<Option<HykbChoice>>>,
-    /// Choice written by the "bind HYKB to continue" dialog shown after an email
-    /// login to an account not yet bound to HYKB: `Some(true)` = bind now,
-    /// `Some(false)` = cancel (and log the half-finished session back out).
+
     #[cfg(feature = "hykb")]
     email_bind_choice: Arc<Mutex<Option<bool>>>,
 
-    /// The in-app "choose your username" panel shown for a new HYKB account,
-    /// in place of popping the native InputBox directly. The InputBox only
-    /// appears when the player taps the input slot inside this panel.
     #[cfg(feature = "hykb")]
     reg_name_fader: Fader,
     #[cfg(feature = "hykb")]
@@ -168,7 +156,6 @@ enum NextAction {
     Hykb,
 }
 
-/// 登录/注册页的字段，支持“点字段直接内联输入”（不弹 request_input 弹窗）。
 #[derive(Clone, Copy, PartialEq)]
 enum LoginField {
     Email,
@@ -181,11 +168,6 @@ enum LoginField {
 impl Login {
     const TIME: f32 = 0.7;
 
-    /// 面板构造的公共部分。
-    ///
-    /// 图标只有 HYKB 构建用得上（登录方式选择面板上那颗好游快爆图标），非 HYKB 构建下
-    /// `icons` 字段根本不存在，所以这里收 `Option`：首启向导跑在主页之前，手上没有主页
-    /// 那份图标集，为了一个用不到图标的登录面板去加载整套贴图（含一张大背景图）不值得。
     fn create(_icons: Option<Arc<Icons>>) -> Self {
         Self {
             #[cfg(feature = "hykb")]
@@ -216,6 +198,8 @@ impl Login {
             btn_reg: DRectButton::new(),
             btn_login: DRectButton::new(),
             btn_forget_pwd: RectButton::new(),
+            btn_srv: DRectButton::new().with_radius(0.012).with_elevation(0.004),
+            use_local: false,
 
             t_email: String::new(),
             t_pwd: String::new(),
@@ -256,19 +240,15 @@ impl Login {
         }
     }
 
-
-    /// 主页那种用法：居中弹窗，自己负责整屏遮罩与「点外面关掉」。
     pub fn new(icons: Arc<Icons>) -> Self {
         Self::create(Some(icons))
     }
 
-    /// 不带图标构造（仅非 HYKB 构建，理由见 [`Self::create`]）：首启向导用。
     #[cfg(not(feature = "hykb"))]
     pub fn new_bare() -> Self {
         Self::create(None)
     }
 
-    /// 面板当前的矩形：引擎给的居中弹窗矩形。
     fn dialog_rect(&self) -> Rect {
         Ui::dialog_rect()
     }
@@ -295,13 +275,11 @@ impl Login {
         }
     }
 
-    /// 点字段时激活内联编辑并弹出软键盘（不弹 request_input 弹窗）。
     fn activate_field(&mut self, f: LoginField) {
         self.active = Some(f);
         self.show_keyboard(true);
     }
 
-    /// 结束编辑并收起软键盘。
     fn finish_inline(&mut self) {
         if self.active.take().is_some() {
             self.show_keyboard(false);
@@ -312,8 +290,6 @@ impl Login {
         unsafe { get_internal_gl() }.quad_context.show_keyboard(show);
     }
 
-    /// 内联编辑逐帧处理引擎键盘输入：整批字符（中文输入法一次上屏多个字）先反转再插入
-    /// 以纠正顺序，退格删除最后一个字符，回车/换行结束编辑。
     fn update_inline_keyboard(&mut self) {
         let Some(f) = self.active else { return };
         let mut batch = String::new();
@@ -333,7 +309,7 @@ impl Login {
             }
         }
         if !batch.is_empty() {
-            // 与旧 InputDialog 一致：输入法一次提交的一批字符按反序到达，反转后才是正确顺序
+
             let text = self.field_text_mut(f);
             for c in batch.chars().rev() {
                 text.push(c);
@@ -344,7 +320,6 @@ impl Login {
         }
     }
 
-    /// 渲染文本：当前激活的字段追加光标 `|`；密码字段用 `*` 掩码。
     fn field_display(&self, f: LoginField, masked: bool) -> String {
         let active = self.active == Some(f);
         let s = self.field_text(f);
@@ -369,41 +344,29 @@ impl Login {
 
     pub fn enter(&mut self, t: f32) {
 
-
         #[cfg(feature = "hykb")]
         self.show_picker(t);
         #[cfg(not(feature = "hykb"))]
         self.show_form(t);
     }
 
-    /// 首启向导用：把调用方自己那两个输入框里的邮箱 / 密码交给登录逻辑。
-    ///
-    /// 与面板里那颗「登录」按钮走的是同一条路（TOS 检查 → `Client::login` → `Client::get_me`
-    /// → 错误提示 / 成功后写回 `data.me` 并落盘），只是输入与外观由调用方负责 ——
-    /// 向导要把这两个字段排进自己的版面，不该把整块登录卡片搬进去。
     pub fn submit_email_login(&mut self, email: String, password: String) {
         self.t_email = email;
         self.t_pwd = password;
         if !check_read_tos_and_policy(true, true) {
-            // 用户还没同意过条款：先把同意流程走完，同意后由 update 里的
-            // JUST_ACCEPTED_TOS 分支接着提交（与面板里那颗按钮的处理完全一致）。
+
             self.after_accept_tos = Some(NextAction::Login);
             return;
         }
         self.start_login();
     }
 
-    /// 首启向导用：把向导自己那几个输入框里的邮箱 / 用户名 / 密码交给注册逻辑。
-    ///
-    /// 与面板里那颗「注册」按钮同一条路（TOS 检查 → 校验 → `Client::register`）；
-    /// 校验不过时的那句提示也由 `register()` 里的既有词条给出，这里只负责把
-    /// `show_message(..).error()` 弹出来。
     pub fn submit_email_register(&mut self, email: String, name: String, password: String) {
         self.t_reg_email = email;
         self.t_reg_name = name;
         self.t_reg_pwd = password;
         if !check_read_tos_and_policy(true, true) {
-            // 与登录一样：先把条款同意流程走完，同意后由 update 接着注册
+
             self.after_accept_tos = Some(NextAction::Register);
             return;
         }
@@ -412,15 +375,10 @@ impl Login {
         }
     }
 
-    /// 是否有登录 / 注册请求在途（首启向导用它避免重复提交）。
     pub fn busy(&self) -> bool {
         self.task.is_some()
     }
 
-    /// Whether any part of the login flow is currently on screen or in flight
-    /// (the picker, the form, a running task, or an in-between HYKB step such as
-    /// the register/claim choice dialog or the username input). Used to keep
-    /// `force()` from re-showing the picker over a sub-flow.
     #[cfg(feature = "hykb")]
     fn is_active(&self) -> bool {
         self.show
@@ -436,10 +394,6 @@ impl Login {
             || !self.start_time.is_nan()
     }
 
-    /// Force the login flow open and keep it non-dismissible until the player
-    /// logs in. HYKB builds call this whenever the home page is shown while
-    /// signed out (fresh launch, or after a manual logout). It is a no-op while
-    /// the flow is already active, so it can safely be polled every frame.
     #[cfg(feature = "hykb")]
     pub fn force(&mut self, t: f32) {
         if self.is_active() {
@@ -449,19 +403,16 @@ impl Login {
         self.enter(t);
     }
 
-    /// Reveal the method-choice panel ("email vs HYKB").
     #[cfg(feature = "hykb")]
     fn show_picker(&mut self, t: f32) {
         self.picker_show = true;
         self.picker_fader.sub(t);
     }
 
-    /// Reveal the email login/register form.
     fn show_form(&mut self, t: f32) {
         self.fader.sub(t);
     }
 
-    /// Dismiss the method-choice panel.
     #[cfg(feature = "hykb")]
     fn dismiss_picker(&mut self, t: f32) {
         self.picker_show = false;
@@ -497,14 +448,18 @@ impl Login {
         if !(8..=32).contains(&pwd.len()) {
             return Some(tl!("pwd-length-req", "min" => PWD_LEN_MIN, "max" => PWD_LEN_MAX));
         }
+        let local = self.use_local;
         self.start("register", async move {
-            Client::register(&email, &name, &pwd).await?;
+            if local {
+                Client::register_local(&email, &name, &pwd).await?;
+            } else {
+                Client::register(&email, &name, &pwd).await?;
+            }
             Ok(None)
         });
         None
     }
 
-    /// Kick off the native HYKB login: obtain credentials, then call `/login/hykb`.
     #[cfg(feature = "hykb")]
     fn start_hykb_login(&mut self) {
         self.hykb_task = Some(Task::new(async move {
@@ -516,8 +471,6 @@ impl Login {
         }));
     }
 
-    /// Show the "register a new account / claim an existing one" dialog after a
-    /// first-time HYKB login. The chosen action is recorded in `hykb_choice`.
     #[cfg(feature = "hykb")]
     fn show_hykb_choice(&self) {
         let choice = Arc::clone(&self.hykb_choice);
@@ -536,9 +489,6 @@ impl Login {
             .show();
     }
 
-    /// Show the "this account isn't bound to HYKB yet" dialog after an email
-    /// login, offering to bind HYKB (or cancel). The choice is recorded in
-    /// `email_bind_choice` and acted on in `update_hykb`.
     #[cfg(feature = "hykb")]
     fn show_email_bind(&self) {
         let choice = Arc::clone(&self.email_bind_choice);
@@ -556,23 +506,18 @@ impl Login {
             .show();
     }
 
-    /// Reveal the in-app "choose your username" panel for a new HYKB account.
     #[cfg(feature = "hykb")]
     fn show_reg_name(&mut self, t: f32) {
         self.reg_name_show = true;
         self.reg_name_fader.sub(t);
     }
 
-    /// Dismiss the username panel.
     #[cfg(feature = "hykb")]
     fn dismiss_reg_name(&mut self, t: f32) {
         self.reg_name_show = false;
         self.reg_name_fader.back(t);
     }
 
-    /// Validate the username the player chose and create their HYKB-bound account.
-    /// Called from the username panel's confirm button; the panel stays visible on
-    /// an invalid name so it can be fixed.
     #[cfg(feature = "hykb")]
     fn submit_hykb_register(&mut self, name: String) {
         if let Some(error) = validate_username(&name) {
@@ -603,7 +548,6 @@ impl Login {
                 return true;
             }
             if !Self::reg_name_rect().contains(touch.position) && touch.phase == TouchPhase::Started {
-
 
                 self.dismiss_reg_name(t);
                 if let Some(token) = self.hykb_reg_token.take() {
@@ -654,9 +598,6 @@ impl Login {
             if self.btn_method_hykb.touch(touch, t) {
                 if !check_read_tos_and_policy(true, true) {
 
-
-
-
                     self.after_accept_tos = Some(NextAction::Hykb);
                 } else {
                     self.dismiss_picker(t);
@@ -667,11 +608,8 @@ impl Login {
             return true;
         }
         if self.show {
-            // 点面板外的空白 = 关掉（首启向导不再内嵌这块面板，只有主页那种居中弹窗用它）
+
             if !self.dialog_rect().contains(touch.position) && touch.phase == TouchPhase::Started {
-
-
-
 
                 #[cfg(feature = "hykb")]
                 if self.hykb_pending_token.is_some() {
@@ -680,8 +618,6 @@ impl Login {
                     self.show_hykb_choice();
                     return true;
                 }
-
-
 
                 #[cfg(feature = "hykb")]
                 if self.forced {
@@ -711,6 +647,11 @@ impl Login {
             }
             if self.input_reg_pwd.touch(touch, t) {
                 self.activate_field(LoginField::RegPwd);
+                return true;
+            }
+            if self.btn_srv.touch(touch, t) {
+                button_hit();
+                self.use_local = !self.use_local;
                 return true;
             }
             if self.btn_to_reg.touch(touch, t) || self.btn_to_login.touch(touch, t) {
@@ -751,9 +692,6 @@ impl Login {
         false
     }
 
-    /// Submit the email login form. When a HYKB token is pending (the user chose
-    /// to claim an existing account), this claims it with the entered email and
-    /// password instead of a plain password login.
     fn start_login(&mut self) {
         #[cfg(feature = "hykb")]
         if let Some(token) = self.hykb_pending_token.clone() {
@@ -764,9 +702,6 @@ impl Login {
                 return;
             }
 
-
-
-
             self.start("hykb-login", async move {
                 Client::login_hykb_claim(&token, &email, &pwd).await?;
                 Ok(Some(Client::get_me().await?))
@@ -775,23 +710,22 @@ impl Login {
         }
         let email = self.t_email.clone();
         let pwd = self.t_pwd.clone();
+        let local = self.use_local;
         self.start("login", async move {
+            if local {
+                Client::login_local(&email, &pwd).await?;
+                return Ok(Some(Client::get_me_local().await?));
+            }
             Client::login(LoginParams::Password {
                 email: &email,
                 password: &pwd,
             })
             .await?;
 
-
             #[cfg(feature = "hykb")]
             let me = Client::get_me_unchecked().await?;
             #[cfg(not(feature = "hykb"))]
             let me = Client::get_me().await?;
-
-
-
-
-
 
             #[cfg(feature = "hykb")]
             if me.hykb_uid.is_some() {
@@ -818,7 +752,6 @@ impl Login {
         if let Some((id, text)) = take_input() {
             'tmp: {
 
-
                 #[cfg(feature = "hykb")]
                 if id == "hykb_reg_name" {
                     self.t_hykb_name = text;
@@ -839,7 +772,6 @@ impl Login {
             }
         }
 
-
         #[cfg(feature = "hykb")]
         if let Some(id) = take_input_cancelled() {
             let _ = id;
@@ -857,7 +789,6 @@ impl Login {
                 #[cfg(feature = "hykb")]
                 Some(NextAction::Hykb) => {
 
-
                     self.dismiss_picker(t);
                     self.start_hykb_login();
                 }
@@ -872,8 +803,6 @@ impl Login {
                 match res {
                     Err(err) => show_error(err.context(tl!("action-failed", "action" => *action))),
                     Ok(user) => {
-
-
 
                         #[cfg(feature = "hykb")]
                         let needs_bind = *action == "login" && user.as_ref().is_some_and(|u| u.hykb_uid.is_none());
@@ -910,8 +839,6 @@ impl Login {
             }
         }
 
-
-
         #[cfg(feature = "hykb")]
         if email_needs_bind {
             self.show_email_bind();
@@ -926,12 +853,9 @@ impl Login {
     #[cfg(feature = "hykb")]
     fn update_hykb(&mut self, t: f32) -> Result<()> {
 
-
         let email_bind = self.email_bind_choice.lock().unwrap().take();
         if let Some(bind) = email_bind {
             if bind {
-
-
 
                 self.start("hykb-login", async move {
                     let cred = obtain_hykb_credential().await?.ok_or_err()?;
@@ -939,8 +863,6 @@ impl Login {
                     Ok(Some(Client::get_me().await?))
                 });
             } else {
-
-
 
                 get_data_mut().me = None;
                 get_data_mut().tokens = None;
@@ -972,14 +894,11 @@ impl Login {
             }
         }
 
-
         let choice = self.hykb_choice.lock().unwrap().take();
         if let Some(choice) = choice {
             match choice {
                 HykbChoice::Register => {
                     if let Some(token) = self.hykb_pending_token.take() {
-
-
 
                         self.hykb_reg_token = Some(token);
                         self.t_hykb_name = self.hykb_nick.clone().unwrap_or_default();
@@ -988,14 +907,11 @@ impl Login {
                 }
                 HykbChoice::Claim => {
 
-
-
                     if self.hykb_pending_token.is_some() {
                         self.show_form(t);
                     }
                 }
                 HykbChoice::Cancel => {
-
 
                     self.hykb_pending_token = None;
                     self.hykb_nick = None;
@@ -1054,6 +970,14 @@ impl Login {
                         ui.dy(p);
 
                         let r = ui.text(tl!("register")).pos(wr.x + 0.045, wr.y + 0.037).size(1.1).draw_using(&BOLD_FONT);
+                        self.btn_srv.render_text(
+                            ui,
+                            Rect::new(wr.right() - 0.185, wr.y + 0.028, 0.16, 0.075),
+                            t,
+                            if self.use_local { tl!("srv-local") } else { tl!("srv-official") },
+                            0.5,
+                            self.use_local,
+                        );
                         let pad = 0.035;
                         let mut r = Rect::new(wr.x + pad, r.bottom() + 0.05, wr.w - pad * 2., 0.1);
                         self.input_reg_email.render_input(ui, r, t, &d_reg_email, tl!("email"), 0.62);
@@ -1071,6 +995,14 @@ impl Login {
 
                         ui.dy(wr.h);
                         let r = ui.text(tl!("login")).pos(wr.x + 0.045, wr.y + 0.037).size(1.1).draw_using(&BOLD_FONT);
+                        self.btn_srv.render_text(
+                            ui,
+                            Rect::new(wr.right() - 0.185, wr.y + 0.028, 0.16, 0.075),
+                            t,
+                            if self.use_local { tl!("srv-local") } else { tl!("srv-official") },
+                            0.5,
+                            self.use_local,
+                        );
                         let r = ui
                             .text(tl!("login-sub"))
                             .pos(r.x + 0.006, r.bottom() + 0.032)
@@ -1096,7 +1028,6 @@ impl Login {
 
                         let h = 0.09;
                         let pad = 0.05;
-
 
                         #[cfg(feature = "hykb")]
                         {

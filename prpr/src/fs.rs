@@ -1,4 +1,3 @@
-//! File system abstraction
 
 use crate::{ext::spawn_task, info::ChartInfo};
 use anyhow::{anyhow, bail, Context, Result};
@@ -122,10 +121,6 @@ impl FileSystem for ExternalFileSystem {
     }
 }
 
-/// zip 压缩包的底层数据来源。
-///
-/// `.pez` 之类的小压缩包直接放在内存里即可；内置谱面包（`Level.zip`，约 80MB）用磁盘文件
-/// 惰性读取，只载入中央目录，避免整个压缩包常驻内存。
 pub enum ZipSource {
     Memory(Cursor<Vec<u8>>),
     File(BufReader<File>),
@@ -157,7 +152,6 @@ impl ZipFileSystem {
         Self::from_source(ZipSource::Memory(Cursor::new(bytes)))
     }
 
-    /// 惰性打开磁盘上的 zip：只读取中央目录，不把整个压缩包载入内存。
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let file = File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
@@ -174,13 +168,10 @@ impl ZipFileSystem {
         Ok(Self(Arc::new(Mutex::new(zip)), root))
     }
 
-    /// 把相对路径拼成 zip 内的完整条目名（带上根目录前缀）。
     fn full_path(&self, path: &str) -> String {
         concat_string!(self.1, path)
     }
 
-    /// 列出 `dir`（相对 zip 根目录，`""` 表示根目录）下的直接子条目名。
-    /// 子目录以 `/` 结尾；顺序与 zip 中央目录一致（稳定）。
     pub fn list_dir(&self, dir: &str) -> Vec<String> {
         let prefix = if dir.is_empty() || dir.ends_with('/') {
             concat_string!(self.1, dir)
@@ -205,19 +196,15 @@ impl ZipFileSystem {
         res
     }
 
-    /// 同步读取 zip 内某个条目的完整内容。
-    /// 注意：解压发生在当前线程，不要用它读取大条目。
     pub fn read_entry(&self, path: &str) -> Result<Vec<u8>> {
         let mut zip = self.0.lock().unwrap();
         let mut entry = zip.by_name(&self.full_path(path))?;
-        // 预留空间以省去增长开销，但上限 64MiB，避免压缩包头里声明的大小异常时一次性申请巨量内存
+
         let mut res = Vec::with_capacity(entry.size().min(64 << 20) as usize);
         entry.read_to_end(&mut res)?;
         Ok(res)
     }
 
-    /// 读取 zip 内的某个条目，并把它当作新的 zip 压缩包打开。
-    /// 用于「压缩包里的压缩包」，例如内置谱面包里的 `.pez` 谱面。
     pub fn open_entry_as_zip(&self, path: &str) -> Result<Self> {
         Self::from_source(ZipSource::Memory(Cursor::new(self.read_entry(path)?))).with_context(|| format!("cannot open {path} as zip archive"))
     }

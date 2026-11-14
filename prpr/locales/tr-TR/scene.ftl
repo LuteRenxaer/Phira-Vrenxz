@@ -8,3 +8,6 @@ confirm = Onayla
 
 read-file-failed = Dosya okunamadı
 pasted = Panodan yapıştırıldı
+select-all = All
+copy = Copy
+paste = Paste

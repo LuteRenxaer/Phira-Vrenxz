@@ -6,3 +6,6 @@ confirm = ยืนยัน
 read-file-failed = ไม่สามารถอ่านไฟล์ได้
 pasted = คัดลอกจาก clipboard เรียบร้อย
 audio-backend-init-failed = ไม่สามารถเริ่มต้นระบบเสียงได้ กำลังทำงานในโหมดเงียบ
+select-all = All
+copy = Copy
+paste = Paste

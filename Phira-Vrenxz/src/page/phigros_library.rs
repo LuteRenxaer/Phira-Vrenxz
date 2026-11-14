@@ -212,7 +212,7 @@ impl Page for PhigrosLibraryPage {
         let x = |f: f32| -1. + 2. * f;
         let y = |f: f32| -top + 2. * top * f;
         // 对应 challenge_ui.html: list-bg
-        ui.fill_rect(Rect::new(-1., -top, x(0.458) + 1., top * 2.), Color::new(0., 0., 0., 0.70));
+        ui.fill_rect(Rect::new(-1., -top, x(0.458) + 1., top * 2.), Color::new(0., 0., 0., 0.82));
         // 顶部 main-panel
         let panel = Rect::new(x(0.125), y(0.040), x(0.487) - x(0.125), y(0.130) - y(0.040));
         draw_parallelogram(panel, None, Color::new(0., 0., 0., 0.75), false);
@@ -239,13 +239,13 @@ impl Page for PhigrosLibraryPage {
             let r = Rect::new(x(fx), y(fy), x(0.058) - x(0.), y(0.043) - y(0.));
             self.tab_btns[i].inner.set(ui, r);
             draw_parallelogram(r, None, if i == self.tab { WHITE } else { Color::new(0., 0., 0., 0.55) }, false);
-            ui.text(TABS[i]).pos(r.center().x, r.center().y).anchor(0.5, 0.5).size(0.30).color(if i == self.tab { BLACK } else { Color::new(0.78, 0.78, 0.78, 1.) }).draw();
+            ui.text(TABS[i]).pos(r.center().x, r.center().y).anchor(0.5, 0.5).size(0.30).color(if i == self.tab { BLACK } else { Color::new(0.90, 0.90, 0.90, 1.) }).draw();
         }
         // 列表：80px 行高，选中行 38px
-        let list = Rect::new(x(0.106), y(0.155), x(0.406) - x(0.106), y(0.97) - y(0.155));
-        let row_h = (y(0.98) - y(0.18)) / 7.2;
-        let rows = 7usize;
-        let start = self.selected.saturating_sub(3).min(self.charts.len().saturating_sub(rows));
+        let list = Rect::new(x(0.106), y(0.240), x(0.406) - x(0.106), y(0.97) - y(0.240));
+        let row_h = (y(0.97) - y(0.24)) / 6.3;
+        let rows = 6usize;
+        let start = self.selected.saturating_sub(2).min(self.charts.len().saturating_sub(rows));
         let sel_y = list.y + (self.selected.saturating_sub(start)) as f32 * row_h;
         draw_parallelogram(Rect::new(x(0.100), sel_y + row_h * 0.08, x(0.406) - x(0.100), row_h * 0.84), None, Color::new(0., 0., 0., 0.85), false);
         if let Some(c) = self.charts.get(self.selected) {
@@ -264,7 +264,7 @@ impl Page for PhigrosLibraryPage {
             ui.text(&c.info.name)
                 .pos(x(0.115), r.y + r.h * 0.18)
                 .size(if active { 0.50 } else { 0.34 })
-                .color(if active { WHITE } else { Color::new(0.78, 0.78, 0.78, 1.) })
+                .color(if active { WHITE } else { Color::new(0.90, 0.90, 0.90, 1.) })
                 .max_width(x(0.36) - x(0.115))
                 .draw();
             if active {

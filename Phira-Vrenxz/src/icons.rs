@@ -9,11 +9,6 @@ use prpr::ext::SafeTexture;
 use std::cell::RefCell;
 use tracing::warn;
 
-/// 缺图标时的占位贴图（1×1 全透明）。
-///
-/// 以前 `Icons::new()` 里每个图标都是 `?`，**任何一个图标文件缺失都会让整个游戏起不来**
-/// （报「初始化失败 / Couldn't load file assets/icons/xxx.png」）。资源是可以被裁剪的，
-/// 少一个图标不该等于游戏打不开，所以改成缺哪个警告一句、用占位图顶上。
 fn placeholder() -> SafeTexture {
     thread_local! {
         static PH: RefCell<Option<SafeTexture>> = const { RefCell::new(None) };
@@ -32,7 +27,6 @@ fn placeholder() -> SafeTexture {
     })
 }
 
-/// 加载单个图标；失败只警告并返回占位图。
 async fn icon(path: &str) -> SafeTexture {
     match load_texture(path).await {
         Ok(tex) => SafeTexture::from(tex),
@@ -72,7 +66,6 @@ pub struct Icons {
     pub cloud_check: SafeTexture,
     pub plus: SafeTexture,
     pub select: SafeTexture,
-    pub achievements: SafeTexture,
 
     #[cfg(feature = "hykb")]
     pub hykb: SafeTexture,
@@ -82,7 +75,7 @@ pub struct Icons {
 
 impl Icons {
     pub async fn new() -> Result<Self> {
-        // 并行加载所有图标，显著减少加载时间；单个缺失只退化成占位图（见 `icon`）
+
         let (
             icon,
             play,
@@ -111,7 +104,6 @@ impl Icons {
             cloud_check,
             plus,
             select,
-            achievements,
             abstract_tex,
         ) = join!(
             icon("icons/icon.png"),
@@ -141,11 +133,9 @@ impl Icons {
             icon("icons/cloud_check.png"),
             icon("icons/plus.png"),
             icon("icons/select.png"),
-            icon("icons/achievements.png"),
             icon("backgrounds/abstract.jpg"),
         );
 
-        // hykb 图标单独加载（条件编译）
         #[cfg(feature = "hykb")]
         let hykb = icon("icons/hykb.png").await;
 
@@ -156,7 +146,7 @@ impl Icons {
             respack,
             msg,
             settings,
-            // 返回图标更早由主场景装载，没装上也别炸
+
             back: TEX_ICON_BACK
                 .with(|it| it.borrow().clone())
                 .unwrap_or_else(placeholder),
@@ -181,7 +171,6 @@ impl Icons {
             cloud_check,
             plus,
             select,
-            achievements,
 
             #[cfg(feature = "hykb")]
             hykb,

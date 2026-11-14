@@ -1,19 +1,3 @@
-//! 旧版本（PhirLie / 旧版 Phira-Vrenxz）数据检测与同步。
-//!
-//! **与多人模式无关**：只在启动后、主菜单里跑一次。
-//!
-//! 1. 在若干「旧安装可能出现的位置」找旧版本的 data/。认两条：目录名像本作
-//!    （PhirLie / Phira-Vrenxz，刻意不认上游 Phira、Phira-Firefly 这些同源分支），
-//!    以及 data/data.json 里确实有本作那些字段（config + charts/me/tokens 之一），
-//!    免得把别的程序的目录认成旧版本；
-//! 2. 找到就弹窗问玩家要不要把旧数据同步过来；
-//! 3. 选「同步旧数据」→ 把旧 data/ 合并复制到当前 data/（先备份当前 data.json，最后才
-//!    覆盖 data.json，中途失败也不会留下「data.json 指向还没复制过来的谱面」），完成后
-//!    提示玩家重新启动游戏；**本次运行不再写 data.json**（否则退出时会把同步结果盖回上
-//!    一份数据），见 migrated()；
-//! 4. 选「直接进入游戏」→ 记下这个目录，之后不再询问；
-//! 5. 成功同步过一次之后**不再自动提示**（标记文件见 SYNCED_FILE）——需要再同步别的旧
-//!    安装时，走「设置 → 存储与重置 → 同步旧版本数据」，也就是 [`manual_sync`]。
 
 prpr_l10n::tl_file!("migrate" mtl);
 
@@ -39,49 +23,44 @@ use tracing::{info, warn};
 
 use crate::dir;
 
-/// 已经问过玩家的旧目录（选「直接进入游戏」的那些）：写在当前 data/ 里，一行一个绝对路径。
 const ASKED_FILE: &str = "legacy-asked.txt";
-/// 成功同步过一次的标记：存在它就不再自动提示（想恢复自动提示删掉这个文件即可）。
+
 const SYNCED_FILE: &str = "legacy-synced.txt";
-/// 用户配置目录下存放「本程序用过的安装根目录」的子目录 / 文件名。
+
 const ROOTS_DIR: &str = "Phira-Vrenxz";
 const ROOTS_FILE: &str = "roots.txt";
 
-/// 启动后延迟多久再问（让开场动画先走完）。
 const ASK_DELAY: f32 = 1.5;
-/// 扫描时最多看多少个目录（防止在大目录上卡启动）。
+
 const MAX_SCAN_DIRS: usize = 600;
-/// 每个「基目录」最多看多少个直接子目录。
+
 const MAX_CHILDREN: usize = 200;
-/// 记住多少个用过的安装根目录。
+
 const MAX_ROOTS: usize = 16;
 
-/// 本次运行已经同步过旧数据：save_data 直接跳过，别把同步结果盖回去。
 static MIGRATED: AtomicBool = AtomicBool::new(false);
-/// 一次性检测是否已经跑过。
+
 static STARTED: AtomicBool = AtomicBool::new(false);
 
-/// 是否需要跳过写 data.json（crate::save_data 用）。
 pub fn migrated() -> bool {
     MIGRATED.load(Ordering::Relaxed)
 }
 
-/// 找到的一处旧版本数据。
 #[derive(Debug, Clone)]
 struct Legacy {
-    /// 旧安装的根目录（data/ 的上一层）
+
     root: PathBuf,
-    /// 旧安装的 data/
+
     data_dir: PathBuf,
-    /// 目录名，展示给玩家看
+
     name: String,
-    /// 旧 data.json 的修改时间
+
     modified: SystemTime,
-    /// 旧数据里的本地谱面数
+
     charts: usize,
-    /// 旧数据里有没有登录信息
+
     logged_in: bool,
-    /// 从哪里找到的（排查用）
+
     source: &'static str,
 }
 
@@ -491,7 +470,7 @@ fn candidate_dirs(cur: &Path) -> Vec<(PathBuf, &'static str)> {
             if !path.is_dir() {
                 continue;
             }
-            // 子目录按名字先筛一道：既快，也避免把别的程序的 data/ 认成旧版本
+
             let name = entry.file_name();
             if !name_looks_like_ours(&name.to_string_lossy()) {
                 continue;
@@ -508,16 +487,11 @@ fn push_candidate(out: &mut Vec<(PathBuf, &'static str)>, seen: &mut HashSet<Str
     }
 }
 
-/// 目录名像不像**本作**（PhirLie / Phira-Vrenxz）。
-///
-/// 刻意不认「Phira」「Phira-Firefly」这类同源分支：数据结构和本作不完全一样，
-/// 把它们的数据同步过来只会把配置 / 谱面记录搞乱，也会平白打扰玩家。
 fn name_looks_like_ours(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     ["phirlie", "phir_lie", "phir-lie", "vrenxz"].iter().any(|key| name.contains(key))
 }
 
-/// 检查一个目录是不是「旧版本安装」：有 data/data.json，而且内容确实像本作的数据。
 fn inspect(dir: &Path, source: &'static str, cur: &Path, cur_data: &Path, asked: &HashSet<String>, ours: &[u8]) -> Option<Legacy> {
     let norm = norm_path(dir);
     if norm == norm_path(cur) || dir.starts_with(cur_data) {

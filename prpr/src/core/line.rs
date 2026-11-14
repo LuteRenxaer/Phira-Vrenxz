@@ -44,9 +44,9 @@ impl UIElement {
 }
 
 pub struct GifFrames {
-    /// time of each frame in milliseconds
+
     frames: Vec<(u128, SafeTexture)>,
-    /// milliseconds
+
     total_time: u128,
 }
 
@@ -137,23 +137,15 @@ impl JudgeLineCache {
         }
     }
 
-    /// 该线当前“活跃”（尚未消亡）的 Note 下标集合（`update_order`），
-    /// 由每帧 [`JudgeLine::update`] 维护（retain 掉已 dead 的 Note）。
-    ///
-    /// [`Chart::load_metrics`] 据此统计负载指标，无需每帧全量遍历所有 Note。
     pub(crate) fn active_ids(&self) -> &[u32] {
         &self.update_order
     }
 
-    /// 渲染所需的缓存视图：非 plain 段长度、上方/下方分组起点。
     pub(crate) fn view(&self) -> (usize, &[usize], &[usize]) {
         (self.not_plain_count, &self.above_indices, &self.below_indices)
     }
 }
 
-/// 整条 Note 是否位于屏幕“上沿之外”（高度上限 = height_limit，判定公式与 plain 组一致）：
-/// (Δ + 位移动画) × speed > 上限。Hold 要求首尾两端都越界才返回 true——
-/// 只要任何一端还在屏内就必须正常渲染。
 fn note_above_screen(note: &Note, line_height: f64, height_limit: f32) -> bool {
     if note.speed <= 0.0 {
         return false;
@@ -174,10 +166,7 @@ pub struct JudgeLine {
     pub object: Object,
     pub ctrl_obj: RefCell<CtrlObject>,
     pub kind: JudgeLineKind,
-    /// Height Animation, decribes the `height` of the line at a specific time
-    ///
-    /// The `height` here can be considered as the absolute 'y' coordinate of the notes attached to this line, which is calculated by
-    /// ∫ v(t) dt, where v(t) is the speed of the line at time t.
+
     pub height: AnimFloat,
     pub incline: AnimFloat,
     pub notes: Vec<Note>,
@@ -185,12 +174,10 @@ pub struct JudgeLine {
     pub parent: Option<usize>,
     pub rot_with_parent: bool,
     pub z_index: i32,
-    /// Whether to show notes below the line, here below is defined in the time axis, which means the note should already be judged
-    ///
-    /// TODO: Not sure
+
     pub show_below: bool,
     pub attach_ui: Option<UIElement>,
-    /// 纹理锚点（RPE "anchor": [x, y]）：贴图/文本相对判定线的对齐点，默认居中 (0.5, 0.5)
+
     pub texture_anchor: (f32, f32),
 
     pub cache: JudgeLineCache,
@@ -272,7 +259,6 @@ impl JudgeLine {
             .append_translation(&self.fetch_pos(res, lines))
     }
 
-    /// 渲染判定线视觉与 Note（默认路径，与画面正常时期一致）。
     pub fn render(&self, ui: &mut Ui, res: &mut Resource, lines: &[JudgeLine], bpm_list: &mut BpmList, settings: &ChartSettings, id: usize) {
         let alpha = self.object.alpha.now_opt().unwrap_or(1.0) * res.alpha;
         let anchor = self.texture_anchor;
@@ -299,7 +285,7 @@ impl JudgeLine {
                             return;
                         }
                         let hf = vec2(texture.width(), texture.height());
-                        // 锚点对齐：贴图以 (anchor.x, anchor.y) 为基准对齐判定线原点
+
                         draw_texture_ex(
                             **texture,
                             -hf.x * anchor.0,
@@ -433,9 +419,7 @@ impl JudgeLine {
             let height_above = p[0].y.max(p[1].y.max(p[2].y.max(p[3].y))) * res.aspect_ratio;
             let height_below = -p[0].y.min(p[1].y.min(p[2].y.min(p[3].y))) * res.aspect_ratio;
             let agg = res.config.eff_cull();
-            // 非 plain（假音符 / Hold / 带位移动画）也做屏幕外提前剔除：
-            // 与上方 plain 组相同的判定公式（(Δ+tr)·speed > height_above 即整条在屏上沿之外）。
-            // Hold 要求首尾两端都越界才跳过——只要任何一端在屏内就正常渲染。
+
             for note in self.notes.iter().take(self.cache.not_plain_count).filter(|it| it.above) {
                 if agg && note_above_screen(note, config.line_height, height_above) {
                     continue;
@@ -479,7 +463,6 @@ impl JudgeLine {
         });
     }
 
-    /// 收集本线“Note 通道”所需的只读数据（每帧由主线程收集一次，交给工作线程做顶点生成）。
     pub(crate) fn note_view<'n>(&'n self, res: &Resource, lines: &[JudgeLine], frame: &FrameGeo) -> LineNoteView<'n> {
         let (not_plain_count, above_indices, below_indices) = self.cache.view();
         LineNoteView {

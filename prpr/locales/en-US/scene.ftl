@@ -9,3 +9,6 @@ confirm = Confirm
 read-file-failed = Failed to read file.
 pasted = Pasted from clipboard.
 audio-backend-init-failed = Failed to initialize audio backend, running in silent mode.
+select-all = All
+copy = Copy
+paste = Paste

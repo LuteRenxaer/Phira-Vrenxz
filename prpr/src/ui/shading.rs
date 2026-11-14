@@ -45,7 +45,6 @@ impl Shading for TextureShading {
         let ux = (p.x - dr.x) / dr.w;
         let uy = (p.y - dr.y) / dr.h;
 
-
         Vertex::new(
             t.x,
             t.y,

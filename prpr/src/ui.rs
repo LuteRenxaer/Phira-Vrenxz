@@ -1,4 +1,4 @@
-//! UI utilities.
+
 prpr_l10n::tl_file!("scene" ttl);
 mod billboard;
 pub use billboard::{BillBoard, Message, MessageHandle, MessageKind};
@@ -357,7 +357,33 @@ impl DRectButton {
         });
     }
 
-    #[allow(clippy::too_many_arguments)]
+        /// 斜切（平行四边形）文字按钮：设置页那套 Phigros 风格用
+    pub fn render_text_para<'a>(&mut self, ui: &mut Ui, r: Rect, t: f32, text: impl Into<Cow<'a, str>>, size: f32, chosen: bool) {
+        let oh = r.h;
+        let text = text.into();
+        self.build(ui, t, r, |ui, _| {
+            // 45° 斜切，但窄按钮要限幅：斜移量接近宽度时会退化成一撇斜杠
+            let skew = r.h.min(r.w * 0.35);
+            let mut b = lyon::path::Path::builder();
+            b.begin(lyon::math::point(r.x + skew, r.y));
+            b.line_to(lyon::math::point(r.right(), r.y));
+            b.line_to(lyon::math::point(r.right() - skew, r.bottom()));
+            b.line_to(lyon::math::point(r.x, r.bottom()));
+            b.end(true);
+            let path = b.build();
+            ui.fill_path(&path, if chosen { WHITE } else { Color::new(0.10, 0.10, 0.12, 0.92) });
+            ui.text(text)
+                .pos(r.center().x, r.center().y)
+                .anchor(0.5, 0.5)
+                .no_baseline()
+                .size(size * (1. - (1. - r.h / oh).powf(1.3)))
+                .max_width(r.w * 0.8)
+                .color(if chosen { Color::new(0.08, 0.08, 0.1, 1.) } else { WHITE })
+                .draw();
+        });
+    }
+
+#[allow(clippy::too_many_arguments)]
     pub fn render_text_left<'a>(&mut self, ui: &mut Ui, r: Rect, t: f32, alpha: f32, text: impl Into<Cow<'a, str>>, size: f32, chosen: bool) {
         let oh = r.h;
         self.build(ui, t, r, |ui, path| {
@@ -535,8 +561,8 @@ impl Slider {
                 return Some(false);
             }
         } else if touch.phase == TouchPhase::Started {
-            let pos = (self.pos, self.rect.center().y);
-            if (touch.position.x - pos.0).hypot(touch.position.y - pos.1) <= Self::RADIUS {
+            // 扁平样式下没有 +/- 按钮，整条轨道内都可以起手拖拽
+            if self.rect.contains(touch.position) {
                 self.touch = Some((touch.id, touch.position.x, false));
                 return Some(false);
             }
@@ -567,6 +593,7 @@ impl Slider {
         self.pos = ui.to_global(pos).0;
         use lyon::math::point;
         ui.stroke_options = ui.stroke_options.with_line_cap(LineCap::Round);
+        // Phigros 风格：细轨道 + 白色已选段
         ui.stroke_path(
             &{
                 let mut p = Path::builder();
@@ -575,8 +602,8 @@ impl Slider {
                 p.end(false);
                 p.build()
             },
-            0.02,
-            Color { a: 0.8, ..ui.background() },
+            0.008,
+            semi_white(0.85),
         );
         ui.stroke_path(
             &{
@@ -586,20 +613,51 @@ impl Slider {
                 p.end(false);
                 p.build()
             },
-            0.02,
-            semi_white(0.8),
+            0.008,
+            semi_white(0.22),
         );
         ui.stroke_options = ui.stroke_options.with_line_cap(LineCap::Square);
-        rounded_rect_shadow(
-            ui,
-            Rect::new(pos.0, pos.1, 0., 0.).feather(Self::RADIUS),
-            &ShadowConfig {
-                radius: Self::RADIUS,
-                base: 0.7,
-                ..Default::default()
-            },
-        );
-        ui.fill_circle(pos.0, pos.1, Self::RADIUS, WHITE);
+        // Phigros 风格：白色平行四边形手柄
+        {
+            let w = Self::RADIUS * 1.15;
+            let h = Self::RADIUS * 2.4;
+            let x = pos.0 - w * 0.5;
+            let y = pos.1 - h * 0.5;
+            let skew = h;
+            let mut b = Path::builder();
+            b.begin(point(x + skew, y));
+            b.line_to(point(x + w, y));
+            b.line_to(point(x + w - skew, y + h));
+            b.line_to(point(x, y + h));
+            b.end(true);
+            ui.fill_path(&b.build(), WHITE);
+        }
+    }
+
+    /// 扁平样式：只有细轨道和白色斜切手柄，不画 +/- 按钮与数值。
+    /// 数值由调用方自己排版（设置页放在轨道上方右侧）。
+    pub fn render_flat(&mut self, ui: &mut Ui, r: Rect, p: f32) {
+        self.rect = ui.rect_to_global(r);
+        let p = ((p - self.range.start) / (self.range.end - self.range.start)).clamp(0., 1.);
+        let cy = r.center().y;
+        let pos = (r.x + r.w * p, cy);
+        self.pos = ui.to_global(pos).0;
+        let th = 0.0032;
+        ui.fill_rect(Rect::new(r.x, cy - th * 0.5, pos.0 - r.x, th), semi_white(0.88));
+        ui.fill_rect(Rect::new(pos.0, cy - th * 0.5, r.right() - pos.0, th), semi_white(0.20));
+        let w = 0.020;
+        let h = 0.040;
+        let x = pos.0 - w * 0.5;
+        let y = cy - h * 0.5;
+        let skew = h * 0.32;
+        use lyon::math::point;
+        let mut b = Path::builder();
+        b.begin(point(x + skew, y));
+        b.line_to(point(x + w + skew, y));
+        b.line_to(point(x + w, y + h));
+        b.line_to(point(x, y + h));
+        b.end(true);
+        ui.fill_path(&b.build(), WHITE);
     }
 }
 
@@ -1342,16 +1400,11 @@ impl Drop for SafeAudio {
             std::panic::set_hook(prev_hook);
             if result.is_err() {
 
-
-
             }
         }
     }
 }
 
-/// Drop the UI audio manager explicitly, before thread-local destructors run.
-/// Must be called before the process exits to avoid panicking in cpal's WASAPI
-/// stream drop, which tries to join an already-terminated audio thread.
 pub fn cleanup_audio() {
     UI_AUDIO.with(|it| {
         it.borrow_mut().0.take();
@@ -1417,8 +1470,6 @@ thread_local! {
     pub static UI_BACK_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
     pub static UI_SUSPEND_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
     pub static UI_MESSAGE_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
-    pub static UI_ACHIEVEMENT_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
-    pub static UI_ACHIEVEMENT_CHALLENGE_SOUND: RefCell<Option<Sfx>> = const { RefCell::new(None) };
 }
 
 pub fn button_hit() {
@@ -1477,18 +1528,3 @@ pub fn message_sound() {
     });
 }
 
-pub fn achievement_sound() {
-    UI_ACHIEVEMENT_SOUND.with(|it| {
-        if let Some(sfx) = it.borrow_mut().as_mut() {
-            let _ = sfx.play(PlaySfxParams::default());
-        }
-    });
-}
-
-pub fn achievement_challenge_sound() {
-    UI_ACHIEVEMENT_CHALLENGE_SOUND.with(|it| {
-        if let Some(sfx) = it.borrow_mut().as_mut() {
-            let _ = sfx.play(PlaySfxParams::default());
-        }
-    });
-}

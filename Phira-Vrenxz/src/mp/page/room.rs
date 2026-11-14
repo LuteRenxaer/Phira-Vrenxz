@@ -1,32 +1,4 @@
 
-//! 房间页（进房后的根页面）。
-//!
-//! 版面**严格照设计稿（SVG）来**，而不是照着自己发挥：
-//!
-//! ```text
-//! ┌────────── 左面板 x 3.38..291.70（右边缘向左倾斜 30.38）──────────┐ ┌── 右栏 x 277.52.. ──┐
-//! │ [打开谱面库][预览] [锁][循][密][退]        ← 顶部黑条 y 47.4..78.3 │ │  用户列表  y 68.0    │
-//! │ 房间 #31205                                 ← 基线 y 93.9          │ │  ● XXX    y 87.2     │
-//! │ 谱面:xxx                                    ← 基线 y 105.8         │ │ ───────── y 177.5    │
-//! │                                                                    │ │  XXX：这是聊天       │
-//! │              这里是曲绘                                             │ │                      │
-//! │                                                                    │ │  这是输入框   [发送] │
-//! │ ┌ 成绩卡 ───────┐ ┌ 开始 ▶ ┐                                       │ │                      │
-//! └─┴───────────────┴─┴────────┴───────────────────────────────────────┘ └──────────────────────┘
-//! ```
-//!
-//! **所有位置都是「稿子坐标」**（稿子 viewBox 472.84×266.96，内容组 translate(-3.38,-47)，
-//! 因此元素坐标落在 x 3.38..476.22 / y 47.00..313.96）。换算成世界坐标由 [Design] 统一负责，
-//! 所以窗口比例怎么变版面都和稿子一致 —— 页面里不再出现「凭感觉写的 0.61 / 0.49」这类数字。
-//!
-//! 三条必须守住的约定：
-//! 1. **功能按钮只有一个来源**：[action_items] 从房间状态推导按钮集合，渲染按它排布并
-//!    用 [ActionButtons] 登记命中区，触摸侧对同一份结果查按钮，因此不存在「看得到点不到」。
-//! 2. **用户列表的渲染与触摸共用一份 id 顺序**（[sorted_user_ids]），行索引一一对应；
-//!    列表里不显示服务端的回放录制器虚拟用户（它只是个 monitor，不是玩家）。
-//! 3. **左下角是成绩**：等级图标 + 等级牌 + 谱面 ID + 最好成绩 + 准确率，
-//!    画法与 [crate::scene::song] 的选曲页完全一致（同一个 icon_index、同一个 {:07}）。
-
 use macroquad::prelude::*;
 use phira_mp_common::{ClientRoomState, RoomState};
 use prpr::{
@@ -42,59 +14,34 @@ use super::super::{
 };
 use crate::{dir, mp::L10N_LOCAL, page::Illustration, scene::Downloading};
 
-/// 是否编译了聊天功能。
 pub const CHAT_ENABLED: bool = cfg!(feature = "chat");
 
-/// 顶部细页头的高度（竖屏用）。
 const STRIP_H: f32 = 0.14 * SCALE;
-/// 竖屏用户列表的行高 / 行距。
+
 const USER_ROW_H: f32 = 0.13 * SCALE;
 const USER_ROW_GAP: f32 = 0.015 * SCALE;
-/// 竖屏列表 / 聊天框的斜边斜率（世界坐标：斜移量 = 高度 × slope）。
-///
-/// 竖屏卡片比横屏那些斜角控件高得多，照搬稿子的 0.268 会斜得离谱，
-/// 这里取一个温和的值，形状仍是正经的平行四边形。
+
 const P_SLOPE: f32 = 0.14;
 
-// ============================================================
-//                 设计稿坐标（单位：稿子 px）
-// ============================================================
-//
-// 稿子 viewBox = 472.83954 × 266.96377，内容组 translate(-3.37958, -46.99935)，
-// 于是元素坐标的范围是 x 3.37958..476.21912、y 46.99935..313.96312。
-// 下面每一个数字都是拿 SVG 的 path / text 算出来的（不是目测），改版面时对着稿子改这里。
-
-/// 稿子内容区原点与尺寸（世界坐标从 3.38 / 47.00 映射到 -1 / -top）。
 const DX0: f32 = 3.37958;
 const DY0: f32 = 46.99935;
 const DW: f32 = 472.83954;
 const DH: f32 = 266.96377;
 
-/// 稿子里文字用的 y 是**基线**，而 theme::text_* 是垂直居中
-/// （anchor(0, .5)，行高 = ascent + descent）。字体实测（assets/fonts/font.ttf）
-/// ascent 1.069em / descent −0.293em ⇒ 基线在行心下方 0.388em；
-/// 粗体 bold.ttf 是 0.88 / −0.12 ⇒ 0.380em。
 const BASE_DROP: f32 = 0.388;
 const BASE_DROP_BOLD: f32 = 0.380;
 
-// —— 左面板（稿子 path：M3.37958,311.4112 l0.19815,-263.88251 l288.1165,1.23326
-//    l-30.37586,264.39833 z）——
 const PANEL_LEFT: f32 = 3.38;
 const PANEL_TOP: f32 = 47.38;
-const PANEL_BOTTOM: f32 = 313.16;
+
+const PANEL_BOTTOM: f32 = 313.96;
 const PANEL_RIGHT_TOP: f32 = 291.70;
 const PANEL_RIGHT_BOTTOM: f32 = 261.32;
 
-// —— 顶部黑条（稿子 path：M4.20617,78.33671 v-30.95899 l288.15034,0.30719
-//    l-3.8594,31.11622 z）——
 const STRIP_LEFT: f32 = 4.21;
 const STRIP_RIGHT_TOP: f32 = 292.36;
 const STRIP_BOTTOM: f32 = 78.34;
 
-// —— 顶栏平行四边形主按钮（打开谱面库 / 预览）——
-// 稿子里这两个按钮的实测外框是 (27.62,52.28)-(102.13,72.97)、(147.78,52.56)-(195.84,73.91)：
-// 高约 20.7、间距约 2.9、上边右移约 5.7（斜率 0.27）。按钮从 BTN_X0 起顺序排布，
-// 因此中间少一个按钮时后面的按钮会自动往左收，不会留下空洞。
 const BTN_X0: f32 = 27.62;
 const BTN_TOP: f32 = 52.40;
 const BTN_BOTTOM: f32 = 73.20;
@@ -103,17 +50,12 @@ const BTN_SLOPE: f32 = 0.268;
 const BTN_PAD: f32 = 8.0;
 const BTN_MIN_W: f32 = 42.0;
 const BTN_FS: f32 = 11.9;
-/// 顶栏尾部那些"单字小方块"比主按钮矮一档（次级操作视觉上就该小一圈），
-/// 顺带把省下来的横向空间留给主按钮，主按钮才保得住稿子的宽度。
+
 const TAIL_SCALE: f32 = 0.80;
 
-// —— 返回按钮：稿子顶栏没画，但房间页必须能退出 ——
-// 摆在黑条最左边（第一个按钮 27.62 之前的空位），比按钮矮一档以免贴边。
 const BACK_X: f32 = 6.0;
 const BACK_SCALE: f32 = 0.82;
 
-// —— 房名 / 谱面（稿子 text：房名 translate(8.14429,93.85793) scale(0.48307)、
-//    谱面 translate(9.14765,105.8108) scale(0.21639)，font-size 40）——
 const TITLE_X: f32 = 8.14;
 const TITLE_BASE_Y: f32 = 93.86;
 const TITLE_FS: f32 = 19.32;
@@ -121,179 +63,158 @@ const SUB_X: f32 = 9.15;
 const SUB_BASE_Y: f32 = 105.81;
 const SUB_FS: f32 = 8.66;
 
-/// 曲绘上那层白纱的下沿（稿子坐标）：只盖住房名 / 谱面 / 状态这几行，往下不再压白。
 const ILLU_VEIL_BOTTOM: f32 = 132.0;
 
-// —— 左下成绩卡（稿子 path：M4.34946,253.66919 … l-179.52034,-0.2325 z，
-//    四角 (4.35,253.67) (175.07,253.36) (165.66,312.41) (-13.85,312.18)；
-//    左下角落在画布外，所以可见的左边缘就是屏边）——
+#[allow(dead_code)]
 const CARD_TL: (f32, f32) = (4.35, 253.67);
+#[allow(dead_code)]
 const CARD_TR: (f32, f32) = (175.07, 253.36);
+#[allow(dead_code)]
 const CARD_BR: (f32, f32) = (165.66, 312.41);
+#[allow(dead_code)]
 const CARD_BL: (f32, f32) = (-13.85, 312.18);
-/// 卡内：等级图标（稿子 image 136×164 @ scale .19668 → 26.75×32.26 @ 14.53,267.37）
+
 const SCORE_ICON: (f32, f32, f32, f32) = (14.53, 267.37, 26.75, 32.26);
-/// 卡内：等级牌（稿子 image 216×152 @ scale .09997 → 21.59×15.19 @ 48.80,258.10）
+
 const SCORE_BADGE: (f32, f32, f32, f32) = (48.80, 258.10, 21.59, 15.19);
-/// 卡内：谱面 ID（稿子 #7891 @ (74.09,271.41) scale .40142）
+
 const SCORE_ID: (f32, f32, f32) = (74.09, 271.41, 16.06);
-/// 卡内：最好成绩（稿子 07891666 @ (42.60,293.20) scale .61887）
+
 const SCORE_NUM: (f32, f32, f32) = (42.60, 293.20, 24.75);
-/// 卡内：准确率（稿子 86.67% @ (43.01,305.98) scale .22867）
+
 const SCORE_ACC: (f32, f32, f32) = (43.01, 305.98, 9.15);
 
-// —— 主要动作：稿子那个「外黑内白」的 ▶ 落在一块白色平行四边形里
-//    （白底 path：M185.50728,312.94577 l9.18998,-59.1355 h72.72069 l-7.19216,59.1355 z；
-//      ▶ 两个三角分别在 212.72..241.99 × 268.56..299.80 与内缩 0.85 的白色三角）——
 const PLAY_BOX: (f32, f32, f32, f32) = (185.51, 253.81, 81.91, 59.14);
-/// 白底的四角（稿子是个梯形：左边缘斜率 0.155、右边缘 0.122，不是平行四边形）
+
 const PLAY_QUAD: [(f32, f32); 4] = [(194.70, 253.81), (267.42, 253.81), (185.51, 312.95), (260.23, 312.95)];
 const PLAY_TRI: (f32, f32, f32, f32) = (212.72, 268.56, 29.27, 31.24);
 const PLAY_TRI_INNER: f32 = 0.85;
 const PLAY_LABEL_BASE_Y: f32 = 266.00;
 const PLAY_LABEL_FS: f32 = 9.00;
 
-// —— 右栏 ——
-/// 右栏标题「用户列表」（稿子 translate(293.78919,68.0129) scale(0.48307)）
 const R_TITLE: (f32, f32, f32) = (293.79, 68.01, 19.32);
-/// 人数（右对齐到右栏右边缘；稿子没画，但房内人数是必要信息）
+
 const R_RIGHT: f32 = 474.38;
 const R_COUNT_FS: f32 = 11.40;
-/// 用户列表第一行圆心（稿子 circle center 302.18,87.19 r 9.99）+ 行高 / 行距
+
 const R_ROW_CY: f32 = 87.19;
 const R_ROW_H: f32 = 30.00;
 const R_ROW_GAP: f32 = 3.00;
-/// 列表 / 聊天区左边界（稿子细线 M277.52194,177.61922）
+
 const R_X: f32 = 277.52;
-/// 用户列表与聊天之间的细线（稿子 y 177.47）
+
 const R_SPLIT_Y: f32 = 177.47;
-/// 聊天区下沿 = 加粗线
-const R_CHAT_BOTTOM: f32 = 273.33;
-/// 输入框上方的加粗线（稿子 path M474.96912,273.92431 l-207.72575,-1.19207，stroke-width 2.5）
-const R_THICK_X: f32 = 267.24;
-const R_THICK_W: f32 = 2.50;
-/// 输入框：右栏底部，右到发送按钮左边缘
+
 const R_INPUT_TOP: f32 = 275.02;
 const R_INPUT_BOTTOM: f32 = 313.96;
 const R_INPUT_RIGHT: f32 = 420.90;
 const R_INPUT_FS: f32 = 10.50;
-/// 输入框的斜度：和「发送」左边缘同一个角度，两个控件才像一对。
+
 const R_INPUT_SLOPE: f32 = 0.1231;
-/// 发送按钮（稿子 path：M423.64757,313.96045 l4.79477,-38.94175 h46.89659 l0.45435,38.94175 z）
+
 const R_SEND_X: f32 = 423.65;
 const R_SEND_RIGHT: f32 = 475.79;
-/// 发送按钮的四角（稿子同样是梯形：左边缘斜率 0.123、右边缘几乎垂直）
+
 const R_SEND_QUAD: [(f32, f32); 4] = [(428.44, 275.02), (475.34, 275.02), (423.65, 313.96), (475.79, 313.96)];
 const R_SEND_FS: f32 = 14.30;
 
-/// 设计稿取色。
-const BG_TOP: Color = Color::new(0.365, 0.365, 0.365, 1.); // #5d5d5d
-const BG_BOTTOM: Color = Color::new(0.616, 0.616, 0.616, 1.); // #9d9d9d
-const PANEL_TOP_C: Color = Color::new(0.533, 0.533, 0.533, 1.); // #888
-const PANEL_BOTTOM_C: Color = Color::new(1., 1., 1., 1.); // #fff
-const CARD_LEFT_C: Color = Color::new(0.533, 0.533, 0.533, 1.); // #888
-const CARD_RIGHT_C: Color = Color::new(1., 1., 1., 1.); // #fff
+const BG_TOP: Color = Color::new(0.365, 0.365, 0.365, 1.);
+
+const BG_BOTTOM: Color = Color::new(0.722, 0.722, 0.722, 1.);
+const PANEL_TOP_C: Color = Color::new(0.533, 0.533, 0.533, 1.);
+const PANEL_BOTTOM_C: Color = Color::new(1., 1., 1., 1.);
+
 const STRIP_C: Color = Color::new(0., 0., 0., 0.72);
-const BTN_FILL: Color = Color::new(0.702, 0.702, 0.702, 1.); // #b3b3b3
-const SEND_FILL: Color = Color::new(0.404, 0.404, 0.404, 1.); // #676767
+const BTN_FILL: Color = Color::new(0.702, 0.702, 0.702, 1.);
+const SEND_FILL: Color = Color::new(0.404, 0.404, 0.404, 1.);
 const ON_PANEL: Color = Color::new(0.06, 0.06, 0.08, 1.);
 const ON_PANEL_DIM: Color = Color::new(0.25, 0.25, 0.28, 1.);
 const ON_PANEL_ID: Color = Color::new(0.42, 0.42, 0.42, 1.);
 const CHAT_VEIL: Color = Color::new(0., 0., 0., 0.28);
 
-/// 设计稿坐标 → 世界坐标。
-///
-/// 世界坐标横屏下 x ∈ [-1, 1]（屏宽 2）、y ∈ [-top, top]（屏高 2·top）；
-/// 稿子的 x / y 各自独立映射，所以版面在任意窗口比例下都和稿子同构。
 #[derive(Clone, Copy)]
 struct Design {
-    top: f32,
+
+    k: f32,
+
+    ox: f32,
+    oy: f32,
 }
 
 impl Design {
     fn new(top: f32) -> Self {
-        Self { top }
+        let kx = 2. / DW;
+        let ky = 2. * top / DH;
+        let k = if kx < ky { kx } else { ky };
+
+        Self {
+            k,
+            ox: -1. + (2. - DW * k) * 0.5,
+            oy: -top + (2. * top - DH * k) * 0.5,
+        }
     }
 
-    /// 稿子 x → 世界 x。
     fn x(&self, px: f32) -> f32 {
-        -1. + 2. * (px - DX0) / DW
+        self.ox + (px - DX0) * self.k
     }
 
-    /// 稿子 y → 世界 y。
     fn y(&self, py: f32) -> f32 {
-        2. * self.top * (py - DY0) / DH - self.top
+        self.oy + (py - DY0) * self.k
     }
 
-    /// 稿子横向长度 → 世界横向长度。
     fn w(&self, px: f32) -> f32 {
-        2. * px / DW
+        px * self.k
     }
 
-    /// 稿子纵向长度 → 世界纵向长度。
     fn h(&self, py: f32) -> f32 {
-        2. * self.top * py / DH
+        py * self.k
     }
 
-    /// 稿子字号（px）→ Ui::text(..).size(..) 的参数。
-    ///
-    /// DrawText::get_scale 里字号的世界高度 = 0.08 × size，而稿子的字号在世界上
-    /// 应当占「字号 / 稿高 × 屏高」，于是 size = 字号 × 2·top / (稿高 × 0.08)。
     fn fs(&self, px: f32) -> f32 {
-        px * 25. * self.top / DH
+        px * self.k / 0.08
     }
 
-    /// 稿子上的斜率（dx/dy）→ [theme::slant_panel_grad] / [theme::skew_panel] 的 slant。
-    ///
-    /// 那两个工具的定义是「斜移量 = 世界高度 × slant」；世界里 x、y 的缩放比不同
-    /// （2/稿宽 与 2·top/稿高），所以这里把比例折算进去，斜边才和稿子同角度。
     fn slope(&self, s: f32) -> f32 {
-        s * DH / (DW * self.top)
+        let _ = self;
+        s
     }
 
-    /// 稿子的**基线** y → theme::text_left 的 cy（常规字重）。
     fn base(&self, py: f32, fpx: f32) -> f32 {
         self.y(py) - BASE_DROP * 0.08 * self.fs(fpx)
     }
 
-    /// 同上，粗体。
     fn base_bold(&self, py: f32, fpx: f32) -> f32 {
         self.y(py) - BASE_DROP_BOLD * 0.08 * self.fs(fpx)
     }
 
-    /// 世界长度 → 稿子 px（横向）。
     fn px(&self, w: f32) -> f32 {
-        w * DW / 2.
+        w / self.k
     }
 }
 
-/// 功能按钮的种类。
-///
-/// 取消类操作按语义拆开（CancelLocalShare / CancelDownload / CancelReady），
-/// 这样触摸侧不需要按房间状态二次判断，避免「看得到点不到」。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoomAction {
-    /// 房主：开始游戏
+
     Start,
-    /// 房主：锁定/解锁房间
+
     LockRoom,
-    /// 房主：切换普通/循环模式
+
     CycleRoom,
-    /// 房主：设置/清除房间密码
+
     Password,
-    /// 玩家：准备
+
     Ready,
-    /// 玩家：取消准备
+
     CancelReady,
-    /// 房主：取消本地谱面分享
+
     CancelLocalShare,
-    /// 玩家：取消本地谱面下载/就绪
+
     CancelDownload,
-    /// 预览当前谱面（autoplay）
+
     Preview,
-    /// 房主：去谱面库选谱（退出多人场景但**保留房间与会话**，选完自动回来）
+
     Library,
-    /// 离开房间（回主页，座位让出来）
+
     LeaveRoom,
 }
 
@@ -328,7 +249,6 @@ impl RoomAction {
         }
     }
 
-    /// 竖屏工具条上的图标。
     fn icon(self) -> theme::ToolIcon {
         use theme::ToolIcon as I;
         match self {
@@ -345,37 +265,35 @@ impl RoomAction {
     }
 }
 
-/// 操作条上的一项：动作 + 本地化后的标签。
 pub struct ActItem {
     pub action: RoomAction,
     pub label: String,
+
+    pub disabled: bool,
 }
 
-/// 会话传进来的、只读的房间展示状态（全部为拥有所有权的数据，避免借用纠缠）。
 #[derive(Default, Clone)]
 pub struct RoomView {
-    /// 当前分享中的本地谱面 (uuid, 谱面名)
+
     pub local_chart: Option<(String, String)>,
-    /// 自己是否已就绪（本地谱面同步流程）
+
     pub local_ready: bool,
-    /// 房主是否已开始分享（本地谱面同步流程）
+
     pub host_started: bool,
-    /// 服务端已指示下载、但玩家还没点「准备」
+
     pub pending_download: bool,
-    /// 正在同步谱面（下载中）
+
     pub syncing: bool,
-    /// 房间当前选中的在线谱面
+
     pub chart_id: Option<i32>,
-    /// 当前谱面的名字（在线谱面由服务端选谱消息带下来）
+
     pub chart_name: Option<String>,
 }
 
-/// 房主在当前房间状态下可否管理玩家。
 pub fn manage_allowed(room: &ClientRoomState) -> bool {
     room.is_host && matches!(room.state, RoomState::SelectChart(_) | RoomState::LocalChart)
 }
 
-/// 当前是否有可预览的谱面。
 pub fn is_previewable(room: &ClientRoomState, view: &RoomView) -> bool {
     use std::path::Path;
     let local_uuid_ready = match (&room.state, &view.local_chart) {
@@ -392,11 +310,6 @@ pub fn is_previewable(room: &ClientRoomState, view: &RoomView) -> bool {
     }
 }
 
-/// 顶栏小方块用的单字标签。
-///
-/// 设计稿顶栏只画了（打开谱面库 / 预览）两个主按钮，其余动作（锁定、循环、
-/// 密码、离开房间、各种取消）作者没画 —— 这里收成同样的斜角小方块贴在顶栏尾部，
-/// 既不动稿子的空区，也不丢功能。
 fn short_label(action: RoomAction) -> &'static str {
     use RoomAction as A;
     match action {
@@ -413,6 +326,10 @@ fn short_label(action: RoomAction) -> &'static str {
 }
 
 /// 依据房间状态推导功能按钮（渲染与触摸共用同一集合）。
+///
+/// disabled 的项**照常参与排布**（位置和房主看到的完全一致），只是渲染成暗色、
+/// 并且不登记命中区：用户要求"不满足开始条件时不要把开始按钮藏起来，
+/// 而是改成变暗 + 不可交互"，藏起来的话玩家只会以为这里本来就没有按钮。
 pub fn action_items(room: &ClientRoomState, view: &RoomView) -> Vec<ActItem> {
     let mut items = Vec::new();
     let is_host = room.is_host;
@@ -422,14 +339,24 @@ pub fn action_items(room: &ClientRoomState, view: &RoomView) -> Vec<ActItem> {
                 items.push(ActItem {
                     action: RoomAction::Start,
                     label: mtl!("request-start").into_owned(),
+                    disabled: false,
                 });
                 push_room_settings(&mut items, room);
+            } else {
+                // 非房主（观战功能已删，这里就是座位上的普通玩家）没有开始权限：
+                // 以前直接把「开始」从集合里删掉、按钮位空着，现在用禁用态占住原位。
+                items.push(ActItem {
+                    action: RoomAction::Start,
+                    label: mtl!("request-start").into_owned(),
+                    disabled: true,
+                });
             }
             // 「谱面库」：选谱阶段才有意义（在线谱 / 本地谱都是在这儿选）
             if is_host {
                 items.push(ActItem {
                     action: RoomAction::Library,
                     label: mtl!("mp-library").into_owned(),
+                    disabled: false,
                 });
             }
         }
@@ -439,11 +366,13 @@ pub fn action_items(room: &ClientRoomState, view: &RoomView) -> Vec<ActItem> {
                     items.push(ActItem {
                         action: RoomAction::CancelLocalShare,
                         label: mtl!("cancel-ready").into_owned(),
+                        disabled: false,
                     });
                 } else {
                     items.push(ActItem {
                         action: RoomAction::Start,
                         label: mtl!("request-start").into_owned(),
+                        disabled: false,
                     });
                 }
                 push_room_settings(&mut items, room);
@@ -451,11 +380,20 @@ pub fn action_items(room: &ClientRoomState, view: &RoomView) -> Vec<ActItem> {
                 items.push(ActItem {
                     action: RoomAction::CancelDownload,
                     label: mtl!("cancel-ready").into_owned(),
+                    disabled: false,
                 });
             } else if view.pending_download && !view.syncing {
                 items.push(ActItem {
                     action: RoomAction::Ready,
                     label: mtl!("ready").into_owned(),
+                    disabled: false,
+                });
+            } else {
+                // 还没就绪（谱面同步中 / 服务端还没让下载）：同理，禁用态的开始按钮
+                items.push(ActItem {
+                    action: RoomAction::Start,
+                    label: mtl!("request-start").into_owned(),
+                    disabled: true,
                 });
             }
         }
@@ -464,11 +402,13 @@ pub fn action_items(room: &ClientRoomState, view: &RoomView) -> Vec<ActItem> {
                 items.push(ActItem {
                     action: RoomAction::CancelReady,
                     label: mtl!("cancel-ready").into_owned(),
+                    disabled: false,
                 });
             } else {
                 items.push(ActItem {
                     action: RoomAction::Ready,
                     label: mtl!("ready").into_owned(),
+                    disabled: false,
                 });
             }
         }
@@ -478,12 +418,14 @@ pub fn action_items(room: &ClientRoomState, view: &RoomView) -> Vec<ActItem> {
         items.push(ActItem {
             action: RoomAction::Preview,
             label: mtl!("preview").into_owned(),
+            disabled: false,
         });
     }
     // 离开房间：放在最后（最右边），跟「开始游戏」那种主动作分开
     items.push(ActItem {
         action: RoomAction::LeaveRoom,
         label: mtl!("leave-room").into_owned(),
+        disabled: false,
     });
     items
 }
@@ -492,14 +434,17 @@ fn push_room_settings(items: &mut Vec<ActItem>, room: &ClientRoomState) {
     items.push(ActItem {
         action: RoomAction::LockRoom,
         label: mtl!("lock-room", "current" => room.locked.to_string()),
+        disabled: false,
     });
     items.push(ActItem {
         action: RoomAction::CycleRoom,
         label: mtl!("cycle-room", "current" => room.cycle.to_string()),
+        disabled: false,
     });
     items.push(ActItem {
         action: RoomAction::Password,
         label: mtl!("set-password").into_owned(),
+        disabled: false,
     });
 }
 
@@ -555,13 +500,13 @@ pub struct Render<'a> {
     pub chat_text: &'a str,
     /// 在线谱面下载中
     pub download: Option<&'a mut Downloading>,
-    /// 本地谱面同步中
+
     pub syncing: bool,
-    /// 会话级任务在跑
+
     pub busy: bool,
-    /// 是否显示「准备 / 暂不」内联确认条
+
     pub prompt: bool,
-    /// 用户头像的默认贴图
+
     pub icon: &'a SafeTexture,
     /// 自己的用户 id
     pub me: Option<i32>,
@@ -599,7 +544,7 @@ pub struct RoomPage {
     chart_key: Option<(u8, Option<i32>)>,
     /// 本地最好成绩 (成绩, 准确率, 全连)
     chart_record: Option<(i32, f32, bool)>,
-    /// 等级牌文字
+    /// 等级牌文字（谱面自己的等级串，如 "IN  Lv.13"）
     chart_badge: String,
     /// 本地谱面目录（曲绘从这里加载）
     chart_path: Option<String>,
@@ -664,15 +609,43 @@ fn chart_parts(room: &ClientRoomState, view: &RoomView) -> (String, Option<Strin
     }
 }
 
-/// 本地谱面库里那张谱：最好成绩 (成绩, 准确率, 全连) / 等级牌文字 / 本地目录。
-fn local_chart(id: Option<i32>) -> Option<(Option<(i32, f32, bool)>, String, String)> {
-    let id = id?;
+/// 房间当前谱面的本地信息：最好成绩 (成绩, 准确率, 全连) / 等级牌文字 / 本地目录。
+///
+/// **查找口径必须和"引擎写成绩"的口径一致**，否则打出来的成绩就查不到：
+/// 引擎的 save_fn（scene/song.rs 尾部）是「先按 local_path 找本地谱面库条目，
+/// 找不到才落到 local_records[local_path]」，选曲页也是这么查的（song.rs:538）。
+/// 房间页以前只按 info.id 在 charts[] 里找，于是
+/// **本地谱面分享的房间（本地路径是 download/{uuid}、成绩落在 local_records）
+/// 永远查不到成绩**，评级位就一直是那张默认的 F —— 这正是"显示 F"的根因。
+fn local_chart(view: &RoomView) -> Option<(Option<(i32, f32, bool)>, String, String)> {
     let data = crate::get_data();
-    let c = data.charts.iter().find(|c| c.info.id == Some(id))?;
+    // 房间当前谱面在本地磁盘上的路径：在线谱 download/{id}，本地谱分享 download/{uuid}
+    let path = match (view.chart_id, view.local_chart.as_ref()) {
+        (Some(id), _) => format!("download/{id}"),
+        (None, Some((uuid, _))) => format!("download/{uuid}"),
+        (None, None) => return None,
+    };
+    // 本地谱面库条目：等级牌 / 曲绘从这里取（本地谱分享的 uuid 常常查不到，那就只有成绩）
+    let entry = data
+        .charts
+        .iter()
+        .find(|c| c.local_path == path)
+        // 兜底：老数据里条目可能没写 local_path，只能按谱面 id 找
+        .or_else(|| view.chart_id.and_then(|id| data.charts.iter().find(|c| c.info.id == Some(id))));
+    // 最好成绩：与引擎同序 —— 先本地谱面库条目，再 local_records
+    let record = entry
+        .and_then(|c| c.record.as_ref())
+        .map(|r| (r.score, r.accuracy, r.full_combo))
+        .or_else(|| {
+            data.local_records
+                .get(&path)
+                .and_then(|r| r.as_ref())
+                .map(|r| (r.score, r.accuracy, r.full_combo))
+        });
     Some((
-        c.record.as_ref().map(|r| (r.score, r.accuracy, r.full_combo)),
-        format!("{}{:.0}", c.info.level, c.info.difficulty),
-        c.local_path.clone(),
+        record,
+        entry.map(|c| c.info.level.clone()).unwrap_or_default(),
+        entry.map(|c| c.local_path.clone()).unwrap_or(path),
     ))
 }
 
@@ -743,7 +716,7 @@ impl RoomPage {
         let chart_key = (key.state, view.chart_id);
         if self.chart_key != Some(chart_key) {
             self.chart_key = Some(chart_key);
-            match local_chart(view.chart_id) {
+            match local_chart(view) {
                 Some((record, badge, path)) => {
                     self.chart_record = record;
                     self.chart_badge = badge;
@@ -790,8 +763,10 @@ impl RoomPage {
     // ==================== 横屏：严格照设计稿 ====================
 
     fn render_landscape(&mut self, ui: &mut Ui, t: f32, ctx: &mut Render, items: &[ActItem], accent: Color) {
-        let d = Design::new(ui.top);
-        let top = ui.top;
+        // 走 theme::layout_top（把超出声明范围的比例钳住）而不是裸 ui.top：
+        // 横竖屏两条分支必须用同一个"版面高度"，否则超纲比例下两块会各排各的。
+        let top = theme::layout_top(ui);
+        let d = Design::new(top);
 
         // 稿子面片是直接进 quad_gl 的（见 theme::quad），绕过了 Ui 的透明度，
         // 所以这里自己乘一份，否则切页淡入淡出时这几块会整片跳出来。
@@ -826,7 +801,6 @@ impl RoomPage {
             let ia = illu.alpha(t);
             if ia > 0.02 {
                 cover_quad(
-                    &d,
                     [
                         Vec2::new(panel_x, panel_y),
                         Vec2::new(panel_x + panel_w, panel_y),
@@ -904,7 +878,14 @@ impl RoomPage {
         let gap_px = BTN_GAP;
         let full_px = BTN_BOTTOM - BTN_TOP;
         let avail_px = d.px(strip_right - d.x(BTN_X0));
-        let reserve_px = (full_px * TAIL_SCALE + gap_px) * extras.len() as f32;
+        // 尾部小方块的宽度**先量出来**：以前它是"主按钮高度 × TAIL_SCALE"的正方形，
+        // 而一个汉字比这个方块还宽 —— 字被两边的斜边切掉一截，用户反馈"后四个按钮太短"。
+        // 现在按最宽的一个标签定宽（字宽 + 左右内边距），主按钮再按这份宽度预留空间。
+        let tail_px = extras
+            .iter()
+            .map(|it| d.px(self.label_w(ui, short_label(it.action), btn_sz)) + BTN_PAD * 1.6)
+            .fold(full_px * TAIL_SCALE, f32::max);
+        let reserve_px = (tail_px + gap_px) * extras.len() as f32;
         let budget_px = (avail_px - reserve_px).max(avail_px * 0.5);
         let mut mains: Vec<(RoomAction, &str, f32)> = [RoomAction::Library, RoomAction::Preview]
             .into_iter()
@@ -934,7 +915,7 @@ impl RoomPage {
                 btn_sz,
                 BTN_FILL,
                 WHITE,
-                BTN_SLOPE,
+                d.slope(BTN_SLOPE),
             );
             bx += w + d.w(gap_px);
         }
@@ -942,31 +923,32 @@ impl RoomPage {
         // —— 顶栏尾部的小方块（预留的位置一定放得下；真放不下就再压一点）——
         if !extras.is_empty() {
             let avail = (strip_right - bx).max(0.);
-            let full = d.w(full_px * TAIL_SCALE);
+            let full = d.w(tail_px);
             let gap = d.w(gap_px);
             let want = full * extras.len() as f32 + gap * (extras.len() - 1) as f32;
-            let sq = if want > avail && avail > 0.02 {
+            let w = if want > avail && avail > 0.02 {
                 ((avail - gap * (extras.len() - 1) as f32) / extras.len() as f32).max(0.01)
             } else {
                 full
             };
             // 兜底：万一（超长语言 + 极端比例）还是超了，把整条尾巴往左推回黑条里，
             // 宁可和主按钮贴近一点，也不能把按钮挤出黑条甚至挤出屏幕。
-            let total = sq * extras.len() as f32 + gap * (extras.len() - 1) as f32;
+            let total = w * extras.len() as f32 + gap * (extras.len() - 1) as f32;
             let mut sx = bx.min(strip_right - total).max(d.x(BTN_X0));
             for item in extras {
+                // 高度与主按钮齐平（以前矮一档，就是用户说的"太短"），宽度放得下单字标签
                 Self::skew_btn(
                     ui,
                     t,
                     self.actions.get(item.action),
-                    Rect::new(sx, btn_y + (btn_h - sq) * 0.5, sq, sq),
+                    Rect::new(sx, btn_y, w, btn_h),
                     short_label(item.action),
                     btn_sz,
                     BTN_FILL,
                     WHITE,
-                    BTN_SLOPE,
+                    d.slope(BTN_SLOPE),
                 );
-                sx += sq + gap;
+                sx += w + gap;
             }
         }
 
@@ -1035,18 +1017,30 @@ impl RoomPage {
             let label_cy = d.base(PLAY_LABEL_BASE_Y, PLAY_LABEL_FS);
             let label_sz = d.fs(PLAY_LABEL_FS);
             let play_icon = theme::tool_icon(theme::ToolIcon::Play);
+            // 禁用态：底色压暗一档、文字与图标都调灰（见 [ActItem::disabled]）。
+            // 用户要求"变暗、且不可交互"，所以下面既不登记命中区、也不做按压缩放。
+            let disabled = item.disabled;
+            let (box_fill, fg, icon_tint) = if disabled {
+                (
+                    Color::new(0.78, 0.78, 0.80, 1.),
+                    Color::new(0.52, 0.52, 0.56, 1.),
+                    Color::new(0.55, 0.55, 0.58, 1.),
+                )
+            } else {
+                (WHITE, ON_PANEL, WHITE)
+            };
             let btn = self.actions.get(item.action);
-            quad_btn(btn, ui, t, box_r, |ui, r| {
+            let draw_main = |ui: &mut Ui, r: Rect| {
                 let (cx, cy) = (r.center().x, r.center().y);
                 let k = r.w / box_r.w.max(0.0001);
-                design_quad(&d, PLAY_QUAD, [fade(WHITE, a); 4], Vec2::new(cx, cy), k);
+                design_quad(&d, PLAY_QUAD, [fade(box_fill, a); 4], Vec2::new(cx, cy), k);
                 if let Some(label) = label {
                     ui.text(label)
                         .pos(box_r.center().x, label_cy)
                         .anchor(0.5, 0.5)
                         .no_baseline()
                         .size(label_sz)
-                        .color(ON_PANEL)
+                        .color(fg)
                         .max_width(box_r.w * 0.92)
                         .draw();
                 }
@@ -1056,11 +1050,18 @@ impl RoomPage {
                 // 拼出来是个歪掉的图形，不是设计稿上那个「黑边白心」的 ▶。
                 let ir = scaled(tri, Vec2::new(cx, cy), k);
                 match &play_icon {
-                    Some(tex) => ui.fill_rect(ir, (**tex, ir, ScaleType::Fit)),
+                    Some(tex) => ui.fill_rect(ir, (**tex, ir, ScaleType::Fit, icon_tint)),
                     // 图标没装载成功才退回手画的三角形
-                    None => theme::triangle_right(ui, ir, Color::new(0.02, 0.02, 0.03, 1.), PLAY_TRI_INNER, Some(WHITE)),
+                    None => theme::triangle_right(ui, ir, Color::new(0.02, 0.02, 0.03, 1.), PLAY_TRI_INNER, Some(if disabled { fg } else { WHITE })),
                 }
-            });
+            };
+            if disabled {
+                // 作废命中区：触摸侧查的就是这个按钮池，没有命中区 = 点不动
+                btn.invalidate();
+                draw_main(ui, box_r);
+            } else {
+                quad_btn(btn, ui, t, box_r, draw_main);
+            }
         }
 
         // —— 右栏：标题 + 人数 ——
@@ -1099,12 +1100,15 @@ impl RoomPage {
         self.render_user_rows(ui, t, list_inner, ctx, accent);
         theme::h_line(ui, d.x(R_X), d.y(R_SPLIT_Y), d.x(R_RIGHT) - d.x(R_X));
 
-        // —— 聊天区（细线 → 加粗线）——
+        // —— 聊天区（细线 → 输入框上沿）——
+        // 下沿直接取输入框的上边：以前聊天区停在"加粗线"处（273.33），而输入框从 275.02
+        // 才开始，中间 1.69 稿子 px 的缝是被那条黑线盖住的 —— 用户要求删掉黑线（第 8 条），
+        // 缝就会露出来，所以顺手让两块**边贴边**（右栏与底部 UI 对齐，不留缝也不重叠）。
         let chat = Rect::new(
             d.x(R_X),
             d.y(R_SPLIT_Y) + 0.006,
             d.x(R_RIGHT) - d.x(R_X),
-            (d.y(R_CHAT_BOTTOM) - d.y(R_SPLIT_Y) - 0.012).max(0.06),
+            (d.y(R_INPUT_TOP) - d.y(R_SPLIT_Y) - 0.006).max(0.06),
         );
         // 聊天日志底：同样是平行四边形
         let chat_inner = theme::parallelogram(ui, chat, veil_slope, fade(CHAT_VEIL, a), fade(CHAT_VEIL, a));
@@ -1116,12 +1120,6 @@ impl RoomPage {
                 Rect::new(0., 0., (chat_inner.w - 0.008).max(0.05), (chat_inner.h - 0.008).max(0.05)),
             );
         });
-
-        // —— 加粗线（稿子 2.5px）压在输入框上方 ——
-        ui.fill_rect(
-            Rect::new(d.x(R_THICK_X), d.y(R_CHAT_BOTTOM), d.x(R_RIGHT) - d.x(R_THICK_X), d.h(R_THICK_W)),
-            Color::new(0., 0., 0., 0.85),
-        );
 
         // —— 输入框：稿子里的控件统一是「上边右移」的平行四边形，输入框也用同一个斜度，
         //    和右边的「发送」拼成一对。
@@ -1212,77 +1210,49 @@ impl RoomPage {
     /// 同一个 {:07} 成绩格式、同一个 {:.2}% 准确率。
     fn render_score_card(&mut self, ui: &mut Ui, ctx: &Render, d: &Design) {
         let a = ui.alpha;
-        // —— 卡片本体：稿子的四角是个梯形，且左下角落在画布外（可见左边缘 = 屏边）——
-        let points = [
-            Vec2::new(d.x(CARD_TL.0), d.y(CARD_TL.1)),
-            Vec2::new(d.x(CARD_TR.0), d.y(CARD_TR.1)),
-            Vec2::new(d.x(CARD_BL.0), d.y(CARD_BL.1)),
-            Vec2::new(d.x(CARD_BR.0), d.y(CARD_BR.1)),
-        ];
-        theme::quad(
-            points,
-            [
-                fade(CARD_LEFT_C, a),
-                fade(CARD_RIGHT_C, a),
-                fade(CARD_LEFT_C, a),
-                fade(CARD_RIGHT_C, a),
-            ],
-        );
-        // 描边（稿子 stroke #000 0.5）：上、左、下三道
-        let edge = fade(Color::new(0., 0., 0., 0.75), a);
-        let s = d.h(0.5).max(0.0018);
-        let (tl, tr, bl, br) = (points[0], points[1], points[2], points[3]);
-        theme::quad(
-            [
-                Vec2::new(tl.x, tl.y),
-                Vec2::new(tr.x, tr.y),
-                Vec2::new(tl.x, tl.y + s),
-                Vec2::new(tr.x, tr.y + s),
-            ],
-            [edge; 4],
-        );
-        theme::quad(
-            [
-                Vec2::new(tl.x, tl.y),
-                Vec2::new(tl.x + s, tl.y),
-                Vec2::new(bl.x, bl.y),
-                Vec2::new(bl.x + s, bl.y),
-            ],
-            [edge; 4],
-        );
-        theme::quad(
-            [
-                Vec2::new(bl.x, bl.y - s),
-                Vec2::new(br.x, br.y - s),
-                Vec2::new(bl.x, bl.y),
-                Vec2::new(br.x, br.y),
-            ],
-            [edge; 4],
-        );
+        // —— 卡片本体 ——
+        // 用户要求"把分数显示下面那条黑白渐变底部删掉"，所以**这里只留内容**：
+        // 稿子那块 #888 → #fff 的横向渐变底、以及只为它勾边的三道黑描边一起删掉了。
+        // （成绩 / 准确率 / #ID 仍然画在原来的位置，压在下方的浅色面板上。）
 
         // 用 refresh() 缓存好的那份（每帧去扫本地谱面库 + format! 太浪费）
         let record = self.chart_record;
         let badge = self.chart_badge.as_str();
 
         // —— 成绩三件套：**没有记录也照画** ——
-        // 选曲页（scene/song.rs）那边 record 为 None 时是 score = 0 / accuracy = 0 /
-        // icon_index(0, false) = F，三样都会画出来；这里以前没记录就留白 + 破折号，
-        // 看着像坏了，改成和选曲页完全一致。
+        // 选曲页（scene/song.rs）那边 record 为 None 时是 score = 0 / accuracy = 0，
+        // 这里以前没记录就留白 + 破折号，看着像坏了，改成和选曲页一致。
         let (score, accuracy, full_combo) = match record {
             Some((s, a, f)) => (s.max(0), a, f),
             None => (0, 0., false),
         };
 
-        // —— 等级图标（稿子 14.53,267.37 起 26.75×32.26）——
+        // —— 评级位（稿子 14.53,267.37 起 26.75×32.26）——
+        // 画的必须是**玩家自己打出来的评级**：就是 assets/rank/ 里那套图，
+        // 档位换算由 prpr::judge::icon_index 给出（F/C/B/A/S/V/FC/phi）。
+        //
+        // 判据是 score > 0：
+        //   * 有成绩 → 画对应档位的图（成绩卡上的评级从此跟着自己的成绩走）；
+        //   * 没成绩 / 这局 0 分 → **留空**。理由：icon_index(0, _) 恰好等于 0，
+        //     也就是 rank/F.png，于是"没打过"和"打了 0 分"都会被画成大写 F，
+        //     看着像随手乱画的字母（用户要的正是"F 只出现在真的有 F 档时"）。
+        //     真正的 F 档（1..699999）仍然会画出 F。
         let (ix, iy, iw, ih) = SCORE_ICON;
         let icon_r = Rect::new(d.x(ix), d.y(iy), d.w(iw), d.h(ih));
-        match crate::scene::TEX_RANK_ICONS.with(|it| it.borrow().clone()) {
-            Some(icons) => {
-                let idx = icon_index(score as u32, full_combo);
-                ui.fill_rect(icon_r, (*icons[idx], icon_r, ScaleType::Fit));
+        if score > 0 {
+            match crate::scene::TEX_RANK_ICONS.with(|it| it.borrow().clone()) {
+                Some(icons) => {
+                    let idx = icon_index(score as u32, full_combo);
+                    // 垫一层半透明深色底：assets/rank/*.png 里 F/C/B/A/S/V 都是**白色**字，
+                    // 而成绩卡的渐变底按第 1 条删掉之后，这个位置压在浅色面板（甚至压在白底曲绘）上，
+                    // 白字几乎看不见 —— 只包住图标本身垫一块暗底，评级才真的"显示得出来"
+                    // （不是把整块卡片底又加回来）。
+                    ui.fill_path(&icon_r.rounded(R_ROW), Color::new(0., 0., 0., 0.30));
+                    ui.fill_rect(icon_r, (*icons[idx], icon_r, ScaleType::Fit));
+                }
+                // 图标没装载成功：留一块淡底，至少位置还在
+                None => ui.fill_path(&icon_r.rounded(R_ROW), Color::new(0., 0., 0., 0.10)),
             }
-            // 图标没装载成功：留一块淡底，至少位置还在
-            None => ui.fill_path(&icon_r.rounded(R_ROW), Color::new(0., 0., 0., 0.10)),
         }
 
         // —— 等级牌（稿子 48.80,258.10 起 21.59×15.19）——
@@ -1347,7 +1317,7 @@ impl RoomPage {
     fn render_user_rows(&mut self, ui: &mut Ui, t: f32, r: Rect, ctx: &mut Render, accent: Color) {
         let room = ctx.room;
         let ids = sorted_user_ids(room, ctx.me);
-        let step = row_step(ui.top);
+        let step = row_step(theme::layout_top(ui));
         let manageable = manage_allowed(room);
         let (icon, me, me_ready) = (ctx.icon, ctx.me, ctx.me_ready);
         self.user_ids.clear();
@@ -1399,7 +1369,7 @@ impl RoomPage {
 
     /// 斜角平行四边形按钮（设计稿样式）：平行四边形底 + 居中文本，命中区照旧登记。
     ///
-    /// slope 是**稿子上的斜率**，由 [Design::slope] 折算到世界坐标，
+    /// slope 由调用方用 [Design::slope] 从稿子斜率折过来（等比映射下就是稿子斜率本身），
     /// 因此按钮的斜角和稿子一致，换窗口比例也不会走形。
     #[allow(clippy::too_many_arguments)]
     fn skew_btn(
@@ -1413,7 +1383,6 @@ impl RoomPage {
         fg: Color,
         slope: f32,
     ) {
-        let slope = slope * (DH / (DW * ui.top));
         quad_btn(btn, ui, t, r, |ui, r| {
             theme::skew_panel(ui, r.x, r.y, r.w, r.h, slope, fill, fill);
             ui.text(label)
@@ -1431,7 +1400,7 @@ impl RoomPage {
 
     fn render_portrait(&mut self, ui: &mut Ui, t: f32, mut ctx: Render, items: &[ActItem]) {
         let accent = ui.accent();
-        let top = ui.top;
+        let top = theme::layout_top(ui);
         let pad = theme::page_pad(ui);
         let page_x = -1. + pad;
         let page_w = 2. - pad * 2.;
@@ -1466,7 +1435,7 @@ impl RoomPage {
             }
             let icon = theme::tool_icon(item.action.icon());
             let active = matches!(item.action, RoomAction::Start | RoomAction::Ready);
-            theme::tool_button(ui, self.actions.get(item.action), t, r, icon.as_ref(), &item.label, active, accent);
+            theme::tool_button(ui, self.actions.get(item.action), t, r, icon.as_ref(), &item.label, active, !item.disabled, accent);
         }
     }
 
@@ -1780,16 +1749,19 @@ fn fade(c: Color, a: f32) -> Color {
 ///
 /// [theme::quad] 只能纯色、[Ui::fill_rect] 只能铺矩形，而左面板右边是斜的，
 /// 用矩形去铺会在下边多出一块，所以这里自己往 quad_gl 塞一个带 UV 的四边形。
-fn cover_quad(d: &Design, pts: [Vec2; 4], tex: &SafeTexture, alpha: f32) {
+fn cover_quad(pts: [Vec2; 4], tex: &SafeTexture, alpha: f32) {
     if alpha <= 0.004 {
         return;
     }
     let vp = prpr::ext::get_viewport();
-    let (vw, vh) = (vp.2 as f32, vp.3 as f32);
+    let vw = vp.2 as f32;
+    // 世界 → 像素的缩放：横轴恒等于屏宽（2 个世界单位），纵轴同比例（见 Ui::top 的定义），
+    // 所以 x、y 共用一个系数。用 vp.3 / (2·ui.top) 去算纵轴在非 16:9 下会算错。
+    let scale = vw / 2.;
     let (minx, maxx) = pts.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), p| (a.min(p.x), b.max(p.x)));
     let (miny, maxy) = pts.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), p| (a.min(p.y), b.max(p.y)));
-    let px_w = (maxx - minx) * vw / 2.;
-    let px_h = (maxy - miny) * vh / (2. * d.top);
+    let px_w = (maxx - minx) * scale;
+    let px_h = (maxy - miny) * scale;
     let (tw, th) = (tex.width() as f32, tex.height() as f32);
     let (mut u0, mut u1, mut v0, mut v1) = (0., 1., 0., 1.);
     if px_w > 0. && px_h > 0. && tw > 0. && th > 0. {

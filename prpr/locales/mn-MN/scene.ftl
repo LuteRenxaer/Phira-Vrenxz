@@ -6,3 +6,6 @@ pasted = Түр санах ойгоос буулгасан
 cancel = Цуцлах
 confirm = Баталгаажуулах
 audio-backend-init-failed = Дууны арын системийг эхлүүлэх боломжгүй тул дуугүй ажиллана
+select-all = All
+copy = Copy
+paste = Paste
