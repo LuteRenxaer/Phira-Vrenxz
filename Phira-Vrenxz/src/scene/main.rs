@@ -276,6 +276,7 @@ pub struct MainScene {
     pages: Vec<Box<dyn Page>>,
     page_fade: Option<f32>,
     page_fade_art: Option<SafeTexture>,
+    bgm_fade_in_at: Option<f64>,
 
     import_task: Option<Task<Result<(LocalChart, ParseWarnings)>>>,
     pending_debug_scene: Option<&'static str>,
@@ -499,6 +500,7 @@ impl MainScene {
             pages: Vec::new(),
             page_fade: None,
             page_fade_art: None,
+            bgm_fade_in_at: None,
 
             import_task: None,
             pending_debug_scene: None,
@@ -741,6 +743,12 @@ impl Scene for MainScene {
     }
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
+        if self.bgm_fade_in_at.is_some_and(|at| tm.now() >= at) {
+            self.bgm_fade_in_at = None;
+            if let Some(bgm) = &mut self.bgm {
+                let _ = bgm.fade_in(0.8);
+            }
+        }
         /// HUD 编辑器请求切页：重建页面栈（根页面保留、不重建，因此不需要异步）。
         /// Vrenxz 的 icons 是 Option<Arc<Icons>>（加载失败时可能为 None），无独立
         /// TabsPage，PageId::Tabs 跳转时用谱面库页面代替。
@@ -1096,10 +1104,9 @@ impl Scene for MainScene {
                         }
                     }
                     sub.enter(s)?;
-                    if !sub.can_play_bgm() {
-                        if let Some(bgm) = &mut self.bgm {
-                            let _ = bgm.fade_out(1.5);
-                        }
+                    if let Some(bgm) = &mut self.bgm {
+                        let _ = bgm.fade_out(2.0);
+                        self.bgm_fade_in_at = Some(tm.now() + 2.0);
                     }
                     self.pages.push(sub);
                     s.fader.sub(s.t);

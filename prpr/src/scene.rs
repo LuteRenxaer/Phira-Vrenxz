@@ -1413,15 +1413,8 @@ pub fn draw_transition_loading(ui: &mut Ui, art: Option<&SafeTexture>, time: f32
     } else {
         ((elapsed - 1.65) / 0.35).clamp(0., 1.)
     };
-    let zoom = 1. + 0.08 * ((elapsed - 1.2) / 0.8).clamp(0., 1.);
     if let Some(tex) = art {
-        let asp = screen_aspect();
-        let top = 1. / asp;
-        draw_image(
-            tex.clone().into_inner(),
-            Rect::new(-zoom, -top * zoom, zoom * 2., top * 2. * zoom),
-            ScaleType::CropCenter,
-        );
+        draw_background(tex.clone().into_inner());
     } else {
         ui.fill_rect(ui.screen_rect(), Color::new(0.02, 0.025, 0.035, 1.));
     }
