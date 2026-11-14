@@ -14,28 +14,62 @@ on:
       - 'phira.app/**'
       - '.github/workflows/ios.yml'
 
+permissions:
+  contents: read
+
 jobs:
-  ios:
-    runs-on: macos-14
+  ipa:
+    name: Unsigned IPA
+    runs-on: macos-15
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
-      - uses: Swatinem/rust-cache@v2
-      - name: Build unsigned archive
+      - name: Select Xcode
         run: |
-          set -euo pipefail
-          xcodebuild -project phira.xcodeproj -scheme phira -configuration Release -sdk iphoneos -archivePath "$PWD/build/Phira.xcarchive" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-apple-ios
+      - name: Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/xcode
+          key: ios-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ios-${{ runner.os }}-
+      - name: Point cargo at Xcode iOS linker
+        run: echo "CARGO_TARGET_AARCH64_APPLE_IOS_LINKER=$(xcrun --sdk iphoneos --find clang)" >> "$GITHUB_ENV"
+      - name: Build unsigned
+        run: |
+          xcodebuild \
+            -project phira.xcodeproj \
+            -scheme phira \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
       - name: Package IPA
         run: |
           set -euo pipefail
-          rm -rf build/Payload build/Phira.ipa
-          mkdir -p build/Payload
-          cp -R "build/Phira.xcarchive/Products/Applications/Phira.app" build/Payload/
-          cd build
-          zip -qry Phira.ipa Payload
+          APP="$(find build/dd/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n1)"
+          test -n "$APP" || { echo "no .app produced"; exit 1; }
+          test -f "$APP/phira-main" || { echo "$APP/phira-main missing"; exit 1; }
+          rm -rf out
+          mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          (cd out && zip -qry PhiraVrenxz-ios-arm64-unsigned.ipa Payload)
+          ls -lh out/PhiraVrenxz-ios-arm64-unsigned.ipa
       - uses: actions/upload-artifact@v4
         with:
-          name: Phira-Vrenxz-ipa
-          path: build/Phira.ipa
+          name: PhiraVrenxz-unsigned-ipa
+          path: out/PhiraVrenxz-ios-arm64-unsigned.ipa
+          if-no-files-found: error
