@@ -554,7 +554,7 @@ impl MainScene {
     }
 
     fn pop(&mut self) {
-        if !self.pages.last().unwrap().can_play_bgm() && self.pages[self.pages.len() - 2].can_play_bgm() {
+        if self.bgm_fade_in_at.is_none() && !self.pages.last().unwrap().can_play_bgm() && self.pages[self.pages.len() - 2].can_play_bgm() {
             if let Some(bgm) = &mut self.bgm {
                 let _ = bgm.fade_in(0.5);
             }
@@ -734,6 +734,12 @@ impl Scene for MainScene {
                     if let Some(bgm) = &mut self.bgm {
                         bgm.set_low_pass(0.)?;
                     }
+                }
+                self.page_fade = Some(self.state.t);
+                self.page_fade_art = prpr::scene::random_loading_art();
+                if let Some(bgm) = &mut self.bgm {
+                    let _ = bgm.fade_out(2.0);
+                    self.bgm_fade_in_at = Some(self.state.t as f64 + 2.7);
                 }
                 self.pop();
             }
