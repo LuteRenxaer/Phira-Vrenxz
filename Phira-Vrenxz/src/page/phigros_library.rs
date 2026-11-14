@@ -214,7 +214,7 @@ impl Page for PhigrosLibraryPage {
         // 对应 challenge_ui.html: list-bg
         ui.fill_rect(Rect::new(-1., -top, x(0.458) + 1., top * 2.), Color::new(0., 0., 0., 0.50));
         // 顶部 main-panel
-        let panel = Rect::new(x(0.094), y(0.0185), x(0.536) - x(0.094), y(0.1296) - y(0.0185));
+        let panel = Rect::new(x(0.126), y(0.028), x(0.474) - x(0.126), y(0.105) - y(0.028));
         draw_parallelogram(panel, None, Color::new(0., 0., 0., 0.75), false);
         ui.text("Sort by").pos(x(0.125), y(0.040)).size(0.20).color(Color::new(0.42, 0.45, 0.50, 1.)).draw();
         if let Some(tex) = &self.icon_sort {
@@ -242,14 +242,14 @@ impl Page for PhigrosLibraryPage {
             ui.text(TABS[i]).pos(r.center().x, r.center().y).anchor(0.5, 0.5).size(0.30).color(if i == self.tab { BLACK } else { Color::new(0.62, 0.62, 0.62, 1.) }).draw();
         }
         // 列表：80px 行高，选中行 38px
-        let list = Rect::new(x(0.052), y(0.18), x(0.458) - x(0.052), y(0.98) - y(0.18));
+        let list = Rect::new(x(0.087), y(0.19), x(0.332) - x(0.087), y(0.96) - y(0.19));
         let row_h = (y(0.98) - y(0.18)) / 7.2;
         let rows = 7usize;
         let start = self.selected.saturating_sub(3).min(self.charts.len().saturating_sub(rows));
         let sel_y = list.y + (self.selected.saturating_sub(start)) as f32 * row_h;
-        draw_parallelogram(Rect::new(x(0.036), sel_y + row_h * 0.08, x(0.453) - x(0.036), row_h * 0.84), None, Color::new(0., 0., 0., 0.85), false);
+        draw_parallelogram(Rect::new(x(0.075), sel_y + row_h * 0.08, x(0.332) - x(0.075), row_h * 0.84), None, Color::new(0., 0., 0., 0.85), false);
         if let Some(c) = self.charts.get(self.selected) {
-            let dr = Rect::new(x(0.389), sel_y + row_h * 0.5 - (y(0.106) - y(0.)) / 2., x(0.456) - x(0.389), y(0.106) - y(0.));
+            let dr = Rect::new(x(0.276), sel_y + row_h * 0.5 - (y(0.106) - y(0.)) / 2., x(0.332) - x(0.276), y(0.106) - y(0.));
             draw_parallelogram(dr, None, WHITE, false);
             ui.text(format!("{:.0}", c.info.difficulty)).pos(dr.center().x, dr.center().y - 0.010).anchor(0.5, 0.5).size(0.50).color(BLACK).draw();
             ui.text(c.info.level.split_whitespace().next().unwrap_or("IN")).pos(dr.center().x, dr.center().y + 0.030).anchor(0.5, 0.5).size(0.22).color(BLACK).draw();
@@ -275,12 +275,12 @@ impl Page for PhigrosLibraryPage {
             }
         }
         // Mirror
-        let mr = Rect::new(x(0.052), y(0.90), x(0.14) - x(0.052), y(0.95) - y(0.90));
+        let mr = Rect::new(x(0.276), y(0.690), x(0.332) - x(0.276), y(0.740) - y(0.690));
         self.mirror_rect = mr;
         draw_parallelogram(mr, None, if self.mirror { WHITE } else { Color::new(0.06, 0.07, 0.09, 0.95) }, false);
         ui.text("Mirror").pos(mr.center().x, mr.center().y).anchor(0.5, 0.5).size(0.26).color(if self.mirror { BLACK } else { WHITE }).draw();
         // jacket-container: top213 right40 w860 h484
-        let art = Rect::new(x(0.531), y(0.197), x(0.979) - x(0.531), y(0.645) - y(0.197));
+        let art = Rect::new(x(0.336), y(0.120), x(0.675) - x(0.336), y(0.573) - y(0.120));
         let selected_chart = self.charts.get(self.selected).cloned();
         let selected_cover = self.cover(self.selected);
         if let Some(chart) = selected_chart.as_ref() {
@@ -297,25 +297,25 @@ impl Page for PhigrosLibraryPage {
         let current = selected_chart.as_ref().map(|c| if c.info.level.starts_with("AT") { 3 } else if c.info.level.starts_with("IN") { 2 } else if c.info.level.starts_with("HD") { 1 } else { 0 }).unwrap_or(0);
         let nums = selected_chart.as_ref().map(|c| [3, 8, c.info.difficulty.round() as i32, 15]).unwrap_or([3, 8, 12, 15]);
         for i in 0..4 {
-            let r = Rect::new(x(0.515 + i as f32 * 0.042), y(0.700), x(0.557) - x(0.515), y(0.775) - y(0.700));
+            let r = Rect::new(x(0.324 + i as f32 * 0.036), y(0.572), x(0.360) - x(0.324), y(0.642) - y(0.572));
             draw_parallelogram(r, None, if i == current { Color::new(0.80, 0.16, 0.16, 1.) } else { WHITE }, false);
             ui.text(labels[i]).pos(r.center().x, r.y + r.h * 0.20).anchor(0.5, 0.).size(0.18).color(if i == current { WHITE } else { BLACK }).draw();
             ui.text(format!("{}", nums[i])).pos(r.center().x, r.y + r.h * 0.50).anchor(0.5, 0.).size(0.30).color(if i == current { WHITE } else { BLACK }).draw();
         }
         if let Some(chart) = &selected_chart {
             let score = chart.record.as_ref().map_or(0, |r| r.score);
-            ui.text(format!("{:07}", score)).pos(x(0.685), y(0.705)).size(0.46).draw();
+            ui.text(format!("{:07}", score)).pos(x(0.490), y(0.580)).size(0.46).draw();
             if let Some(rec) = &chart.record {
-                ui.text(format!("{:.2}%", rec.accuracy)).pos(x(0.685), y(0.750)).size(0.22).color(Color::new(1., 1., 1., 0.7)).draw();
+                ui.text(format!("{:.2}%", rec.accuracy)).pos(x(0.490), y(0.622)).size(0.22).color(Color::new(1., 1., 1., 0.7)).draw();
             }
             let ri = if score >= 1_000_000 { 0 } else if score >= 960_000 { 1 } else if score >= 920_000 { 2 } else if score >= 880_000 { 3 } else if score >= 820_000 { 4 } else { 5 };
             if let Some(tex) = &self.rank_icons[ri] {
-                let rr = Rect::new(x(0.900), y(0.690), x(0.965) - x(0.900), y(0.800) - y(0.690));
+                let rr = Rect::new(x(0.600), y(0.570), x(0.665) - x(0.600), y(0.660) - y(0.570));
                 ui.fill_rect(rr, (tex.clone().into_inner(), rr, ScaleType::Fit, WHITE));
             }
         }
         // start-button: right0 bottom -30 w400 h200
-        let pr = Rect::new(x(0.792), y(0.843), x(1.0) - x(0.792), y(1.0) - y(0.843));
+        let pr = Rect::new(x(0.800), y(0.735), x(0.940) - x(0.800), y(0.850) - y(0.735));
         self.play_btn.inner.set(ui, pr);
         draw_parallelogram(pr, None, Color::new(1., 1., 1., 0.95), false);
         if let Some(tex) = &self.icon_play {
