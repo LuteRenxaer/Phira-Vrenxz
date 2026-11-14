@@ -1406,6 +1406,8 @@ pub fn draw_loading_art(tex: SafeTexture) {
 pub fn draw_transition_loading(ui: &mut Ui, art: Option<&SafeTexture>, time: f32, elapsed: f32) {
     let black_a = if elapsed < 0.40 {
         1.
+    } else if elapsed < 0.80 {
+        (1. - (elapsed - 0.40) / 0.40).clamp(0., 1.)
     } else if elapsed < 2.00 {
         0.
     } else if elapsed < 2.35 {
@@ -1424,6 +1426,8 @@ pub fn draw_transition_loading(ui: &mut Ui, art: Option<&SafeTexture>, time: f32
     ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., black_a));
     let text_a = if elapsed < 0.40 {
         0.
+    } else if elapsed < 0.80 {
+        ((elapsed - 0.40) / 0.40).clamp(0., 1.)
     } else if elapsed < 2.00 {
         1.
     } else {
