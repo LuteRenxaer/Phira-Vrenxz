@@ -652,7 +652,7 @@ impl Scene for MainScene {
             let should_resume = self.bgm_resume_on_enter || just_created || bgm.paused();
             self.bgm_resume_on_enter = false;
             if should_resume {
-                let _ = bgm.fade_in(if just_created { 1.3 } else { 0.5 });
+                let _ = bgm.fade_in(if just_created { 1.3 } else { 1.0 });
             }
         }
         self.state.update(tm);
@@ -1098,7 +1098,7 @@ impl Scene for MainScene {
                     sub.enter(s)?;
                     if !sub.can_play_bgm() {
                         if let Some(bgm) = &mut self.bgm {
-                            let _ = bgm.fade_out(0.5);
+                            let _ = bgm.fade_out(1.5);
                         }
                     }
                     self.pages.push(sub);
@@ -1603,7 +1603,7 @@ impl Scene for MainScene {
 
         if let Some(start) = self.page_fade {
             let e = s.t - start;
-            if e < 1.6 {
+            if e < 2.0 {
                 prpr::scene::draw_transition_loading(ui, self.page_fade_art.as_ref(), s.t, e);
             } else {
                 self.page_fade = None;
@@ -1650,7 +1650,7 @@ impl Scene for MainScene {
         };
         if !matches!(res, NextScene::None) {
             if let Some(bgm) = &mut self.bgm {
-                let _ = bgm.fade_out(0.5);
+                let _ = bgm.fade_out(1.5);
                 self.bgm_resume_on_enter = true;
             }
         }

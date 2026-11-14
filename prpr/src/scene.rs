@@ -1219,7 +1219,7 @@ impl Main {
         }
         if transiting {
             self.fade_start = Some(self.tm.now());
-            self.fade_art = loading::random_local_chart_art();
+            self.fade_art = loading::fixed_chart_art();
         }
         crate::gamepad::poll_global();
         crate::gamepad::update_virtual_cursor(get_frame_time());
@@ -1300,7 +1300,7 @@ impl Main {
         draw_fps_overlay(&mut ui);
         if let Some(start) = self.fade_start {
             let e = (self.tm.now() - start) as f32;
-            if e < 1.6 {
+            if e < 2.0 {
                 let time = self.tm.now() as f32;
                 draw_transition_loading(&mut ui, self.fade_art.as_ref(), time, e);
             } else {
@@ -1408,18 +1408,25 @@ pub fn draw_transition_loading(ui: &mut Ui, art: Option<&SafeTexture>, time: f32
     let intro = 1. - (1. - intro).powi(3);
     let black_a = if elapsed < 0.4 {
         1. - intro
-    } else if elapsed < 1.25 {
+    } else if elapsed < 1.65 {
         0.
     } else {
-        ((elapsed - 1.25) / 0.35).clamp(0., 1.)
+        ((elapsed - 1.65) / 0.35).clamp(0., 1.)
     };
+    let zoom = 1. + 0.08 * ((elapsed - 1.2) / 0.8).clamp(0., 1.);
     if let Some(tex) = art {
-        draw_background(tex.clone().into_inner());
+        let asp = screen_aspect();
+        let top = 1. / asp;
+        draw_image(
+            tex.clone().into_inner(),
+            Rect::new(-zoom, -top * zoom, zoom * 2., top * 2. * zoom),
+            ScaleType::CropCenter,
+        );
     } else {
         ui.fill_rect(ui.screen_rect(), Color::new(0.02, 0.025, 0.035, 1.));
     }
     ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., black_a));
-    let text_a = if elapsed < 1.25 { intro } else { (1. - (elapsed - 1.25) / 0.35).clamp(0., 1.) };
+    let text_a = if elapsed < 1.65 { intro } else { (1. - (elapsed - 1.65) / 0.35).clamp(0., 1.) };
     let load_text = "Loading...";
     let m = ui.text(load_text).size(0.44).measure();
     let top = 1. / screen_aspect();

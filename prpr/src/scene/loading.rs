@@ -83,6 +83,20 @@ pub(crate) fn random_local_chart_art() -> Option<SafeTexture> {
     Some(Texture2D::from_rgba8(w as u16, h as u16, &img).into())
 }
 
+
+pub(crate) fn fixed_chart_art() -> Option<SafeTexture> {
+    for path in ["assets/backgrounds/background.jpg", "assets/challenge_web/3.png"] {
+        if let Ok(data) = std::fs::read(path) {
+            if let Ok(img) = image::load_from_memory(&data) {
+                let img = img.to_rgba8();
+                let (w, h) = img.dimensions();
+                return Some(Texture2D::from_rgba8(w as u16, h as u16, &img).into());
+            }
+        }
+    }
+    None
+}
+
 fn draw_illustration(tex: Texture2D, x: f32, y: f32, w: f32, h: f32, color: Color) -> Rect {
     let scale = 0.076;
     let w = scale * 13. * w;
