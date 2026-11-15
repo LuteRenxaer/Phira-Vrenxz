@@ -20,7 +20,7 @@ android {
         // 打包 arm64-v8a（真机）和 x86_64（模拟器）两个 ABI 的原生库。
         // 注意：已在 AndroidManifest 禁用 hardwareAccelerated，避免 MuMu 模拟器 HWUI 崩溃。
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += listOf("arm64-v8a")
         }
     }
 

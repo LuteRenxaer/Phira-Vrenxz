@@ -1522,7 +1522,7 @@ impl GameScene {
         if self.pause_alpha > 0.001 {
             let h = 1. / res.aspect_ratio;
             // 楂樻柉妯＄硦鑳屾櫙锛氭殏鍋滄椂鎶撳彇鐢婚潰鍍忕礌锛岀敤 fastblur 鍋?CPU 绔珮鏂ā绯?
-            if self.pause_need_blur {
+            if self.pause_need_blur && !cfg!(target_os = "android") {
                 let vp = ui.viewport;
                 let bw = (vp.2 as u32 / 8).max(1);
                 let bh = (vp.3 as u32 / 8).max(1);

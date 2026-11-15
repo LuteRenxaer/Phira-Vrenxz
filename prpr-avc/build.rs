@@ -6,8 +6,7 @@ fn main() {
     let libs_path = libs_path.display();
     println!("cargo:rustc-link-search={libs_path}");
 
-    #[cfg(target_os = "windows")]
-    {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         println!("cargo:rustc-link-lib=bcrypt");
         println!("cargo:rustc-link-lib=ole32");
         println!("cargo:rustc-link-lib=user32");
