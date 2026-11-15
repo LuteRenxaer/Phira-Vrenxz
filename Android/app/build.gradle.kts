@@ -9,11 +9,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.luterencai.phiravrenxz"
+        applicationId = "luterencai.phiravrenxz.com"
         minSdk = 23
         targetSdk = 37
-        versionCode = 93
-        versionName = "0.9.3-CBT2"
+        versionCode = 133
+        versionName = "1.3.3PRO"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
