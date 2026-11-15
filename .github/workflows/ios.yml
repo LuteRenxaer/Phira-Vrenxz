@@ -12,6 +12,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'assets/**'
+      - 'Android/**'
       - 'phira.xcodeproj/**'
       - 'xcode/**'
       - 'phira.app/**'
