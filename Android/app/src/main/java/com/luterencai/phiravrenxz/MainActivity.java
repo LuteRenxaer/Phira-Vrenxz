@@ -505,6 +505,12 @@ public class MainActivity extends Activity {
                 Log.w(TAG, "cannot read asset stamp", e);
             }
         }
+        // copy entire APK assets tree so backgrounds/fonts exist
+        try {
+            copyAssetTree("", assetsDir);
+        } catch (IOException e) {
+            Log.e(TAG, "failed to copy asset tree", e);
+        }
         for (String name : packages) {
             File target = new File(assetsDir, name);
             if (upToDate && target.exists()) {
@@ -541,6 +547,29 @@ public class MainActivity extends Activity {
     }
 
     /** 把 SAF 返回的 content Uri 复制到应用缓存目录，返回本地绝对路径。 */
+    private void copyAssetTree(String path, File dest) throws IOException {
+        String[] children = getAssets().list(path);
+        if (children == null || children.length == 0) {
+            if (!path.isEmpty()) {
+                File outFile = new File(dest, path.substring(path.lastIndexOf('/') + 1));
+                if (!outFile.exists() || outFile.length() == 0) {
+                    try (InputStream in = getAssets().open(path);
+                         OutputStream out = new FileOutputStream(outFile)) {
+                        byte[] buf = new byte[64 * 1024];
+                        int n;
+                        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                    }
+                }
+            }
+            return;
+        }
+        File dir = path.isEmpty() ? dest : new File(dest, path.substring(path.lastIndexOf('/') + 1));
+        if (!dir.exists()) dir.mkdirs();
+        for (String child : children) {
+            copyAssetTree(path.isEmpty() ? child : path + "/" + child, dir);
+        }
+    }
+
     private String copyToCache(Uri uri) {
         InputStream in = null;
         OutputStream out = null;
