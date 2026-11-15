@@ -25,8 +25,13 @@ email-sent = Email z weryfikacją został wysłany. Wejdź w niego, aby się zwe
 
 startup-select-language = Wybierz język
 startup-tap-to-continue = Stuknij, aby kontynuować
+startup-tap-to-skip = Tap to skip
 startup-tip = Wskazówka: { $tip }
 
 startup-load-failed = Uruchomienie nieudane
 startup-loading = Ładowanie...
 
+
+srv-official = Oficjalny
+
+srv-local = Lokalny

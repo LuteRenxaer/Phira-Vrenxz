@@ -223,7 +223,7 @@
 					"$(PROJECT_DIR)",
 				);
 				INFOPLIST_FILE = phira.app/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Phira Vrenxz";
+				INFOPLIST_KEY_CFBundleDisplayName = "Phira-Vrenxz";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music-games";
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -320,7 +320,7 @@
 					"$(PROJECT_DIR)",
 				);
 				INFOPLIST_FILE = phira.app/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Phira Vrenxz";
+				INFOPLIST_KEY_CFBundleDisplayName = "Phira-Vrenxz";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music-games";
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = (

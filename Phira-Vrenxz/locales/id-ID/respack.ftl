@@ -10,3 +10,7 @@ info-content =
 
 cant-delete-builtin = Tidak bisa menghapus respack bawaan
 deleted = Terhapus
+export = Ekspor
+exporting = Mengekspor...
+exported = Berhasil diekspor
+cant-export-builtin = Tidak bisa mengekspor respack bawaan

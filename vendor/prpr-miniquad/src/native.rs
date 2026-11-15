@@ -37,6 +37,14 @@ pub trait NativeDisplay: std::any::Any {
     fn set_mouse_cursor(&mut self, _cursor_icon: crate::CursorIcon);
     fn set_window_size(&mut self, _new_width: u32, _new_height: u32);
     fn set_fullscreen(&mut self, _fullscreen: bool);
+
+    /// Returns the native window handle (HWND on Windows) as an isize,
+    /// so the host can embed child windows (e.g. WebView2).
+    /// Returns None on platforms where this is not supported.
+    fn native_window_handle(&self) -> Option<isize> {
+        None
+    }
+
     fn clipboard_get(&mut self) -> Option<String>;
     fn clipboard_set(&mut self, _data: &str);
     fn dropped_file_count(&mut self) -> usize {
@@ -48,6 +56,7 @@ pub trait NativeDisplay: std::any::Any {
     fn dropped_file_path(&mut self, _index: usize) -> Option<std::path::PathBuf> {
         None
     }
+    fn clear_dropped_files(&mut self) {}
     fn show_keyboard(&mut self, _show: bool) {}
 
     fn set_pause_resume_listener(&mut self, _listener: fn(bool)) {}

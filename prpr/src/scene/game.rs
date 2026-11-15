@@ -391,6 +391,17 @@ macro_rules! reset {
         $self.fps_last_frame_time = $tm.real_time();
         $self.fps_smooth = 0.0;
         $self.dead = false;
+        $self.hp = $self.hp_max;
+        $self.displayed_hp = 1.0;
+        $self.life_velocity = 0.0;
+        $self.life_flash = 0.0;
+        $self.fail_timer = None;
+        $self.last_counts = [0; 4];
+        if let Some(cfg) = &$self.challenge {
+            if let Ok(mut session) = cfg.session.lock() {
+                session.hp_left = None;
+            }
+        }
         $self.skip_done = false;
         $self.track_skipped = false;
         $self.skip_transition_progress = 0.0;
@@ -415,6 +426,26 @@ impl GameScene {
     pub const FADEOUT_TIME: f64 = WAIT_TIME + AFTER_TIME + 0.3;
     pub const FAIL_RED_TIME: f32 = 0.1;
     pub const FAIL_BLACK_TIME: f32 = 1.0;
+
+    pub async fn load_chart_for_analysis(
+        fs: &mut dyn FileSystem,
+        info: &ChartInfo,
+    ) -> Result<(Chart, Vec<u8>, ChartFormat)> {
+        let bytes = Self::load_chart_bytes(fs, info).await?;
+        let format = Self::infer_chart_format(info, &bytes);
+        let chart = match format {
+            ChartFormat::Pec => crate::parse::parse_pec(&String::from_utf8_lossy(&bytes), ChartExtra::default())?,
+            ChartFormat::Pgr => crate::parse::parse_phigros(&String::from_utf8_lossy(&bytes), ChartExtra::default())?,
+            ChartFormat::Rpe => crate::parse::parse_rpe(
+                &String::from_utf8_lossy(&bytes),
+                fs,
+                ChartExtra::default(),
+                info.use_rpe_170_speed.unwrap_or_default(),
+            ).await?,
+            ChartFormat::Pbc => anyhow::bail!("PBC analysis is not supported"),
+        };
+        Ok((chart, bytes, format))
+    }
 
     pub async fn load_chart_bytes(fs: &mut dyn FileSystem, info: &ChartInfo) -> Result<Vec<u8>> {
         if let Ok(bytes) = fs.load_file(&info.chart).await {
@@ -1234,7 +1265,7 @@ impl GameScene {
 
             // 鐗堟湰姘村嵃锛堢敱 GUI 寮€鍏尘带鍒讹級
             if res.config.show_watermark {
-                let wm_label = format!("Phira-Vrenxz v{}", env!("CARGO_PKG_VERSION"));
+                let wm_label = format!("Phira-Vrenxz v{}", "1.3.3PRO");
                 ui.text(&wm_label)
                     .pos(pause_center.x + 0.08, pause_center.y)
                     .anchor(0., 0.5)
@@ -1245,7 +1276,7 @@ impl GameScene {
 
             // 瀹炴椂甯х巼锛氭樉绀哄湪鐗堟湰姘村嵃姝ｄ笅鏂癸紙鎸囨暟骞虫粦锛岀ǔ瀹氭樉绀猴級
             if res.config.show_fps && self.fps_smooth > 0.0 {
-                let wm_label = format!("Phira-Vrenxz v{}", env!("CARGO_PKG_VERSION"));
+                let wm_label = format!("Phira-Vrenxz v{}", "1.3.3PRO");
                 let wm_h = ui.text(&wm_label).size(0.4).measure().h;
                 ui.text(format!("FPS {:.0}", self.fps_smooth))
                     .pos(pause_center.x + 0.08, pause_center.y + wm_h / 2. + 0.02)
@@ -2153,11 +2184,13 @@ impl GameScene {
                 if !self.challenge_finished {
                     self.finish_challenge_round();
                     if let Some(cfg) = self.challenge.clone() {
-                        let completed = cfg.session.lock().unwrap().completed_rounds;
-                        let total = cfg.session.lock().unwrap().paths.len();
-                        if completed >= total {
+                        let (completed, total, aborted) = {
+                            let s = cfg.session.lock().unwrap();
+                            (s.completed_rounds, s.paths.len(), s.aborted)
+                        };
+                        if aborted || completed >= total {
                             let ending = self.build_challenge_ending(&cfg)?;
-                            Some(NextScene::Overlay(Box::new(ending)))
+                            Some(NextScene::Replace(Box::new(ending)))
                         } else {
                             match self.build_challenge_next(&cfg, completed) {
                                 Ok(task) => {
@@ -2333,7 +2366,7 @@ impl GameScene {
                 Some(challenge),
             )
             .await?;
-            Ok::<_, anyhow::Error>(NextScene::Overlay(Box::new(scene)))
+            Ok::<_, anyhow::Error>(NextScene::Replace(Box::new(scene)))
         };
         Ok(Some(Box::pin(task)))
     }
@@ -2575,7 +2608,7 @@ impl Scene for GameScene {
                 }
                 match self.mode {
                     // 普通/NoRetry/View：HP 耗尽失败进结算页展示成绩（失败局不写记录）
-                    GameMode::Normal | GameMode::NoRetry | GameMode::View => {
+                    GameMode::Normal | GameMode::NoRetry | GameMode::View | GameMode::Challenge | GameMode::ReChallenge => {
                         self.finish_and_show_result()?;
                     }
                     // 课题/Re课题：HP 耗尽整场作废，直接 Pop 回课题页
@@ -3403,9 +3436,10 @@ impl Scene for GameScene {
         if !watermark_text.is_empty() {
             let top = ui.top;
             ui.text(&watermark_text)
-                .pos(0., top - 0.02)
+                .pos(0., top - 0.010)
                 .anchor(0.5, 1.)
-                .size(0.32)
+                .size(0.28)
+                .no_baseline()
                 .color(Color::new(1., 1., 1., 0.3))
                 .draw_using(&PGR_FONT);
         }

@@ -377,6 +377,12 @@ pub struct SongScene {
     info: BriefChartInfo,
     local_path: Option<String>,
 
+    ppsr_task: LocalTask<Result<crate::plugins::SelectedOutput>>,
+    ppsr_started: bool,
+    ppsr_panel: crate::plugins::PpsrPanelState,
+    ppsr_toggle: DRectButton,
+    ppsr_collapsed: bool,
+
     downloading: Option<Downloading>,
     loading_last: f32,
 
@@ -606,6 +612,12 @@ impl SongScene {
             entity: None,
             info: chart.info,
             local_path,
+
+            ppsr_task: None,
+            ppsr_started: false,
+            ppsr_panel: crate::plugins::PpsrPanelState::default(),
+            ppsr_toggle: DRectButton::new(),
+            ppsr_collapsed: false,
 
             downloading: None,
             loading_last: 0.,
@@ -1668,7 +1680,7 @@ impl SongScene {
             }
         }
         r.x += dx;
-        if ui.button("upload_chart", r, tl!("upload-chart")) {
+        if false {
             let path = self.local_path.clone();
             if get_data().tokens.is_none() {
                 show_message(tl!("upload-login-first")).error();
@@ -2210,6 +2222,31 @@ impl SongScene {
     }
 }
 
+impl SongScene {
+    fn start_ppsr_analysis(&mut self) {
+        if self.ppsr_started || !crate::plugins::chart_selected_needed() {
+            return;
+        }
+        let Some(path) = self.local_path.clone() else { return };
+        self.ppsr_started = true;
+        let job = crate::plugins::begin_chart_selected();
+        let chart_set = if matches!(self.chart_type, ChartType::Integrated) { "phigros" } else { "phira" };
+        let root = dir::charts();
+        self.ppsr_task = Some(Box::pin(async move {
+            let source = if path.starts_with(':') {
+                let mut fs = fs_from_path(&path)?;
+                let info = fs::load_info(fs.as_mut()).await?;
+                let bytes = GameScene::load_chart_bytes(fs.as_mut(), &info).await?;
+                crate::plugins::SelectedSource::Embedded { info, bytes }
+            } else {
+                crate::plugins::SelectedSource::Local(std::path::PathBuf::from(root?).join(path))
+            };
+            crate::plugins::run_selected(job, source, chart_set).await
+        }));
+    }
+
+}
+
 impl Scene for SongScene {
     fn on_result(&mut self, tm: &mut TimeManager, res: Box<dyn Any>) -> Result<()> {
         let res = match res.downcast::<SimpleRecord>() {
@@ -2326,6 +2363,7 @@ impl Scene for SongScene {
 // self.next_scene = Some(NextScene::Replace(Box::new(FakeCrashScene::new())));
 // return Ok(());
 
+        self.start_ppsr_analysis();
         if self.first_in {
             self.first_in = false;
             tm.seek_to(-fade_in_time().unwrap_or_default() as _);
@@ -2341,6 +2379,13 @@ impl Scene for SongScene {
 
     fn touch(&mut self, tm: &mut TimeManager, touch: &Touch) -> Result<bool> {
         let t = tm.now() as f32;
+        if self.ppsr_panel.touch(touch) {
+            return Ok(true);
+        }
+        if self.ppsr_toggle.touch(touch, t) {
+            self.ppsr_collapsed = !self.ppsr_collapsed;
+            return Ok(true);
+        }
         if self.scene_task.is_some()
             || self.save_task.is_some()
             || self.upload_task.is_some()
@@ -2579,6 +2624,15 @@ impl Scene for SongScene {
     }
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
+        if let Some(task) = self.ppsr_task.as_mut() {
+            if let Some(result) = poll_future(task.as_mut()) {
+                self.ppsr_task = None;
+                match result {
+                    Ok(output) => { crate::plugins::publish_selected(output); }
+                    Err(err) => { warn!(?err, "PPSR analysis failed"); }
+                }
+            }
+        }
         let t = tm.now() as f32;
         self.menu.update(t);
         self.fav_menu.update(t);
@@ -3697,6 +3751,15 @@ impl Scene for SongScene {
             ui.fill_rect(r, (**self.background.lock().unwrap().as_ref().unwrap(), r));
             ui.fill_rect(r, semi_black(0.3));
         }
+
+        crate::plugins::render_plugin_difficulty_panel(
+            ui,
+            t,
+            *self.illu.texture.0,
+            self.ppsr_collapsed,
+            &mut self.ppsr_toggle,
+            &mut self.ppsr_panel,
+        );
 
         self.sf.render(ui, t);
 

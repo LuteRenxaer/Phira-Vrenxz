@@ -1,6 +1,10 @@
 
 label = 设置
 
+item-ui-style = UI 风格
+item-ui-style-sub = 切换界面整体观感；默认风格与旧版一致
+item-ui-style-default = 默认
+item-ui-style-xcsim = XC-SIM
 general = 通用
 audio = 音频
 chart = 谱面
@@ -45,6 +49,9 @@ item-roman-numerals = 罗马数字
 item-roman-numerals-sub = 使用罗马数字显示难度等级
 item-chinese-numerals = 中文数字
 item-chinese-numerals-sub = 使用中文数字显示难度等级
+item-hud = HUD 自定义
+item-hud-sub = 拖动调整主菜单、谱面库、设置等页面的组件位置与大小
+item-hud-open = 管理
 item-reset-settings = 恢复默认设置
 item-reset-settings-sub = 将所有设置恢复为默认值
 item-reset-settings-btn = 恢复
@@ -55,6 +62,7 @@ item-adjust-sub = 自动调整延迟以同步音乐和谱面
 item-music = 音乐音量
 item-sfx = 音效音量
 item-bgm = BGM 音量
+item-bgm-sub = 开屏 / 主页背景音乐
 item-cali = 调整延迟
 item-preferred-sample-rate = 首选采样率
 preferred-sample-rate-default = 系统默认
@@ -205,6 +213,12 @@ custom-show-combo = 显示连击
 custom-show-acc = 显示准确率
 custom-accent-color = 主题色
 custom-edit = 修改
+custom-section-character = 角色立绘
+custom-character = 当前角色
+custom-character-intro = 角色简介
+custom-character-no-intro = 暂无简介
+custom-character-switch = 切换角色
+custom-character-switch-btn = 切换
 custom-section-ui-position = UI 位置
 custom-score-x = 分数水平偏移
 custom-score-y = 分数垂直偏移
@@ -220,8 +234,8 @@ custom-reset-bg = 重置背景
 custom-reset = 重置
 custom-default-bg = 默认背景
 custom-section-music = 自定义音乐
-custom-home-bgm = 主页背景音乐
-custom-reset-home-bgm = 重置主页音乐
+custom-home-bgm = 开屏 / 主页背景音乐
+custom-reset-home-bgm = 重置开屏 / 主页音乐
 custom-startup-bgm = 开屏背景音乐
 custom-reset-startup-bgm = 重置开屏音乐
 custom-default-music = 默认音乐
@@ -259,11 +273,11 @@ tutorial-start = 开始教程
 tutorial-load-failed = 加载新手教程失败
 
 about-update-log =
-  版本号：V1.3.2
+  版本号：V1.3.3
   更新内容：
-  1.去掉输入框弹窗
-  2.改名为Phira-Vrenxz
-  3.优化了游戏体验
+  1.修复一点点bug
+  2.又加了一点点神秘的设置
+  3.pc端有神秘的Debug东西
 
   原版开发：Prpr,Phira
   运营维护：Lute_Rencai
@@ -291,7 +305,41 @@ settings-console-log = 控制台日志
 settings-console-log-desc = 开启后显示 cmd 控制台窗口，用于查看调试日志
 settings-vsync = 垂直同步
 settings-vsync-desc = 开启后帧率限制为显示器刷新率，关闭可提升帧率
-settings-achievement = 成就
-settings-achievement-system = 成就系统
-settings-achievement-desc = 查看已解锁的成就和完成进度
 settings-open = 打开
+
+# Built-in home background (Phira-Vrenxz): which bundled background the home page uses
+item-home-bg = 内置主页背景
+item-home-bg-default = 默认
+item-home-bg-one = 背景一
+item-home-bg-two = 背景二
+item-home-bg-three = 背景三
+item-home-bg-old = 旧版背景
+item-home-bg-loginbg = WhatdoyouwantmorethanaHappyending
+
+custom-section-font = 字体
+item-font = 字体
+item-font-sub = 切换界面使用的字体
+item-import-font = 导入字体
+item-import-font-sub = 导入 TTF/OTF 字体文件，导入后可随时切换
+font-default = 默认
+font-import = 导入
+font-switched = 字体已切换
+font-switch-failed = 字体切换失败
+
+migrate-settings-item = 同步旧版本数据
+migrate-settings-item-sub = 从旧版 PhirLie / Phira-Vrenxz 的 data 目录导入（自动提示只在第一次同步前出现）
+migrate-settings-now = 立即同步
+
+# Character customization (Phira-Vrenxz)
+custom-character-name = 角色名字
+custom-character-illust = 角色立绘
+custom-character-no-illust = 暂无立绘
+custom-character-reset = 重置角色自定义
+custom-character-reset-done = 已重置角色自定义
+custom-character-illust-set = 角色立绘已更换
+custom-character-illust-failed = 更换角色立绘失败
+
+visual = 视觉
+color-palette-title = 调色板
+color-palette-done = 完成
+not-logged-in = 未登录

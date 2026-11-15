@@ -41,6 +41,6 @@ migrate-fail-message =
 
 migrate-ok = Got it
 
-migrate-settings-item = Sync legacy data
-migrate-settings-item-sub = Import from an older PhirLie / Phira-Vrenxz data folder (the auto prompt only appears before the first sync)
-migrate-settings-now = Sync now
+migrate-settings-item = 이전 데이터 동기화
+migrate-settings-item-sub = 이전 버전 PhirLie / Phira-Vrenxz의 data 폴더에서 가져오기(자동 안내는 최초 동기화 전에만 표시됨)
+migrate-settings-now = 지금 동기화

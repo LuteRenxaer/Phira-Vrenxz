@@ -8,3 +8,7 @@ info-content =
 cant-delete-builtin = 기본 리소스팩은 삭제할 수 없습니다
 deleted = 삭제됨
 label = 리소스 패키지
+export = 내보내기
+exporting = 내보내는 중...
+exported = 내보냈습니다
+cant-export-builtin = 기본 리소스팩은 내보낼 수 없습니다

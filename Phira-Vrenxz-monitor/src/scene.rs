@@ -170,7 +170,7 @@ impl PlayerView {
                     let line = &self.chart.lines[event.line_id as usize];
                     let line_tr = line.now_transform(res, &self.chart.lines);
                     let note = &line.notes[event.note_id as usize];
-                    self.judge.commit(t, tj, event.line_id as u32, event.note_id as u32, 0.);
+                    self.judge.commit(t, tj, event.line_id as u32, event.note_id as u32, 0., true);
                     match tj {
                         TJ::Perfect => {
                             res.with_model(line_tr * note.object.now(res), |res| {

@@ -513,7 +513,7 @@ impl Scene for StudioLogoScene {
                 let cx = crate::splash_ui::sx(crate::splash_ui::CONTENT_CX);
                 // 版本号：贴在字标右上（右对齐）
                 let lw = crate::splash_ui::logo_width(ui, 1.50);
-                ui.text(format!("Version : {}", env!("CARGO_PKG_VERSION")))
+                ui.text(format!("Version : {}", crate::APP_VERSION))
                     .pos(cx + lw / 2., -0.135)
                     .anchor(1., 0.5)
                     .size(0.30)

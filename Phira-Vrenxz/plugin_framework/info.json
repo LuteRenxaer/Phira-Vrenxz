@@ -1,0 +1,12 @@
+{
+    "name" : "名字",
+    "version" : "版本号",
+    "author" : "作者",
+    "description" : "简介,这个东西是插件的框架，不能直接投入使用",
+    "supported_version_list" : [
+        "支持版本（最小1.3.3）"
+        ......
+        ]
+    "mian_folder_name" : "main文件夹名，默认为 'main' "
+    "assets_folder_name" : "资源文件夹名，默认为 'assets' "
+}

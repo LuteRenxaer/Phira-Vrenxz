@@ -1,11 +1,9 @@
+
 # Settings page
 settings-console-log = 控制台日志
 settings-console-log-desc = 开启后显示 cmd 控制台窗口，用于查看调试日志
 settings-vsync = 垂直同步
 settings-vsync-desc = 开启后帧率限制为显示器刷新率，关闭可提升帧率
-settings-achievement = 成就
-settings-achievement-system = 成就系统
-settings-achievement-desc = 查看已解锁的成就和完成进度
 settings-open = 打开
 
 # Multiplayer panel

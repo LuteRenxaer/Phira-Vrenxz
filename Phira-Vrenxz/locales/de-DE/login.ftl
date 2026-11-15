@@ -47,8 +47,13 @@ hykb-bind-required-confirm = Link zu 3839 Games
 
 startup-select-language = Sprache wählen
 startup-tap-to-continue = Tippen zum Fortfahren
+startup-tap-to-skip = Tap to skip
 startup-tip = Tipp: { $tip }
 
 startup-load-failed = Start fehlgeschlagen
 startup-loading = Laden...
 
+
+srv-official = Offiziell
+
+srv-local = Lokal

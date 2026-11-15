@@ -16,3 +16,4 @@ update-desc =
 update-ignore = 忽略该版本
 update-go = 更新
 
+cancel = 取消

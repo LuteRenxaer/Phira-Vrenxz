@@ -25,6 +25,7 @@ email-sent = 確認メールを送信しました
 
 startup-select-language = 言語を選択
 startup-tap-to-continue = タップして続行
+startup-tap-to-skip = Tap to skip
 startup-tip = ヒント：{ $tip }
 
 startup-load-failed = 起動に失敗しました
@@ -32,3 +33,7 @@ startup-loading = 読み込み中...
 
 
 startup-init-failed = 初期化に失敗
+
+srv-official = 公式
+
+srv-local = ローカル

@@ -12,3 +12,7 @@ info-content =
 
 cant-delete-builtin = Gömülü gelen kaynak paketleri silinemez
 deleted = Silindi
+export = Dışa Aktar
+exporting = Dışa aktarılıyor...
+exported = Başarıyla dışa aktarıldı
+cant-export-builtin = Gömülü gelen kaynak paketleri dışa aktarılamaz

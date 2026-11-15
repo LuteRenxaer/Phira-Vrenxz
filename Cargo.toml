@@ -7,7 +7,6 @@ members = [
 	"Phira-Vrenxz",
 	"Phira-Vrenxz-main",
 	"Phira-Vrenxz-monitor",
-	"probe_lifebar",
 ]
 resolver = "2"
 

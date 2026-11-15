@@ -12,3 +12,7 @@ info-content =
 
 cant-delete-builtin = Não é possível excluir uma skin integrada
 deleted = Excluído
+export = Exportar
+exporting = Exportando...
+exported = Exportado com sucesso
+cant-export-builtin = Não é possível exportar uma skin integrada

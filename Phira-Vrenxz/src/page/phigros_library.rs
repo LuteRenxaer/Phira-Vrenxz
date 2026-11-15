@@ -17,7 +17,8 @@ use std::{borrow::Cow, collections::HashMap, path::PathBuf};
 
 
 fn load_ui_icon(name: &str) -> Option<SafeTexture> {
-    let path = std::path::Path::new("assets/challenge_web").join(name);
+    // 原 WebView 课题界面已移除，图标改放 assets/ui_icons（不再引用 assets/challenge_web）
+    let path = std::path::Path::new("assets/ui_icons").join(name);
     let bytes = std::fs::read(path).ok()?;
     let img = image::load_from_memory(&bytes).ok()?.to_rgba8();
     let (w, h) = img.dimensions();

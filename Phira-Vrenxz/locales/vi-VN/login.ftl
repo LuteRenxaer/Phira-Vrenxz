@@ -25,8 +25,13 @@ email-sent = Bạn đã được gửi một Email xác minh, hãy xác minh nó
 
 startup-select-language = Chọn ngôn ngữ
 startup-tap-to-continue = Chạm để tiếp tục
+startup-tap-to-skip = Tap to skip
 startup-tip = Mẹo: { $tip }
 
 startup-load-failed = Khởi động thất bại
 startup-loading = Đang tải...
 
+
+srv-official = Chính thức
+
+srv-local = Địa phương

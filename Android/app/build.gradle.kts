@@ -3,13 +3,13 @@ plugins {
 }
 
 android {
-    namespace = "com.teamflos.phirlie"
+    namespace = "com.luterencai.phiravrenxz"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.teamflos.PhiraVrenxz"
+        applicationId = "com.luterencai.phiravrenxz"
         minSdk = 23
         targetSdk = 37
         versionCode = 93

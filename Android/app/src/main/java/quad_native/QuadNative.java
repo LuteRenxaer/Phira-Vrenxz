@@ -4,7 +4,7 @@ import android.app.Activity;
 import android.net.Uri;
 import android.view.Surface;
 
-import com.teamflos.phirlie.MainActivity;
+import com.luterencai.phiravrenxz.MainActivity;
 
 /**
  * Phira-Vrenxz（miniquad/macroquad 引擎）的原生桥接类。

@@ -15,3 +15,6 @@ batch-import-failed-chart = Massenimport fehlgeschlagen: { $chart }
 warning = Achtung
 warning-new-speed-event = Dieses Chart verwendet das mit RPE 1.7.0 eingeführte Easing für Geschwindigkeitsereignisse. Aus Kompatibilitätsgründen ist die Unterstützung für dieses Ereignis in Phira nicht standardmäßig aktiviert. Um sie zu nutzen, aktiviere bitte die Option „New Speed Easing“ in den Chart-Informationen.
 warning-attach-ui = Dieses Chart verwendet UI-Binding. Neuere Versionen von Phira haben eine Korrektur für das UI-Binding eingeführt; dies kann jedoch bei Charts, die auf dem alten Verhalten basieren, zu Problemen führen. Deaktiviere bei Bedarf bitte die Option „UI binding fix“ in den Chart-Informationen.
+
+import-font-success = Schriftart importiert
+import-font-failed = Schriftartimport fehlgeschlagen

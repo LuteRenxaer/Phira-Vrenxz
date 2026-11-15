@@ -12,3 +12,7 @@ info-content =
 
 cant-delete-builtin = The built-in respack can't be deleted.
 deleted = Successfully deleted.
+export = Export
+exporting = Exporting...
+exported = Successfully exported.
+cant-export-builtin = The built-in respack can't be exported.

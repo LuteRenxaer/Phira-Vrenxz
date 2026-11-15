@@ -1,11 +1,9 @@
+
 # Settings page
 settings-console-log = Console Log
 settings-console-log-desc = Show cmd console window for debug logs when enabled
 settings-vsync = VSync
 settings-vsync-desc = Limit FPS to monitor refresh rate when enabled, disable for higher FPS
-settings-achievement = Achievements
-settings-achievement-system = Achievement System
-settings-achievement-desc = View unlocked achievements and progress
 settings-open = Open
 
 # Multiplayer panel

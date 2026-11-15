@@ -12,3 +12,7 @@ info-content =
 
 cant-delete-builtin = Impossible de supprimer les textures intégrées.
 deleted = Supprimée.
+export = Exporter
+exporting = Exportation en cours...
+exported = Export réussie.
+cant-export-builtin = Impossible d'exporter les textures intégrées.

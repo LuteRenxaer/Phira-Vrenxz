@@ -3,6 +3,8 @@ login = 登录
 login-sub = 登录以加入活跃的在线社区
 back-login = 返回登录
 register = 注册
+srv-official = 官方
+srv-local = 本地
 
 email = 电子邮箱
 username = 用户名
@@ -50,7 +52,8 @@ hykb-bind-required = 该账号尚未绑定好游快爆，需要绑定后才能�
 hykb-bind-required-confirm = 绑定好游快爆
 
 startup-select-language = 选择语言
-startup-tap-to-continue = 点击屏幕以继续
+startup-tap-to-continue = 点击屏幕开始
+startup-tap-to-skip = 点击屏幕可跳过
 startup-tip = 提示：{ $tip }
 
 startup-load-failed = 启动失败

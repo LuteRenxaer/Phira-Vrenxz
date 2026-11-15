@@ -1,6 +1,4 @@
 mod challenge;
-#[cfg(target_os = "windows")]
-mod challenge_web;
 pub use challenge::ChallengePage;
 
 /// 谱面合集 l10n 容器（合集页已移除，仅保留文案供 charts_view 占位卡片使用）
@@ -496,7 +494,7 @@ impl Fader {
                     + 0.012;
             }
             if s == "PHIRA-VRENXZ" {
-                ui.text(format!("v{}", env!("CARGO_PKG_VERSION")))
+                ui.text(format!("v{}", crate::APP_VERSION))
                     .pos(x + 0.02, tp + h - 0.02)
                     .anchor(0., 1.)
                     .color(semi_white(0.4))

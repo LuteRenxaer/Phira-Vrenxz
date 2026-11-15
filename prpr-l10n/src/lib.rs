@@ -31,8 +31,8 @@ langs! {
     "tr-TR": "Türkçe",
     "vi-VN": "Tiếng Việt",
     "zh-CN": "简体中文",
-    "zh-TW": "繁體中文"
-}
+    "zh-TW": "繁體中文",
+    "lzh": "文言"}
 
 #[macro_export]
 macro_rules! fallback_langid {
@@ -51,13 +51,13 @@ pub fn set_prefered_locale(locale: Option<LanguageIdentifier>) {
     if let Some(lang) = locale.and_then(|it| map.get(&it)) {
         ids.push(*lang);
     }
+    ids.push(*map.get(&fallback_langid!()).unwrap());
     if let Some(lang) = sys_locale::get_locale()
         .and_then(|it| it.parse::<LanguageIdentifier>().ok())
         .and_then(|it| map.get(&it))
     {
         ids.push(*lang);
     }
-    ids.push(*map.get(&fallback_langid!()).unwrap());
     *GLOBAL.order.lock().unwrap() = ids;
     GENERATION.fetch_add(1, Ordering::Relaxed);
 }

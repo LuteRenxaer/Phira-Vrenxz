@@ -160,3 +160,4 @@ mp-manage-transfer = Make host
 mp-manage-kick = Kick out
 mp-manage-cancel = Cancel
 mp-room-locked = 🔒 Password
+mp-library = Chart Library

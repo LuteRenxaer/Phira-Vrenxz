@@ -182,18 +182,6 @@ pub struct SettingsPage {
     tab_anim_start: f32,
     /// 切页方向：+1 向右滑入、-1 向左滑入
     tab_anim_dir: f32,
-    /// 左上角返回键入场起点
-    back_enter_at: f32,
-    /// 返回键退场起点（Some 表示正在退场）
-    back_out_at: Option<f32>,
-    /// 返回键当前水平偏移（负 = 屏幕外）
-    back_offset: f32,
-    /// 退场时整个设置面板的水平偏移（正 = 向右滑出）
-    page_offset: f32,
-    /// 退场时设置面板透明度
-    page_alpha: f32,
-    /// 退场动画结束后请求 MainScene 弹栈
-    pop_requested: bool,
     icon: SafeTexture,
 }
 /// 屏幕横向比例 → UI 坐标
@@ -762,6 +750,7 @@ fn tab_bar(ui: &mut Ui, active: SettingListType) {
 // ---------------- 两栏设置行 ----------------
 enum Ctl<'a> {
     Switch { btn: &'a mut DRectButton, on: bool },
+    SwitchDelete { switch: &'a mut DRectButton, delete: &'a mut DRectButton, on: bool },
     /// 深色值方块（点一下弹输入/下拉/提示）
     Value { btn: &'a mut DRectButton, text: Cow<'a, str> },
     Arrow { btn: &'a mut DRectButton },
@@ -777,6 +766,15 @@ struct Row<'a> {
 }
 fn row_switch<'a>(label: impl Into<Cow<'a, str>>, sub: Option<Cow<'a, str>>, btn: &'a mut DRectButton, on: bool) -> Row<'a> {
     Row { label: label.into(), sub, ctl: Ctl::Switch { btn, on } }
+}
+fn row_switch_delete<'a>(
+    label: impl Into<Cow<'a, str>>,
+    sub: Option<Cow<'a, str>>,
+    switch: &'a mut DRectButton,
+    delete: &'a mut DRectButton,
+    on: bool,
+) -> Row<'a> {
+    Row { label: label.into(), sub, ctl: Ctl::SwitchDelete { switch, delete, on } }
 }
 fn row_value<'a>(label: impl Into<Cow<'a, str>>, sub: Option<Cow<'a, str>>, btn: &'a mut DRectButton, text: impl Into<Cow<'a, str>>) -> Row<'a> {
     Row { label: label.into(), sub, ctl: Ctl::Value { btn, text: text.into() } }
@@ -794,6 +792,7 @@ const CTL_TEXT_SIZE: f32 = 0.36;
 fn ctl_width(ui: &mut Ui, ctl: &Ctl) -> f32 {
     match ctl {
         Ctl::Switch { .. } => SIZE_SW_W,
+        Ctl::SwitchDelete { .. } => SIZE_SW_W + 0.085,
         Ctl::Value { text, .. } => {
             let w = ui.text(Cow::clone(text)).size(CTL_TEXT_SIZE).max_width(SIZE_CTL_MAX - 0.05).measure().w;
             (w + 0.05).clamp(0.09, SIZE_CTL_MAX)
@@ -831,6 +830,18 @@ fn draw_row(ui: &mut Ui, t: f32, r: Rect, row: &mut Row) {
     let cr = Rect::new(r.right() - cw, cy - SIZE_CTL_H * 0.5, cw, SIZE_CTL_H);
     match &mut row.ctl {
         Ctl::Switch { btn, on } => render_switch(ui, cr, t, btn, *on),
+        Ctl::SwitchDelete { switch, delete, on } => {
+            render_switch(ui, Rect::new(cr.x, cr.y, SIZE_SW_W, cr.h), t, switch, *on);
+            let dr = Rect::new(cr.right() - 0.07, cr.y + cr.h * 0.22, 0.07, cr.h * 0.56);
+            delete.build(ui, t, dr, |ui, _| {
+                ui.text("删除")
+                    .pos(dr.center().x, dr.center().y)
+                    .anchor(0.5, 0.5)
+                    .size(0.24)
+                    .color(Color::new(1., 0.45, 0.45, 0.95))
+                    .draw();
+            });
+        }
         Ctl::Value { btn, text } => {
             let text = Cow::clone(text);
             btn.build(ui, t, cr, |ui, _| {
@@ -1000,7 +1011,7 @@ fn render_about_page(ui: &mut Ui, t: f32, r: Rect, links: &mut [DRectButton; 4],
     let head_h = 0.30;
     crate::splash_ui::draw_logo(ui, r.x + r.w * 0.20, r.y + 0.10, 0.80, 1.0);
     ui.fill_rect(Rect::new(r.x + r.w * 0.40, r.y + 0.03, 0.0012, 0.115), semi_white(0.25));
-    ui.text(format!("Version : {}", env!("CARGO_PKG_VERSION")))
+    ui.text(format!("Version : {}", crate::APP_VERSION))
         .pos(r.x + r.w * 0.43, r.y + 0.06)
         .anchor(0., 0.5)
         .size(0.32)
@@ -1021,7 +1032,7 @@ fn render_about_page(ui: &mut Ui, t: f32, r: Rect, links: &mut [DRectButton; 4],
         }
     }
     render_grid(ui, t, Rect::new(r.x, r.y + head_h, r.w, r.h - head_h - 0.10), scroll, &mut rows, content_h, None);
-    ui.text(format!("PHIRA-VRENXZ  v{}  ·  第三方非官方客户端", env!("CARGO_PKG_VERSION")))
+    ui.text(format!("PHIRA-VRENXZ  v{}  ·  第三方非官方客户端", crate::APP_VERSION))
         .pos(r.x + r.w * 0.5, r.bottom() - 0.02)
         .anchor(0.5, 0.5)
         .size(0.26)
@@ -1053,12 +1064,6 @@ impl SettingsPage {
             ],
             tab_anim_start: f32::NEG_INFINITY,
             tab_anim_dir: 1.,
-            back_enter_at: f32::NEG_INFINITY,
-            back_out_at: None,
-            back_offset: 1.05,
-            page_offset: 0.,
-            page_alpha: 1.,
-            pop_requested: false,
             icon,
         }
     }
@@ -1105,14 +1110,8 @@ impl Page for SettingsPage {
         }
         Ok(())
     }
-    fn on_back_pressed(&mut self, s: &mut SharedState) -> bool {
-        if self.back_out_at.is_none() {
-            self.back_out_at = Some(s.t);
-        }
-        true
-    }
-    fn take_pop_request(&mut self) -> bool {
-        std::mem::take(&mut self.pop_requested)
+    fn on_back_pressed(&mut self, _s: &mut SharedState) -> bool {
+        false
     }
     fn touch(&mut self, touch: &Touch, s: &mut SharedState) -> Result<bool> {
         // 调色板是模态层：打开时优先吃掉所有输入，避免点到后面的标签/按钮。
@@ -1222,38 +1221,11 @@ impl Page for SettingsPage {
         }
         Ok(false)
     }
-    fn enter(&mut self, s: &mut SharedState) -> Result<()> {
-        self.back_enter_at = s.t;
-        self.back_out_at = None;
-        self.pop_requested = false;
-        self.back_offset = 1.05;
-        self.page_offset = 1.05;
-        self.page_alpha = 0.;
+    fn enter(&mut self, _s: &mut SharedState) -> Result<()> {
         Ok(())
     }
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         let t = s.t;
-        // 返回键：入场从屏幕外滑入；退场滑出屏幕后请求弹栈。
-        const BACK_ANIM: f32 = 0.35;
-        if let Some(out) = self.back_out_at {
-            let p = ((t - out) / BACK_ANIM).clamp(0., 1.);
-            let eased = 1. - (1. - p).powi(3);
-            self.back_offset = -0.35 * eased;
-            self.page_offset = 1.05 * eased;
-            self.page_alpha = (1. - eased).max(0.);
-            if p >= 1. {
-                self.back_offset = -0.35;
-                self.page_offset = 1.05;
-                self.page_alpha = 0.;
-                self.pop_requested = true;
-            }
-        } else {
-            let p = ((t - self.back_enter_at) / BACK_ANIM).clamp(0., 1.);
-            let eased = 1. - (1. - p).powi(3);
-            self.back_offset = 1.05 * (1. - eased);
-            self.page_offset = 1.05 * (1. - eased);
-            self.page_alpha = eased;
-        }
         // 插件导入：文件选择器回来后在设置页统一处理（导入 + 刷新列表 + 提示）
         if let Some((id, file)) = take_file() {
             if id == "_import_plugin" {
@@ -1295,9 +1267,6 @@ impl Page for SettingsPage {
     fn render(&mut self, ui: &mut Ui, s: &mut SharedState) -> Result<()> {
         let t = s.t;
         s.fader.render(ui, s.t, |ui| {
-            ui.dx(self.page_offset);
-            let old_ui_alpha = ui.alpha;
-            ui.alpha *= self.page_alpha;
             // 背景由 MainScene 统一绘制（与主页同一套底板），这里只画设置页自己的内容。
             let top = ui.top;
             // 大背板：保持 15° 斜切，右上角留在屏幕内
@@ -1395,12 +1364,9 @@ impl Page for SettingsPage {
             if self.tab != SettingListType::Chart {
                 self.list_chart.render_top(ui, t);
             }
-            ui.alpha = old_ui_alpha;
-            ui.dx(-self.page_offset);
+            draw_settings_back(ui, 0.);
             Ok::<(), anyhow::Error>(())
         })?;
-        // 返回键与面板分离：面板向右淡出，返回键单独向左滑出。
-        draw_settings_back(ui, self.back_offset);
         Ok(())
     }
     /// 教学谱面等 Overlay 场景失败退出时（NextScene::PopWithResult），
@@ -3150,19 +3116,38 @@ impl DebugList {
     }
 }
 /// 设置页「插件」标签：插件开关 / 导入 / 重扫全部在这一页里完成（不再跳独立页）
+fn key_setting(key: &str) -> serde_json::Value {
+    crate::plugins::installed().ok()
+        .and_then(|l| l.into_iter().find(|p| p.manifest.id == "phira-vrenxz.keydisplay"))
+        .and_then(|p| p.settings.get(key).cloned())
+        .unwrap_or(serde_json::Value::Null)
+}
+fn set_key_setting(key: &str, value: serde_json::Value) -> anyhow::Result<()> {
+    let p = crate::plugins::installed()?.into_iter().find(|p| p.manifest.id == "phira-vrenxz.keydisplay")
+        .ok_or_else(|| anyhow::anyhow!("按键显示插件未安装"))?;
+    let mut s = p.settings.clone();
+    if let Some(obj) = s.as_object_mut() { obj.insert(key.to_string(), value); }
+    crate::plugins::change("phira-vrenxz.keydisplay", None, Some(s), false)
+}
 struct PluginList {
     plugins: Vec<crate::plugin::Plugin>,
     plugin_btns: Vec<DRectButton>,
+    delete_btns: Vec<DRectButton>,
     import_btn: DRectButton,
     refresh_btn: DRectButton,
+    setting_btns: Vec<DRectButton>,
+    setting_items: Vec<(String, String, serde_json::Value)>,
 }
 impl PluginList {
     pub fn new() -> Self {
         let mut this = Self {
             plugins: Vec::new(),
             plugin_btns: Vec::new(),
+            delete_btns: Vec::new(),
             import_btn: DRectButton::new(),
             refresh_btn: DRectButton::new(),
+            setting_btns: Vec::new(),
+            setting_items: Vec::new(),
         };
         this.refresh_plugins();
         this
@@ -3171,6 +3156,18 @@ impl PluginList {
     pub fn refresh_plugins(&mut self) {
         self.plugins = crate::plugin::load_plugins();
         self.plugin_btns = (0..self.plugins.len()).map(|_| DRectButton::new()).collect();
+        self.delete_btns = (0..self.plugins.len()).map(|_| DRectButton::new()).collect();
+        self.setting_items.clear();
+        if let Ok(list) = crate::plugins::installed() {
+            for p in list.into_iter().filter(|p| p.enabled) {
+                if let Some(obj) = p.settings.as_object() {
+                    for (k, v) in obj {
+                        self.setting_items.push((p.manifest.id.clone(), k.clone(), v.clone()));
+                    }
+                }
+            }
+        }
+        self.setting_btns = (0..self.setting_items.len()).map(|_| DRectButton::new()).collect();
     }
 
     pub fn update(&mut self, _t: f32) -> Result<bool> {
@@ -3181,11 +3178,48 @@ impl PluginList {
             request_file("_import_plugin");
             return Ok(Some(false));
         }
+        for i in 0..self.setting_btns.len() {
+            if self.setting_btns[i].touch(touch, t) {
+                if let Some((id, key, val)) = self.setting_items.get(i).cloned() {
+                    let next = match &val {
+                        serde_json::Value::Bool(b) => serde_json::json!(!b),
+                        serde_json::Value::Number(n) => serde_json::json!(((n.as_f64().unwrap_or(0.) + 0.1) % 1.0).max(0.05)),
+                        serde_json::Value::String(s) if s.starts_with('#') => {
+                            const COLORS: [&str; 5] = ["#4C84FF", "#FF4C6A", "#4CFF9E", "#FFC24C", "#C14CFF"];
+                            let idx = COLORS.iter().position(|c| *c == s).unwrap_or(0);
+                            serde_json::json!(COLORS[(idx + 1) % COLORS.len()])
+                        }
+                        _ => val.clone(),
+                    };
+                    if let Ok(mut list) = crate::plugins::installed() {
+                        if let Some(p) = list.iter_mut().find(|p| p.manifest.id == id) {
+                            if let Some(obj) = p.settings.as_object_mut() { obj.insert(key.clone(), next.clone()); }
+                            let settings = p.settings.clone();
+                            let _ = crate::plugins::change(&id, None, Some(settings), false);
+                            self.setting_items[i].2 = next;
+                        }
+                    }
+                }
+                return Ok(Some(true));
+            }
+        }
         if self.refresh_btn.touch(touch, t) {
             self.refresh_plugins();
             let n = self.plugins.len();
             show_message(format!("已重扫插件目录（{n} 个插件）")).ok();
             return Ok(Some(false));
+        }
+        for i in 0..self.delete_btns.len() {
+            if self.delete_btns[i].touch(touch, t) {
+                if let Some(p) = self.plugins.get(i) {
+                    let name = p.info.name.clone();
+                    match crate::plugin::delete_plugin(p) {
+                        Ok(()) => { show_message(format!("已删除插件：{name}")).ok(); self.refresh_plugins(); }
+                        Err(err) => { show_error(err); }
+                    }
+                }
+                return Ok(Some(true));
+            }
         }
         for i in 0..self.plugin_btns.len() {
             if self.plugin_btns[i].touch(touch, t) {
@@ -3193,6 +3227,7 @@ impl PluginList {
                     let info = p.info.clone();
                     let target = !p.enabled();
                     let _ = crate::plugin::set_plugin_enabled(&info, target);
+                    self.refresh_plugins();
                 }
                 return Ok(Some(true));
             }
@@ -3215,7 +3250,8 @@ impl PluginList {
         {
             let plugins = &self.plugins;
             let btns = &mut self.plugin_btns;
-            for (p, b) in plugins.iter().zip(btns.iter_mut()) {
+            let del_btns = &mut self.delete_btns;
+            for ((p, b), del) in plugins.iter().zip(btns.iter_mut()).zip(del_btns.iter_mut()) {
                 let mut sub = format!("v{} by {}", p.info.version, p.info.author);
                 if !p.entry_ok {
                     sub.push_str(" · 入口异常");
@@ -3225,7 +3261,19 @@ impl PluginList {
                 }
                 let name = p.info.name.clone();
                 let enabled = p.enabled();
-                v.push(row_switch(name, Some(sub.into()), b, enabled));
+                v.push(row_switch_delete(name.clone(), Some(sub.into()), b, del, enabled));
+            }
+            let items = &self.setting_items;
+            let sbtns = &mut self.setting_btns;
+            for ((id, key, val), b) in items.iter().zip(sbtns.iter_mut()) {
+                let pname = plugins.iter().find(|p| p.pro_id.as_deref() == Some(id)).map(|p| p.info.name.as_str()).unwrap_or(id);
+                let shown = match val {
+                    serde_json::Value::Bool(v) => if *v { "开".to_string() } else { "关".to_string() },
+                    serde_json::Value::Number(n) => format!("{:.0}%", n.as_f64().unwrap_or(0.) * 100.),
+                    serde_json::Value::String(s) => s.clone(),
+                    _ => val.to_string(),
+                };
+                v.push(row_value(format!("{pname} · {key}"), None, b, shown));
             }
             if plugins.is_empty() {
                 v.push(Row {

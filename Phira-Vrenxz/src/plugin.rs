@@ -74,11 +74,17 @@ pub struct Plugin {
     pub entry_ok: bool,
     /// 入口异常说明（entry_ok 为 false 时）
     pub entry_error: Option<String>,
+    /// 若来自 Phira Pro 插件运行时，对应 manifest.id
+    pub pro_id: Option<String>,
+    pub pro_enabled: bool,
 }
 
 impl Plugin {
     /// 插件当前是否启用（插件管理页开关控制）。
     pub fn enabled(&self) -> bool {
+        if self.pro_id.is_some() {
+            return self.pro_enabled;
+        }
         let data = crate::get_data();
         !data.disabled_plugins.iter().any(|n| n == &self.info.name)
     }
@@ -90,10 +96,47 @@ const ENTRY_EXTS: &[&str] = &["rs", "json", "py", "js", "ts", "txt", "yml", "yam
 /// 扫描 exe 所在目录下的 `plugins\` 目录并加载全部插件。
 /// plugins 目录不存在或不可读时返回空列表。
 pub fn load_plugins() -> Vec<Plugin> {
-    let Some(dir) = plugins_dir() else {
-        return Vec::new();
-    };
-    load_plugins_from(&dir)
+    let mut out = plugins_dir().map(|dir| load_plugins_from(&dir)).unwrap_or_default();
+    if let Ok(list) = crate::plugins::installed() {
+        for p in list {
+            if out.iter().any(|it| it.pro_id.as_deref() == Some(&p.manifest.id)) {
+                continue;
+            }
+            let dir = plugins_dir().unwrap_or_default();
+            out.push(Plugin {
+                info: PluginInfo {
+                    name: p.manifest.name.clone(),
+                    version: p.manifest.version.clone(),
+                    author: p.manifest.author.clone(),
+                    description: p.manifest.description.clone(),
+                    plugin_type: Some("general".into()),
+                    supported_version_list: vec![],
+                    main_folder_name: None,
+                    assets_folder_name: None,
+                },
+                dir: dir.clone(),
+                main_dir: dir.clone(),
+                assets_dir: dir,
+                entry_files: vec![],
+                entry_ok: true,
+                entry_error: None,
+                pro_id: Some(p.manifest.id),
+                pro_enabled: p.enabled,
+            });
+        }
+    }
+    out
+}
+
+pub fn delete_plugin(plugin: &Plugin) -> Result<()> {
+    if let Some(id) = &plugin.pro_id {
+        crate::plugins::change(id, None, None, true)?;
+        return Ok(());
+    }
+    if plugin.dir.exists() {
+        fs::remove_dir_all(&plugin.dir)?;
+    }
+    Ok(())
 }
 
 /// exe 所在目录下的 plugins 目录路径（不存在时返回 None）
@@ -124,13 +167,31 @@ pub fn load_plugins_from(dir: &Path) -> Vec<Plugin> {
 /// 加载单个插件目录；返回 None 表示该目录不是有效插件（损坏 / 缺 info.json）
 fn load_plugin(dir: &Path) -> Option<Plugin> {
     let info_path = dir.join("info.json");
-    let raw = fs::read_to_string(&info_path).ok()?;
-    // 兼容 Windows 记事本 / PowerShell 写出的带 UTF-8 BOM 的 info.json
-    let raw = raw.trim_start_matches('\u{feff}');
-    let info: PluginInfo = serde_json::from_str(raw).ok()?;
+    let (info, main_name, assets_name) = if info_path.exists() {
+        let raw = fs::read_to_string(&info_path).ok()?;
+        let raw = raw.trim_start_matches('\u{feff}');
+        let info: PluginInfo = serde_json::from_str(raw).ok()?;
+        let mn = info.main_folder_name().to_string(); let an = info.assets_folder_name().to_string(); (info, mn, an)
+    } else {
+        // PVN 格式：About.json + code/main.json + assets/
+        let about = dir.join("About.json");
+        let raw = fs::read_to_string(&about).ok()?;
+        let v: serde_json::Value = serde_json::from_str(raw.trim_start_matches('\u{feff}')).ok()?;
+        let info = PluginInfo {
+            name: v.get("name").and_then(|x| x.as_str()).unwrap_or("PVN Plugin").to_string(),
+            version: v.get("version").and_then(|x| x.as_str()).unwrap_or("0").to_string(),
+            author: v.get("author").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            description: v.get("description").and_then(|x| x.as_str()).unwrap_or("PVN 插件").to_string(),
+            plugin_type: Some("pvn".into()),
+            supported_version_list: vec![],
+            main_folder_name: None,
+            assets_folder_name: None,
+        };
+        (info, "code".to_string(), "assets".to_string())
+    };
 
-    let main_dir = dir.join(info.main_folder_name());
-    let assets_dir = dir.join(info.assets_folder_name());
+    let main_dir = dir.join(&main_name);
+    let assets_dir = dir.join(&assets_name);
 
     // 收集主文件夹下入口文件：存在且可读取文本才算有效
     let mut entry_files = Vec::new();
@@ -170,11 +231,20 @@ fn load_plugin(dir: &Path) -> Option<Plugin> {
         entry_files,
         entry_ok,
         entry_error,
+        pro_id: None,
+        pro_enabled: false,
     })
 }
 
 /// 设置插件启用状态并持久化到 data.json（插件管理页开关调用）。
 pub fn set_plugin_enabled(info: &PluginInfo, enabled: bool) -> Result<()> {
+    if let Ok(list) = crate::plugins::installed() {
+        if let Some(p) = list.into_iter().find(|p| p.manifest.name == info.name) {
+            let r = crate::plugins::change(&p.manifest.id, Some(enabled), None, false);
+            crate::plugins::reload();
+            return r;
+        }
+    }
     {
         let data = crate::get_data_mut();
         if enabled {
@@ -219,6 +289,112 @@ fn sanitize_dir_name(name: &str) -> String {
 pub fn import_plugin_archive(path: &Path) -> Result<Plugin> {
     let file = fs::File::open(path).with_context(|| format!("打开插件包失败：{}", path.display()))?;
     let mut archive = ZipArchive::new(file).context("插件包不是有效的 zip / pvn 容器")?;
+
+    // PVN 框架：info.json + main/main.rs + assets。main.rs 作为 Rhai 脚本执行。
+    {
+        let mut info_raw = None;
+        let mut script = None;
+        for i in 0..archive.len() {
+            let Ok(mut entry) = archive.by_index(i) else { continue };
+            let name = entry.name().replace('\\', "/");
+            if name == "info.json" || name.ends_with("/info.json") {
+                let mut raw = String::new();
+                use std::io::Read;
+                if entry.read_to_string(&mut raw).is_ok() { info_raw = Some(raw); }
+            } else if name == "main/main.rs" || name.ends_with("/main/main.rs") {
+                let mut raw = String::new();
+                use std::io::Read;
+                if entry.read_to_string(&mut raw).is_ok() { script = Some(raw); }
+            }
+        }
+        if let (Some(info_raw), Some(script)) = (info_raw, script) {
+            let v: serde_json::Value = serde_json::from_str(info_raw.trim_start_matches('\u{feff}')).unwrap_or_default();
+            let name = v.get("name").and_then(|x| x.as_str()).unwrap_or("PVN Plugin").to_string();
+            let version = v.get("version").and_then(|x| x.as_str()).unwrap_or("0").to_string();
+            let author = v.get("author").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let description = v.get("description").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let slug = name.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_lowercase();
+            let id = if slug.is_empty() { "pvn.keydisplay".to_string() } else { format!("pvn.{slug}") };
+            let manifest = serde_json::json!({
+                "api": 3, "id": id, "name": name, "version": version, "author": author,
+                "description": description, "permissions": ["overlay.draw"],
+                "settings": {"color": 5002495u64, "background": 0.62, "opacity": 1.0},
+                "assets": {}, "assetFiles": {}
+            });
+            let tmp = std::env::temp_dir().join(format!("pvn-{}.zip", std::process::id()));
+            {
+                use std::io::Write;
+                let mut z = zip::ZipWriter::new(fs::File::create(&tmp)?);
+                let opt = zip::write::SimpleFileOptions::default();
+                z.start_file("manifest.json", opt)?;
+                z.write_all(serde_json::to_string(&manifest)?.as_bytes())?;
+                z.start_file("main.rhai", opt)?;
+                z.write_all(script.as_bytes())?;
+                z.finish()?;
+            }
+            drop(archive);
+            crate::plugins::import(&tmp)?;
+            crate::plugins::change(&id, Some(true), None, false)?;
+            let _ = fs::remove_file(&tmp);
+            let dir = ensure_plugins_dir()?.join(sanitize_dir_name(&name));
+            return Ok(Plugin { info: PluginInfo { name, version, author, description, plugin_type: Some("pvn".into()), supported_version_list: vec![], main_folder_name: None, assets_folder_name: None }, dir: dir.clone(), main_dir: dir.clone(), assets_dir: dir, entry_files: vec![], entry_ok: true, entry_error: None, pro_id: Some(id), pro_enabled: true });
+        }
+    }
+
+    // Phira Pro 格式（manifest.json + main.rhai）：交给新插件运行时导入。
+    let mut pro_manifest = None;
+    for i in 0..archive.len() {
+        let Ok(mut entry) = archive.by_index(i) else { continue };
+        let name = entry.name().replace('\\', "/");
+        if name == "manifest.json" || name.ends_with("/manifest.json") {
+            let mut raw = String::new();
+            use std::io::Read;
+            if entry.read_to_string(&mut raw).is_ok() {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    if v.get("api").is_some() && v.get("id").is_some() {
+                        pro_manifest = Some(v);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if let Some(v) = pro_manifest {
+        let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("phira-pro.ppsr").to_string();
+        let name = v.get("name").and_then(|x| x.as_str()).unwrap_or("Phira Pro Plugin").to_string();
+        let version = v.get("version").and_then(|x| x.as_str()).unwrap_or("0").to_string();
+        let author = v.get("author").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let description = v.get("description").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        drop(archive);
+        let already = crate::plugins::installed().map(|l| l.iter().any(|p| p.manifest.id == id)).unwrap_or(false);
+        if already {
+            crate::plugins::change(&id, Some(true), None, false)?;
+        } else {
+            crate::plugins::import(path)?;
+            crate::plugins::change(&id, Some(true), None, false)?;
+        }
+        let dir = ensure_plugins_dir()?.join(sanitize_dir_name(&name));
+        return Ok(Plugin {
+            info: PluginInfo {
+                name,
+                version,
+                author,
+                description,
+                plugin_type: Some("general".into()),
+                supported_version_list: vec![],
+                main_folder_name: None,
+                assets_folder_name: None,
+            },
+            dir: dir.clone(),
+            main_dir: dir.clone(),
+            assets_dir: dir.clone(),
+            entry_files: vec![],
+            entry_ok: true,
+            entry_error: None,
+            pro_id: Some(id.clone()),
+            pro_enabled: true,
+        });
+    }
 
     // 所有条目都在同一个顶层目录下时，去掉这一层外壳
     let single_root = {

@@ -25,8 +25,13 @@ email-sent = Veuillez vérifier votre boîte de réception pour un e-mail d'acti
 
 startup-select-language = Choisir la langue
 startup-tap-to-continue = Appuyez pour continuer
+startup-tap-to-skip = Tap to skip
 startup-tip = Astuce : { $tip }
 
 startup-load-failed = Échec du démarrage
 startup-loading = Chargement...
 
+
+srv-official = Officiel
+
+srv-local = Local

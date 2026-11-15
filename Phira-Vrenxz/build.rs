@@ -14,6 +14,14 @@ fn git_stdout(args: &[&str]) -> Option<String> {
 fn main() {
     dotenv_build::output(dotenv_build::Config::default()).unwrap();
 
+    #[cfg(windows)]
+    {
+        // icon.ico 变了也要重新跑：embed_resource 只盯着 icons.rc，改了 ico 不 touch rc 的话
+        // 会继续用旧图标（Windows 上表现为"图标被锁死"）。
+        println!("cargo:rerun-if-changed=icon.ico");
+        embed_resource::compile("icons.rc", embed_resource::NONE);
+    }
+
     let git_dir = git_stdout(&["rev-parse", "--git-dir"]).unwrap_or_else(|| ".git".to_string());
     println!("cargo:rerun-if-changed={}/HEAD", git_dir);
     println!("cargo:rerun-if-changed={}/packed-refs", git_dir);

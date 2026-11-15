@@ -47,8 +47,13 @@ hykb-bind-required-confirm = 綁定好遊快爆
 
 startup-select-language = 選擇語言
 startup-tap-to-continue = 點擊螢幕以繼續
+startup-tap-to-skip = 點擊螢幕可跳過
 startup-tip = 提示：{ $tip }
 
 startup-load-failed = 啟動失敗
 startup-loading = 載入中...
 
+
+srv-official = 官方
+
+srv-local = 本地

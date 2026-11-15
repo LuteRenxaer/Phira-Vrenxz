@@ -25,8 +25,13 @@ email-sent = Bir doğrulama e-postası gönderildi. Lütfen hesabınızı doğru
 
 startup-select-language = Dil Seç
 startup-tap-to-continue = Devam etmek için dokunun
+startup-tap-to-skip = Tap to skip
 startup-tip = İpucu: { $tip }
 
 startup-load-failed = Başlatma başarısız
 startup-loading = Yükleniyor...
 
+
+srv-official = Resmi
+
+srv-local = Yerel

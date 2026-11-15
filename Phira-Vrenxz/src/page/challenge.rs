@@ -15,12 +15,8 @@ use prpr::{
 use crate::scene::SongScene;
 use std::{
     borrow::Cow,
-    collections::VecDeque,
     sync::{Arc, Mutex},
 };
-
-#[cfg(target_os = "windows")]
-use super::challenge_web::{cover_cache_url, lookup_main_hwnd, focus_main, WebBridge, IpcQueue};
 
 /// 课题模式页面（普通课题 / Re:课题 / HP 血量模式）
 pub struct ChallengePage {
@@ -59,20 +55,13 @@ pub struct ChallengePage {
     // 启动任务
     launch_task: LocalTask<Result<NextScene>>,
     sf: SFader,
+    auto_started: bool,
 
     // 挑战会话
     session: Option<Arc<Mutex<ChallengeSession>>>,
     result_text: Option<String>,
     start_time: f32,
     entering: bool,
-
-    // WebView2 桥接（仿 launcher 方式承载 HTML 界面，Windows 专用）
-    #[cfg(target_os = "windows")]
-    web: Option<WebBridge>,
-    #[cfg(target_os = "windows")]
-    ipc: IpcQueue,
-    #[cfg(target_os = "windows")]
-    web_attempted: bool,
 }
 
 const HP_MAX_OPTIONS: [f32; 5] = [1., 20., 50., 100., 200.];
@@ -103,17 +92,50 @@ impl ChallengePage {
             start_btn: DRectButton::new().with_delta(-0.004),
             launch_task: None,
             sf: SFader::new(),
+            auto_started: false,
             session: None,
             result_text: None,
             start_time: f32::NAN,
             entering: true,
-            #[cfg(target_os = "windows")]
-            web: None,
-            #[cfg(target_os = "windows")]
-            ipc: Arc::new(Mutex::new(VecDeque::new())),
-            #[cfg(target_os = "windows")]
-            web_attempted: false,
         })
+    }
+
+    /// 带预选谱面构造课题页：按传入顺序填进普通课题的三个槽位。
+    ///
+    /// 用于「谱面库里选 3 首后开始课题」的流程；原有的
+    /// [`ChallengePage::new`] 语义保持不变（空槽位、左侧列表自选）。
+    pub fn new_with_selection(
+        icons: Arc<Icons>,
+        charts: Vec<ChartItem>,
+        selection: Vec<ChartItem>,
+    ) -> Result<Self> {
+        let mut page = Self::new(icons, charts)?;
+        page.apply_selection(selection);
+        Ok(page)
+    }
+
+    /// 把已选谱面按顺序填入槽位；不在列表里的谱面追加到列表末尾。
+    pub fn apply_selection(&mut self, selection: Vec<ChartItem>) {
+        self.slots.clear();
+        for item in selection {
+            let index = match self.charts.iter().position(|it| Self::same_chart(it, &item)) {
+                Some(index) => index,
+                None => {
+                    self.charts.push(item);
+                    self.charts.len() - 1
+                }
+            };
+            if !self.slots.contains(&index) {
+                self.slots.push(index);
+            }
+        }
+    }
+
+    fn same_chart(a: &ChartItem, b: &ChartItem) -> bool {
+        if a.local_path.is_some() && a.local_path == b.local_path {
+            return true;
+        }
+        matches!((a.info.id, b.info.id), (Some(x), Some(y)) if x == y)
     }
 
     fn add_slot(&mut self, idx: usize) {
@@ -121,7 +143,7 @@ impl ChallengePage {
             return;
         }
         if !self.re && self.slots.len() >= 3 {
-            show_message("普通课题最多选择 3 张谱面").warn();
+            show_message("普通课题最多选择 9 张谱面").warn();
             return;
         }
         self.slots.push(idx);
@@ -276,36 +298,21 @@ impl ChallengePage {
         Rect::new(x, 0.14 - row as f32 * 0.13, w, 0.1)
     }
 
-    /// 开始挑战（供原生按钮与 Web IPC 共用）
-    #[cfg(target_os = "windows")]
-    fn start_challenge(&mut self) -> bool {
-        if (!self.re && self.slots.len() != 3) || (self.re && self.slots.is_empty()) {
-            let msg = if self.re {
-                "Re:课题至少选择 1 张谱面"
-            } else {
-                "普通课题需要选择 3 张谱面"
-            };
-            if self.web.is_some() {
-                if let Some(web) = self.web.as_mut() {
-                    web.toast(msg);
-                }
-            } else {
-                show_message(msg).warn();
-            }
-            return false;
-        }
-        self.session = None;
-        self.result_text = None;
-        if let Err(err) = self.start_round(0) {
-            show_error(err);
-            return false;
-        }
-        true
+    /// 开始挑战（原生玻璃 UI 按钮）
+    pub fn set_hp(&mut self, on: bool, idx: usize, lose: HpLoseCondition) {
+        self.hp_on = on;
+        self.hp_idx = idx.min(HP_MAX_OPTIONS.len() - 1);
+        self.hp_lose = lose;
     }
 
-    #[cfg(not(target_os = "windows"))]
+    /// 由谱面库直接开始课题时调用：不显示课题页，下一次 next_scene 直接进游戏。
+    pub fn start_now(&mut self) -> bool {
+        self.auto_started = true;
+        self.start_challenge()
+    }
+
     fn start_challenge(&mut self) -> bool {
-        if (!self.re && self.slots.len() != 3) || (self.re && self.slots.is_empty()) {
+        if (!self.re && self.slots.len() < 3) || (self.re && self.slots.is_empty()) {
             show_message(if self.re {
                 "Re:课题至少选择 1 张谱面"
             } else {
@@ -322,410 +329,6 @@ impl ChallengePage {
         }
         true
     }
-
-    /// 多级探测 assets/challenge_web 目录：优先当前工作目录，其次 exe 所在目录，
-    /// 逐级上溯最多 5 层（覆盖双击 target/release 下 exe、IDE 运行、项目根启动等场景）。
-    #[cfg(target_os = "windows")]
-    fn find_challenge_web_dir() -> Option<std::path::PathBuf> {
-        let mut bases: Vec<std::path::PathBuf> = Vec::new();
-        if let Ok(cwd) = std::env::current_dir() {
-            bases.push(cwd);
-        }
-        if let Some(exe_dir) = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        {
-            bases.push(exe_dir);
-        }
-        let mut seen = std::collections::HashSet::new();
-        for base in bases {
-            let mut cur = base;
-            for _ in 0..=5 {
-                let dir = cur.join("assets").join("challenge_web");
-                if !seen.contains(&dir) && dir.join("challenge_ui.html").is_file() {
-                    return Some(dir);
-                }
-                seen.insert(dir);
-                if !cur.pop() {
-                    break;
-                }
-            }
-        }
-        None
-    }
-
-    #[cfg(target_os = "windows")]
-    fn ensure_web(&mut self) {
-        if self.web.is_some() {
-            return;
-        }
-        if self.web_attempted {
-            return;
-        }
-        self.web_attempted = true;
-        let Some(hwnd) = lookup_main_hwnd("Phira-Vrenxz") else {
-            show_message("未找到游戏窗口，跳过 WebView").warn();
-            return;
-        };
-        // 优先用真实 HTML（assets/challenge_web/），失败回退内嵌 HTML
-        let result = if let Some(dir) = Self::find_challenge_web_dir() {
-            WebBridge::new_from_dir(hwnd, &dir, self.ipc.clone())
-        } else {
-            #[cfg(target_os = "windows")]
-            eprintln!(
-                "[challenge_web] 未找到 assets/challenge_web/challenge_ui.html，回退内嵌 HTML"
-            );
-            let html = include_str!("challenge_ui.html");
-            WebBridge::new(hwnd, html, self.ipc.clone())
-        };
-        match result {
-            Ok(w) => {
-                self.web = Some(w);
-                self.push_state();
-            }
-            Err(err) => {
-                show_message(format!("WebView 启动失败：{err}")).warn();
-            }
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    fn push_state(&mut self) {
-        let Some(web) = self.web.as_mut() else { return };
-        let charts: Vec<serde_json::Value> = self
-            .charts
-            .iter()
-            .enumerate()
-            .map(|(i, c)| {
-                serde_json::json!({
-                    "i": i,
-                    "name": if c.info.name.is_empty() { "--" } else { &c.info.name },
-                    "diff": c.info.difficulty,
-                })
-            })
-            .collect();
-        let hp_val = match self.hp_lose {
-            HpLoseCondition::BadOrMiss => "badmiss",
-            HpLoseCondition::NonPerfect => "nonperfect",
-        };
-        let state = serde_json::json!({
-            "re": self.re,
-            "hp": self.hp_on,
-            "hpIdx": self.hp_idx,
-            "hpVal": hp_val,
-            "judgeP": self.judge.0,
-            "judgeG": self.judge.1,
-            "judgeB": self.judge.2,
-            "charts": charts,
-            "slots": self.slots,
-            "result_text": self.result_text,
-        });
-        web.push_state(&state.to_string());
-    }
-
-    #[cfg(target_os = "windows")]
-    fn handle_web_msg(&mut self, msg: &str) {
-        let v: serde_json::Value = serde_json::from_str(msg).unwrap_or(serde_json::Value::Null);
-        let Some(t) = v.get("t").and_then(|x| x.as_str()) else {
-            return;
-        };
-        match t {
-            "log" => {
-                let m = v.get("m").and_then(|x| x.as_str()).unwrap_or("");
-                eprintln!("[web-log] {}", m);
-            }
-            "ready" => self.push_state(),
-            "add" => {
-                if let Some(i) = v.get("i").and_then(|x| x.as_u64()) {
-                    self.add_slot(i as usize);
-                }
-                self.push_state();
-            }
-            "remove" => {
-                if let Some(i) = v.get("i").and_then(|x| x.as_u64()) {
-                    let idx = i as usize;
-                    if idx < self.slots.len() {
-                        self.slots.remove(idx);
-                    }
-                }
-                self.push_state();
-            }
-            "re" => {
-                self.re = !self.re;
-                self.slots.clear();
-                self.push_state();
-            }
-            "hp" => {
-                self.hp_on = !self.hp_on;
-                self.push_state();
-            }
-            "hp_val" => {
-                self.hp_idx = (self.hp_idx + 1) % HP_MAX_OPTIONS.len();
-                self.push_state();
-            }
-            "hp_cond" => {
-                self.hp_lose = match self.hp_lose {
-                    HpLoseCondition::BadOrMiss => HpLoseCondition::NonPerfect,
-                    HpLoseCondition::NonPerfect => HpLoseCondition::BadOrMiss,
-                };
-                self.push_state();
-            }
-            "judge" => {
-                let get = |k: &str| {
-                    v.get(k)
-                        .and_then(|x| x.as_u64())
-                        .map(|x| x.min(300) as u32)
-                        .unwrap_or(0)
-                };
-                self.judge = (get("p"), get("g"), get("b"));
-                self.push_state();
-            }
-            "undo" => {
-                if !self.slots.is_empty() {
-                    self.slots.pop();
-                }
-                self.push_state();
-            }
-            "clear" => {
-                self.slots.clear();
-                self.push_state();
-            }
-            "start" => {
-                self.start_challenge();
-            }
-            "back" => {
-                self.next_page = Some(NextPage::Pop);
-            }
-            // 真实 HTML（Tauri-like）桥接协议
-            "phirc" => {
-                let id = v.get("id").and_then(|x| x.as_u64());
-                let cmd = v.get("cmd").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                let args = v.get("args").cloned().unwrap_or(serde_json::Value::Null);
-                if let Some(id) = id {
-                    self.handle_phirc(id, &cmd, &args);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// 处理真实 HTML 页面的 phirc 协议命令（Tauri-like Promise API）
-    #[cfg(target_os = "windows")]
-    fn handle_phirc(&mut self, id: u64, cmd: &str, args: &serde_json::Value) {
-        let charts_json = || -> String {
-            let charts: Vec<serde_json::Value> = self
-                .charts
-                .iter()
-                .map(|c| {
-                    // 封面：本地缩略图存在才给出 URL，否则 HTML 回退默认图
-                    let cover = c
-                        .local_path
-                        .as_deref()
-                        .and_then(cover_cache_url)
-                        .unwrap_or_default();
-                    serde_json::json!({
-                        "name": if c.info.name.is_empty() { "--" } else { &c.info.name },
-                        "composer": c.info.composer,
-                        "charter": c.info.charter,
-                        "level": c.info.level,
-                        "difficulty": c.info.difficulty,
-                        "path": c.local_path.clone().unwrap_or_default(),
-                        "local": c.local_path.is_some(),
-                        "id": c.info.id,
-                        "coverBig": cover,
-                        "cover": cover,
-                        "record": serde_json::Value::Null,
-                    })
-                })
-                .collect();
-            serde_json::to_string(&charts).unwrap_or_else(|_| "[]".to_string())
-        };
-
-        let resolve = |web: &mut Option<WebBridge>, err: Option<&str>, data: &str| {
-            if let Some(web) = web.as_mut() {
-                web.resolve(id, err, data);
-            }
-        };
-
-        match cmd {
-            "log" => {
-                let m = args.get("msg").and_then(|x| x.as_str()).unwrap_or("");
-                eprintln!("[web-log] {}", m);
-                resolve(&mut self.web, None, "null");
-            }
-            "listCharts" => {
-                let s = charts_json();
-                {
-                    let v: serde_json::Value = serde_json::from_str(&s).unwrap_or_default();
-                    let arr = v.as_array().map(|a| a.len()).unwrap_or(0);
-                    let sample = v
-                        .as_array()
-                        .and_then(|a| a.first())
-                        .map(|x| x.get("cover").and_then(|c| c.as_str()).unwrap_or("").to_string())
-                        .unwrap_or_default();
-                    eprintln!("[listCharts] count={} first_cover=\"{}\" s_head={}", arr, sample, s.chars().take(200).collect::<String>());
-                }
-                resolve(&mut self.web, None, &s);
-            }
-            "listLanguages" => {
-                let s = r#"{"current":"zh-CN","languages":[{"code":"zh-CN","name":"简体中文"},{"code":"en-US","name":"English"}]}"#;
-                resolve(&mut self.web, None, s);
-            }
-            "listOnlineCharts" => {
-                resolve(&mut self.web, None, r#"{"charts":[],"total_page":0}"#);
-            }
-            "startGame" => {
-                let path = args.get("path").and_then(|x| x.as_str()).unwrap_or("");
-                let found = self
-                    .charts
-                    .iter()
-                    .position(|c| c.local_path.as_deref() == Some(path))
-                    .map(|idx| {
-                        let c = &self.charts[idx];
-                        (c.info.id, c.local_path.clone().unwrap_or_default())
-                    });
-                if let Some((id, local)) = found {
-                    match SongScene::global_launch(
-                        id,
-                        &local,
-                        Mods::empty(),
-                        HpMode::Off,
-                        GameMode::Normal,
-                        None,
-                        None,
-                        None,
-                        false,
-                        false,
-                    ) {
-                        Ok(task) => {
-                            self.launch_task = task;
-                            resolve(&mut self.web, None, "null");
-                        }
-                        Err(e) => resolve(&mut self.web, Some(&e.to_string()), "null"),
-                    }
-                } else {
-                    resolve(&mut self.web, Some("未找到该谱面路径"), "null");
-                }
-            }
-            "startChallenge" => {
-                let paths: Vec<String> = args
-                    .get("paths")
-                    .and_then(|x| x.as_array())
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|x| x.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let opts = args.get("opts").cloned().unwrap_or(serde_json::Value::Null);
-                let re = opts.get("re").and_then(|x| x.as_bool()).unwrap_or(false);
-                let mut slots: Vec<usize> = Vec::new();
-                let mut missed: Vec<String> = Vec::new();
-                for p in &paths {
-                    if let Some(idx) = self
-                        .charts
-                        .iter()
-                        .position(|c| c.local_path.as_deref() == Some(p.as_str()))
-                    {
-                        slots.push(idx);
-                    } else {
-                        missed.push(p.clone());
-                    }
-                }
-                if !missed.is_empty() {
-                    resolve(
-                        &mut self.web,
-                        Some(&format!("以下谱面未在本地找到：{}", missed.join("、"))),
-                        "null",
-                    );
-                    return;
-                }
-                if slots.is_empty() {
-                    resolve(&mut self.web, Some("未能匹配任何所选谱面"), "null");
-                    return;
-                }
-                if let Some(judge) = opts.get("judge") {
-                    if !judge.is_null() {
-                        let p = judge.get("perfect").and_then(|x| x.as_u64()).unwrap_or(40) as u32;
-                        let g = judge.get("good").and_then(|x| x.as_u64()).unwrap_or(110) as u32;
-                        let b = judge.get("bad").and_then(|x| x.as_u64()).unwrap_or(160) as u32;
-                        self.judge = (p, g, b);
-                    }
-                }
-                // [课题 HP] 接收 HTML 端 HP 开关配置（on / 档位 idx / 扣血条件 cond）
-                if let Some(hp) = opts.get("hp") {
-                    if !hp.is_null() {
-                        let on = hp.get("on").and_then(|x| x.as_bool()).unwrap_or(false);
-                        let idx = hp
-                            .get("idx")
-                            .and_then(|x| x.as_u64())
-                            .unwrap_or(0) as usize;
-                        let cond = hp
-                            .get("cond")
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("nonperfect");
-                        self.hp_on = on;
-                        self.hp_idx = if idx < HP_MAX_OPTIONS.len() { idx } else { 0 };
-                        self.hp_lose = if cond == "badmiss" {
-                            HpLoseCondition::BadOrMiss
-                        } else {
-                            HpLoseCondition::NonPerfect
-                        };
-                    }
-                }
-                self.slots = slots;
-                self.re = re;
-                let ok = self.start_challenge();
-                if ok {
-                    resolve(&mut self.web, None, "null");
-                } else {
-                    resolve(&mut self.web, Some("课题启动失败，请检查所选谱面"), "null");
-                }
-            }
-            "openPage" => {
-                let name = args.get("name").and_then(|x| x.as_str()).unwrap_or("");
-                if name == "back" {
-                    self.next_page = Some(NextPage::Pop);
-                }
-                resolve(&mut self.web, None, "null");
-            }
-            "openUrl" => {
-                if let Some(url) = args.get("url").and_then(|x| x.as_str()) {
-                    let _ = prpr::ext::open_url(url);
-                }
-                resolve(&mut self.web, None, "null");
-            }
-            "getUserInfo" | "getCustomRks" => {
-                // 右上角玩家信息：名字 / RKS / 头像（结算页同源数据）
-                let me = crate::get_data().me.clone();
-                let (name, rks, avatar) = match me {
-                    Some(it) => {
-                        let avatar = it
-                            .avatar
-                            .as_ref()
-                            .map(|f| crate::xcsim::rehost_url(&f.url))
-                            .unwrap_or_default();
-                        (it.name.clone(), it.rks, avatar)
-                    }
-                    None => ("GUEST".to_owned(), 0.0, String::new()),
-                };
-                let s = serde_json::json!({ "name": name, "rks": rks, "avatar": avatar })
-                    .to_string();
-                resolve(&mut self.web, None, &s);
-            }
-            _ => {
-                resolve(&mut self.web, None, "null");
-            }
-        }
-    }
-#[cfg(not(target_os = "windows"))]
-    fn ensure_web(&mut self) {}
-
-    #[cfg(not(target_os = "windows"))]
-    fn push_state(&mut self) {}
-
-    #[cfg(not(target_os = "windows"))]
-    fn handle_web_msg(&mut self, _msg: &str) {}
 }
 
 /// 会话推进：已中止则作废、全部完成则结算、否则启动下一局（幂等，重复调用安全）
@@ -765,36 +368,15 @@ fn advance_session_ext(me: &mut ChallengePage) -> Result<()> {
     Ok(())
 }
 
-impl ChallengePage {
-    #[cfg(target_os = "windows")]
-    fn close_web(&mut self) {
-        if let Some(hwnd) = lookup_main_hwnd("Phira-Vrenxz") {
-            if let Some(mut web) = self.web.take() {
-                web.shutdown(hwnd);
-            }
-            focus_main(hwnd);
-        }
-        self.web_attempted = false;
-        self.ipc = Arc::new(Mutex::new(VecDeque::new()));
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn close_web(&mut self) {}
-}
-
 impl Page for ChallengePage {
     fn label(&self) -> Cow<'static, str> {
-        Cow::Borrowed("challenge")
+        if self.auto_started { Cow::Borrowed("") } else { Cow::Borrowed("challenge") }
     }
 
     fn enter(&mut self, s: &mut SharedState) -> Result<()> {
         self.start_time = s.t;
         // 从游玩 Pop 回来由框架触发 enter：推进下一局 / 结算 / 作废判定
         advance_session_ext(self)?;
-        #[cfg(target_os = "windows")]
-        if self.web.is_none() && !self.web_attempted {
-            self.ensure_web();
-        }
         Ok(())
     }
 
@@ -809,26 +391,9 @@ impl Page for ChallengePage {
         if self.start_time.is_nan() {
             self.start_time = t;
         }
-        // Web IPC 消息处理
-        #[cfg(target_os = "windows")]
-        if self.web.is_some() {
-            let mut queue = self.ipc.lock().unwrap();
-            while let Some(msg) = queue.pop_front() {
-                drop(queue);
-                self.handle_web_msg(&msg);
-                queue = self.ipc.lock().unwrap();
-            }
-        }
         for c in &mut self.charts {
             c.illu.notify();
             c.illu.settle(t);
-        }
-        // PC 窗口缩放后，同步 WebView 子窗口尺寸
-        #[cfg(target_os = "windows")]
-        if let Some(web) = &self.web {
-            if let Some(hwnd) = lookup_main_hwnd("Phira-Vrenxz") {
-                web.sync_bounds(hwnd);
-            }
         }
         self.scroll.update(t);
 
@@ -855,9 +420,6 @@ impl Page for ChallengePage {
                 match res {
                     Ok(scene) => {
                         self.launch_task = None;
-                        // 先关掉 WebView，让原生页面的 SFader 黑场接管；否则子窗口
-                        // 会一直盖到场景切换，切进 Loading 时出现一帧闪屏。
-                        self.close_web();
                         self.sf.next(t, scene);
                     }
                     Err(err) => {
@@ -955,10 +517,7 @@ impl Page for ChallengePage {
     }
 
     fn render(&mut self, ui: &mut Ui, s: &mut SharedState) -> Result<()> {
-        // WebView 激活时由 HTML 承载全部界面，跳过原生绘制
-        #[cfg(target_os = "windows")]
-        if self.web.is_some() {
-            self.sf.render(ui, s.t);
+        if self.auto_started {
             return Ok(());
         }
         let t = s.t;
@@ -1082,7 +641,7 @@ impl Page for ChallengePage {
 
         // 提示（弱胶囊）
         let cap_r = Self::control_rect(0.5);
-        let hint = if self.re { "选曲不限（不可重复）" } else { "选满 3 张开始" };
+        let hint = if self.re { "选曲不限（不可重复）" } else { "至少选 3 张开始" };
         let hint_w = glass_text_len(hint, 0.022);
         glass_capsule(ui, cap_r.center().x, cap_r.center().y, hint_w, 0.022 * 1.2, 0.045);
         ui.text(hint)
@@ -1245,11 +804,7 @@ impl Page for ChallengePage {
     }
 
     fn next_scene(&mut self, s: &mut SharedState) -> NextScene {
-        let scene = self.sf.next_scene(s.t).unwrap_or_default();
-        if !matches!(scene, NextScene::None) {
-            self.close_web();
-        }
-        scene
+        self.sf.next_scene(s.t).unwrap_or_default()
     }
 
     fn on_back_pressed(&mut self, _s: &mut SharedState) -> bool {
@@ -1260,27 +815,10 @@ impl Page for ChallengePage {
     fn resume(&mut self) -> Result<()> {
         // 兼容旧回调：逻辑与 enter 一致（advance_session_ext 幂等，重复调用安全）
         advance_session_ext(self)?;
-        #[cfg(target_os = "windows")]
-        {
-            self.web_attempted = false;
-            self.ensure_web();
+        if self.auto_started {
+            self.next_page = Some(NextPage::Pop);
         }
         Ok(())
-    }
-}
-
-// 页面被销毁（返回上一页 / 退出课题模式 / 切走）时，wry 的 WebView Drop 不保证
-// 子窗口同步销毁，残留子窗口会持续抢键盘焦点产生 Windows 提示音。任何销毁路径
-// 都必须显式隐藏+禁用子窗口并归还焦点。
-#[cfg(target_os = "windows")]
-impl Drop for ChallengePage {
-    fn drop(&mut self) {
-        if let Some(hwnd) = lookup_main_hwnd("Phira-Vrenxz") {
-            if let Some(web) = self.web.take() {
-                web.shutdown(hwnd);
-            }
-            focus_main(hwnd);
-        }
     }
 }
 

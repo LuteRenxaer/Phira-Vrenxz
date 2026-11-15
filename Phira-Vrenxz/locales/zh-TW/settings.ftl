@@ -1,4 +1,9 @@
+
 label = 設定
+item-ui-style = UI 風格
+item-ui-style-sub = 切換介面整體觀感；預設風格與舊版一致
+item-ui-style-default = 預設
+item-ui-style-xcsim = XC-SIM
 general = 通用
 audio = 音訊
 chart = 譜面
@@ -35,6 +40,7 @@ item-adjust-sub = 自動調整延遲以同步音樂和譜面
 item-music = 音樂音量
 item-sfx = 音效音量
 item-bgm = BGM 音量
+item-bgm-sub = 開屏 / 主頁背景音樂
 item-cali = 調整延遲
 item-preferred-sample-rate = 偏好取樣率
 preferred-sample-rate-default = 系統預設
@@ -65,11 +71,11 @@ item-touch-debug-sub = 遊玩過程中顯示觸摸點
 load-cali-failed = 載入音訊失敗
 
 about-update-log =
-  Version: V1.3.2
+  Version: V1.3.3
   Update notes:
-  1. Removed input box popups (inline input)
-  2. Renamed to Phira-Vrenxz
-  3. Improved game experience
+  1. Fixed a few bugs
+  2. Added some secret settings
+  3. PC has secret Debug stuff
 
   原版開發：Prpr,Phira
   營運維護：Lute_Rencai
@@ -238,3 +244,77 @@ item-combo-text-edit = 修改
 item-watermark = 自訂浮水印
 item-watermark-default = Phira-Vrenxz
 item-watermark-edit = 修改
+
+# Built-in home background (Phira-Vrenxz): which bundled background the home page uses
+item-home-bg = 內建主頁背景
+item-home-bg-default = 預設
+item-home-bg-one = 背景一
+item-home-bg-two = 背景二
+item-home-bg-three = 背景三
+item-home-bg-old = 舊版背景
+item-home-bg-loginbg = WhatdoyouwantmorethanaHappyending
+
+# zh-TW 之前漏掉的詞條（補齊，讓三語 key 集合一致）
+item-perf = 效能最佳化檔位
+item-perf-sub = 檔位統一接管螢幕外剔除 / 粒子 / 垂直同步等；選「自訂」後可手動逐項控制
+item-perf-off = 不最佳化
+item-perf-off-sub = 關閉額外最佳化：負載統計不平行、無螢幕外剔除、不啟用低解析度渲染
+item-perf-light = 少量最佳化
+item-perf-light-sub = 開啟螢幕外剔除與低解析度 / 粒子密度自適應（負載統計仍為序列）
+item-perf-medium = 中等最佳化
+item-perf-medium-sub = 現有最佳化的一半力度：剔除 + 低解析度 + 負載統計平行（更高閾值）
+item-perf-full = 完整最佳化
+item-perf-full-sub = 現有全部最佳化：螢幕外剔除 + 低解析度自適應 + 負載統計平行
+item-perf-ultra = 完全積極
+item-perf-ultra-sub = 完全剔除 + 粒子削減（保留 hit_fx、連續減半）+ 強制關閉垂直同步
+item-perf-custom = 自訂最佳化
+item-perf-custom-sub = 手動控制下方各項
+item-perf-custom-metrics = 負載統計平行
+item-perf-custom-metrics-sub = 使用多核心平行統計每幀 Note 負載
+item-perf-custom-cull = 螢幕外剔除
+item-perf-custom-cull-sub = 跳過螢幕外的 Note 渲染
+item-perf-custom-fx = 粒子削減
+item-perf-custom-fx-sub = 保留 hit_fx 主粒子，去掉碎屑並每兩次發射減一次
+item-perf-custom-vsync = 強制關閉垂直同步
+item-perf-custom-vsync-sub = 幀率不再被更新率限制
+item-perf-custom-lowres = 低解析度 Note 閾值
+item-perf-custom-lowres-sub = 螢幕上 Note 數 ≥ 該值時改用低解析度貼圖
+item-perf-custom-fxdensity = 打擊特效密度閾值
+item-perf-custom-fxdensity-sub = 即將擊打的 Note 數超過該值時關閉打擊特效
+tutorial = 新手教學
+tutorial-desc = 點擊進入內建教學譜面
+tutorial-loading = 載入中...
+tutorial-start = 開始教學
+tutorial-load-failed = 載入新手教學失敗
+settings-console-log = 主控台日誌
+settings-console-log-desc = 開啟後顯示 cmd 主控台視窗，用於查看除錯日誌
+settings-vsync = 垂直同步
+settings-vsync-desc = 開啟後幀率限制為螢幕更新率，關閉可提升幀率
+settings-open = 開啟
+
+custom-section-font = 字型
+item-font = 字型
+item-font-sub = 切換介面使用的字型
+item-import-font = 匯入字型
+item-import-font-sub = 匯入 TTF/OTF 字型檔案，匯入後可隨時切換
+font-default = 預設
+font-import = 匯入
+font-switched = 字型已切換
+font-switch-failed = 字型切換失敗
+
+migrate-settings-item = 同步舊版本資料
+migrate-settings-item-sub = 從舊版 PhirLie / Phira-Vrenxz 的 data 目錄匯入（自動提示只在第一次同步前出現）
+migrate-settings-now = 立即同步
+
+# Character customization (Phira-Vrenxz)
+custom-character-name = 角色名字
+custom-character-illust = 角色立繪
+custom-character-no-illust = 暫無立繪
+custom-character-reset = 重設角色自訂
+custom-character-reset-done = 已重設角色自訂
+custom-character-illust-set = 角色立繪已更換
+custom-character-illust-failed = 更換角色立繪失敗
+
+visual = 視覺
+color-palette-title = 調色板
+color-palette-done = 完成

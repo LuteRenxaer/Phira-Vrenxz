@@ -50,7 +50,8 @@ hykb-bind-required = This account is not bound to a 3839 Games account yet. Bind
 hykb-bind-required-confirm = Bind 3839 Games
 
 startup-select-language = Select Language
-startup-tap-to-continue = Tap to continue
+startup-tap-to-continue = Tap to start
+startup-tap-to-skip = Tap to skip
 startup-tip = Tip: { $tip }
 
 startup-load-failed = Startup failed
@@ -66,3 +67,7 @@ startup-preparing-extract = Preparing to extract resources...
 startup-extracting = Extracting { $desc }...
 startup-extract-done = Extraction complete
 startup-extract-done-partial = Extraction complete (partial failure)
+
+srv-official = Official
+
+srv-local = Local

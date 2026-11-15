@@ -25,8 +25,13 @@ email-sent = Um e-mail de verificação foi enviado, verifique e faça login
 
 startup-select-language = Selecionar idioma
 startup-tap-to-continue = Toque para continuar
+startup-tap-to-skip = Tap to skip
 startup-tip = Dica: { $tip }
 
 startup-load-failed = Falha na inicialização
 startup-loading = Carregando...
 
+
+srv-official = Oficial
+
+srv-local = Local

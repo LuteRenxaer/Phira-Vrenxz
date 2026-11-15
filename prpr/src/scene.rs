@@ -49,6 +49,8 @@ pub enum NextScene {
     #[default]
     None,
     Pop,
+    /// 直接截断到最近的主界面场景（课题结算返回用）。
+    BackToMain,
     PopN(usize),
     PopWithResult(Box<dyn Any>),
     PopNWithResult(usize, Box<dyn Any>),
@@ -58,6 +60,7 @@ pub enum NextScene {
 }
 
 thread_local! {
+    pub static GLOBAL_OVERLAY: RefCell<Option<fn(&mut crate::ui::Ui)>> = const { RefCell::new(None) };
     pub static BILLBOARD: RefCell<(BillBoard, TimeManager)> = RefCell::new((BillBoard::new(), TimeManager::default()));
     pub static DIALOG: RefCell<Option<Dialog>> = const { RefCell::new(None) };
     pub static FULL_LOADING: RefCell<Option<FullLoadingView>> = const { RefCell::new(None) };
@@ -932,6 +935,21 @@ pub fn request_input(id: impl Into<String>, mut config: InputBox) {
     if config.ok_label.is_none() {
         config = config.ok_label(ttl!("confirm"));
     }
+    #[cfg(target_os = "ios")]
+    {
+        let id2 = id.clone();
+        config.show_async(move |res| match res {
+            Ok(Some(text)) => return_input(id2, text),
+            Ok(None) => {
+                *INPUT_CANCELLED.lock().unwrap() = Some(id2);
+            }
+            Err(err) => {
+                *INPUT_CANCELLED.lock().unwrap() = Some(id2);
+                crate::scene::show_error(err.into());
+            }
+        }).ok();
+        return;
+    }
     INPUT_DIALOG.with(|it| *it.borrow_mut() = Some(InputDialog::new(id, config)));
     set_ime_enabled(true);
     android_show_keyboard(true);
@@ -1037,6 +1055,9 @@ pub fn request_file(id: impl Into<String>) {
                     ext("png"),
                     ext("jpeg"),
                     ext("json"),
+                    ext("ttf"),
+                    ext("otf"),
+                    ext("ttc"),
                     ext("mp3"),
                     ext("ogg"),
                 ]);
@@ -1089,6 +1110,11 @@ pub trait Scene {
     }
     fn on_result(&mut self, _tm: &mut TimeManager, _result: Box<dyn Any>) -> Result<()> {
         Ok(())
+    }
+
+    /// 是否为主界面场景：主界面永远不能被 Replace 掉。
+    fn is_main(&self) -> bool {
+        false
     }
     fn touch(&mut self, _tm: &mut TimeManager, _touch: &Touch) -> Result<bool> {
         Ok(false)
@@ -1171,6 +1197,10 @@ impl Main {
     }
 
     pub fn update_with_mutate(&mut self, f: impl Fn(&mut Touch)) -> Result<()> {
+        if self.scenes.is_empty() {
+            self.should_exit = true;
+            return Ok(());
+        }
         if self.paused {
             return Ok(());
         }
@@ -1180,29 +1210,52 @@ impl Main {
             NextScene::None => {}
             NextScene::Pop => {
                 self.scenes.pop();
-                self.tm.seek_to(self.times.pop().unwrap());
-                self.scenes.last_mut().unwrap().enter(&mut self.tm, self.target_chooser.choose())?;
+                if let Some(t) = self.times.pop() { self.tm.seek_to(t); }
+                if let Some(scene) = self.scenes.last_mut() {
+                    scene.enter(&mut self.tm, self.target_chooser.choose())?;
+                } else {
+                    self.should_exit = true;
+                }
+            }
+            NextScene::BackToMain => {
+                if let Some(idx) = self.scenes.iter().rposition(|it| it.is_main()) {
+                    self.scenes.truncate(idx + 1);
+                    self.times.truncate(idx);
+                    if let Some(scene) = self.scenes.last_mut() {
+                        scene.enter(&mut self.tm, self.target_chooser.choose())?;
+                    }
+                } else {
+                    self.should_exit = true;
+                }
             }
             NextScene::PopN(num) => {
                 for _ in 0..num {
                     self.scenes.pop();
-                    self.tm.seek_to(self.times.pop().unwrap());
+                    if let Some(t) = self.times.pop() { self.tm.seek_to(t); }
                 }
                 self.scenes.last_mut().unwrap().enter(&mut self.tm, self.target_chooser.choose())?;
             }
             NextScene::PopWithResult(result) => {
                 self.scenes.pop();
-                self.tm.seek_to(self.times.pop().unwrap());
-                self.scenes.last_mut().unwrap().on_result(&mut self.tm, result)?;
-                self.scenes.last_mut().unwrap().enter(&mut self.tm, self.target_chooser.choose())?;
+                if let Some(t) = self.times.pop() { self.tm.seek_to(t); }
+                if let Some(scene) = self.scenes.last_mut() {
+                    scene.on_result(&mut self.tm, result)?;
+                    scene.enter(&mut self.tm, self.target_chooser.choose())?;
+                } else {
+                    self.should_exit = true;
+                }
             }
             NextScene::PopNWithResult(num, result) => {
                 for _ in 0..num {
                     self.scenes.pop();
-                    self.tm.seek_to(self.times.pop().unwrap());
+                    if let Some(t) = self.times.pop() { self.tm.seek_to(t); }
                 }
-                self.scenes.last_mut().unwrap().on_result(&mut self.tm, result)?;
-                self.scenes.last_mut().unwrap().enter(&mut self.tm, self.target_chooser.choose())?;
+                if let Some(scene) = self.scenes.last_mut() {
+                    scene.on_result(&mut self.tm, result)?;
+                    scene.enter(&mut self.tm, self.target_chooser.choose())?;
+                } else {
+                    self.should_exit = true;
+                }
             }
             NextScene::Exit => {
                 self.should_exit = true;
@@ -1291,6 +1344,10 @@ impl Main {
     }
 
     pub fn render(&mut self, painter: &mut TextPainter) -> Result<()> {
+        if self.scenes.is_empty() {
+            self.should_exit = true;
+            return Ok(());
+        }
         if self.paused {
             return Ok(());
         }
@@ -1298,15 +1355,7 @@ impl Main {
         ui.set_touches(self.touches.take().unwrap());
         ui.scope(|ui| self.scenes.last_mut().unwrap().render(&mut self.tm, ui))?;
         draw_fps_overlay(&mut ui);
-        if let Some(start) = self.fade_start {
-            let e = (self.tm.now() - start) as f32;
-            if e < 2.7 {
-                let time = self.tm.now() as f32;
-                draw_transition_loading(&mut ui, self.fade_art.as_ref(), time, e);
-            } else {
-                self.fade_start = None;
-            }
-        }
+        GLOBAL_OVERLAY.with(|f| { if let Some(f) = *f.borrow() { f(&mut ui); } });
         if let Some(pos) = crate::gamepad::cursor_pos() {
             ui.fill_circle(pos.x, pos.y, 0.018, Color::new(1., 1., 1., 0.85));
             ui.fill_circle(pos.x, pos.y, 0.010, Color::new(0.2, 0.5, 1., 0.95));

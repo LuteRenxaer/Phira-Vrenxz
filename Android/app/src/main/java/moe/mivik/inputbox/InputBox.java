@@ -9,8 +9,8 @@ import android.text.InputType;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 
-import com.teamflos.phirlie.MainActivity;
-import com.teamflos.phirlie.R;
+import com.luterencai.phiravrenxz.MainActivity;
+import com.luterencai.phiravrenxz.R;
 
 /**
  * inputbox（Rust 输入框后端）所需的原生对话框实现。

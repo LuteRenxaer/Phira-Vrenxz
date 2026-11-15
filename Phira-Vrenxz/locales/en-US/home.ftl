@@ -16,3 +16,4 @@ update-desc =
 update-ignore = Ignore
 update-go = View
 
+cancel = Cancel

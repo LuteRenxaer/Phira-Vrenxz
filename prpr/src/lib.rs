@@ -30,8 +30,8 @@ pub use scene::Main;
 pub fn build_conf() -> macroquad::window::Conf {
     macroquad::window::Conf {
         window_title: "Phira-Vrenxz".to_string(),
-        window_width: 1600,
-        window_height: 740,
+        window_width: 973,
+        window_height: 608,
         ..Default::default()
     }
 }

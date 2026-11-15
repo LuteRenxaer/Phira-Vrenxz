@@ -160,3 +160,4 @@ mp-manage-transfer = 设为房主
 mp-manage-kick = 移出房间
 mp-manage-cancel = 取消
 mp-room-locked = 🔒 需密码
+mp-library = 谱面库

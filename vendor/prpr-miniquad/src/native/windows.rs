@@ -178,6 +178,9 @@ impl crate::native::NativeDisplay for Display {
     fn clipboard_set(&mut self, data: &str) {
         unsafe { clipboard::set_clipboard_text(data) }
     }
+    fn native_window_handle(&self) -> Option<isize> {
+        Some(self.wnd as isize)
+    }
     fn as_any(&mut self) -> &mut dyn std::any::Any {
         self
     }

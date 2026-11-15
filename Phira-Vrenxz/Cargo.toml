@@ -19,6 +19,7 @@ hykb = []
 event_debug = []
 
 [dependencies]
+rhai = { version = "=1.26.1", features = ["serde", "sync"] }
 anyhow = { workspace = true }
 arc-swap = "1.9.0"
 async-trait = { workspace = true }
@@ -144,9 +145,3 @@ path = "../phirLie-release.keystore"
 alias = "phirLie"
 keystore_password = "278913"
 key_password = "278913"
-
-
-[target.'cfg(target_os = "windows")'.dependencies]
-wry = "0.57.1"
-raw-window-handle = "0.6"
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }

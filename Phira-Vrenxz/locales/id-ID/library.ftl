@@ -6,3 +6,5 @@ next-page = Berikutnya
 not-opened = Belum tersedia
 failed-to-load-online = Gagal memuat chart online
 import = Import
+
+loc-srv = Server Lokal

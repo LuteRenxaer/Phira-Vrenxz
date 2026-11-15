@@ -25,8 +25,13 @@ email-sent = 인증 이메일이 전송되었습니다. 인증 후 로그인해�
 
 startup-select-language = 언어 선택
 startup-tap-to-continue = 탭하여 계속
+startup-tap-to-skip = Tap to skip
 startup-tip = 팁: { $tip }
 
 startup-load-failed = 시작 실패
 startup-loading = 로딩 중...
 
+
+srv-official = 공식
+
+srv-local = 로컬

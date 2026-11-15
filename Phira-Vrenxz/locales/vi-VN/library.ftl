@@ -16,3 +16,5 @@ import = Nhập
 offline-mode = Bạn đang bật chế độ Offline
 
 must-login = Bạn phải đăng nhập để xem thư viện
+
+loc-srv = Máy chủ nội bộ

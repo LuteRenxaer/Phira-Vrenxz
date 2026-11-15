@@ -26,8 +26,13 @@ forget-password = Нууц үг мартсан уу?
 
 startup-select-language = Хэл сонгох
 startup-tap-to-continue = Үргэлжлүүлэхийн тулд товч дарна уу
+startup-tap-to-skip = Tap to skip
 startup-tip = Зөвлөмж: { $tip }
 
 startup-load-failed = Эхлүүлэлт амжилтгүй боллоо
 startup-loading = Ачаалж байна...
 
+
+srv-official = Албан
+
+srv-local = Орон нутаг

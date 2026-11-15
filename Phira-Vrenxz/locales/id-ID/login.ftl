@@ -25,8 +25,13 @@ email-sent = Email verifikasi telah dikirim, mohon cek email anda untuk memverif
 
 startup-select-language = Pilih Bahasa
 startup-tap-to-continue = Ketuk untuk lanjutkan
+startup-tap-to-skip = Tap to skip
 startup-tip = Tips: { $tip }
 
 startup-load-failed = Gagal memulai
 startup-loading = Memuat...
 
+
+srv-official = Resmi
+
+srv-local = Lokal

@@ -32,3 +32,5 @@ multi-removed-from-fav = นำออกจาก Favorites
 multi-select-all = เลือกทั้งหมด
 multi-select-invert = เลือกแบบย้อนกลับ
 fav-created = สร้าง Favorites แล้ว
+
+loc-srv = เซิร์ฟเวอร์ท้องถิ่น

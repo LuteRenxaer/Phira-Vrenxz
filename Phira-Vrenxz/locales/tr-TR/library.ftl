@@ -16,3 +16,5 @@ import = İçe Aktar
 offline-mode = Çevrimdışıyken çevrimiçi müzikler kullanılamaz
 
 must-login = Çevrimiçi özellikleri görmek için giriş yapmalısınız
+
+loc-srv = Yerel Sunucu

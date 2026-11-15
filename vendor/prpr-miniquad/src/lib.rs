@@ -156,6 +156,9 @@ impl Context {
     pub fn dropped_file_path(&mut self, index: usize) -> Option<std::path::PathBuf> {
         self.display_mut().dropped_file_path(index)
     }
+    pub fn clear_dropped_files(&mut self) {
+        self.display_mut().clear_dropped_files();
+    }
 
     /// Shortcut for `order_quit`. Will add a legacy attribute at some point.
     pub fn quit(&mut self) {

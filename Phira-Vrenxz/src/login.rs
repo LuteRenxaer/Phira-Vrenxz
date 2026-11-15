@@ -277,6 +277,30 @@ impl Login {
 
     fn activate_field(&mut self, f: LoginField) {
         self.active = Some(f);
+        #[cfg(target_os = "ios")]
+        {
+            let id = match f {
+                LoginField::Email => "email",
+                LoginField::Pwd => "pwd",
+                LoginField::RegEmail => "reg_email",
+                LoginField::RegName => "reg_name",
+                LoginField::RegPwd => "reg_pwd",
+            };
+            let current = self.field_text(f).to_string();
+            let title = match f {
+                LoginField::Email | LoginField::RegEmail => tl!("email"),
+                LoginField::Pwd | LoginField::RegPwd => tl!("password"),
+                LoginField::RegName => tl!("username"),
+            };
+            request_input(
+                id,
+                InputBox::new()
+                    .title(title)
+                    .default_text(&current),
+            );
+            return;
+        }
+        #[cfg(not(target_os = "ios"))]
         self.show_keyboard(true);
     }
 

@@ -26,8 +26,13 @@ forget-password = ลืมรหัสผ่าน?
 
 startup-select-language = เลือกภาษา
 startup-tap-to-continue = แตะเพื่อดำเนินการต่อ
+startup-tap-to-skip = Tap to skip
 startup-tip = เคล็ดลับ: { $tip }
 
 startup-load-failed = เริ่มต้นล้มเหลว
 startup-loading = กำลังโหลด...
 
+
+srv-official = ทางการ
+
+srv-local = ท้องถิ่น

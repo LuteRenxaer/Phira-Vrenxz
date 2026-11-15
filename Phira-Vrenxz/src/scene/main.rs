@@ -274,9 +274,6 @@ pub struct MainScene {
     icon_back: SafeTexture,
 
     pages: Vec<Box<dyn Page>>,
-    page_fade: Option<f32>,
-    page_fade_art: Option<SafeTexture>,
-    bgm_fade_in_at: Option<f64>,
 
     import_task: Option<Task<Result<(LocalChart, ParseWarnings)>>>,
     pending_debug_scene: Option<&'static str>,
@@ -498,9 +495,6 @@ impl MainScene {
             icon_back: TEX_ICON_BACK.with(|it| it.borrow().clone().unwrap()),
 
             pages: Vec::new(),
-            page_fade: None,
-            page_fade_art: None,
-            bgm_fade_in_at: None,
 
             import_task: None,
             pending_debug_scene: None,
@@ -554,7 +548,7 @@ impl MainScene {
     }
 
     fn pop(&mut self) {
-        if self.bgm_fade_in_at.is_none() && !self.pages.last().unwrap().can_play_bgm() && self.pages[self.pages.len() - 2].can_play_bgm() {
+        if !self.pages.last().unwrap().can_play_bgm() && self.pages[self.pages.len() - 2].can_play_bgm() {
             if let Some(bgm) = &mut self.bgm {
                 let _ = bgm.fade_in(0.5);
             }
@@ -625,6 +619,10 @@ impl MainScene {
 }
 
 impl Scene for MainScene {
+    fn is_main(&self) -> bool {
+        true
+    }
+
     fn on_result(&mut self, _tm: &mut TimeManager, result: Box<dyn Any>) -> Result<()> {
         self.pages.last_mut().unwrap().on_result(result, &mut self.state)
     }
@@ -681,6 +679,7 @@ impl Scene for MainScene {
     }
 
     fn touch(&mut self, tm: &mut TimeManager, touch: &Touch) -> Result<bool> {
+        if crate::plugins::touch(touch) { return Ok(true); }
         if self.state.fader.transiting() {
             return Ok(false);
         }
@@ -735,12 +734,6 @@ impl Scene for MainScene {
                         bgm.set_low_pass(0.)?;
                     }
                 }
-                self.page_fade = Some(self.state.t);
-                self.page_fade_art = prpr::scene::random_loading_art();
-                if let Some(bgm) = &mut self.bgm {
-                    let _ = bgm.fade_out(2.0);
-                    self.bgm_fade_in_at = Some(self.state.t as f64 + 2.7);
-                }
                 self.pop();
             }
             return Ok(true);
@@ -749,12 +742,6 @@ impl Scene for MainScene {
     }
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
-        if self.bgm_fade_in_at.is_some_and(|at| tm.now() >= at) {
-            self.bgm_fade_in_at = None;
-            if let Some(bgm) = &mut self.bgm {
-                let _ = bgm.fade_in(0.8);
-            }
-        }
         /// HUD 编辑器请求切页：重建页面栈（根页面保留、不重建，因此不需要异步）。
         /// Vrenxz 的 icons 是 Option<Arc<Icons>>（加载失败时可能为 None），无独立
         /// TabsPage，PageId::Tabs 跳转时用谱面库页面代替。
@@ -1102,28 +1089,16 @@ impl Scene for MainScene {
             };
             match next {
                 NextPage::Overlay(mut sub) => {
-                    self.page_fade = Some(s.t);
-                    self.page_fade_art = prpr::scene::random_loading_art();
                     if self.pages.len() == 1 {
                         if let Some(bgm) = &mut self.bgm {
                             bgm.set_low_pass(LOW_PASS)?;
                         }
                     }
                     sub.enter(s)?;
-                    if let Some(bgm) = &mut self.bgm {
-                        let _ = bgm.fade_out(2.0);
-                        self.bgm_fade_in_at = Some(tm.now() + 2.7);
-                    }
                     self.pages.push(sub);
                     s.fader.sub(s.t);
                 }
                 NextPage::Pop => {
-                    self.page_fade = Some(s.t);
-                    self.page_fade_art = prpr::scene::random_loading_art();
-                    if let Some(bgm) = &mut self.bgm {
-                        let _ = bgm.fade_out(2.0);
-                        self.bgm_fade_in_at = Some(s.t as f64 + 2.7);
-                    }
                     self.pop();
                 }
                 NextPage::None => {}
@@ -1551,6 +1526,12 @@ impl Scene for MainScene {
             );
         }
 
+        // 只渲染背景截图模式：背景画完就截帧，页面 / 字标 / 图标 / FPS 一律不画。
+        if crate::bgshot::active() {
+            crate::bgshot::capture_after_backdrop();
+            return Ok(());
+        }
+
         let s = &mut self.state;
         s.update(tm);
 
@@ -1618,14 +1599,6 @@ impl Scene for MainScene {
 
 
 
-        if let Some(start) = self.page_fade {
-            let e = s.t - start;
-            if e < 2.7 {
-                prpr::scene::draw_transition_loading(ui, self.page_fade_art.as_ref(), s.t, e);
-            } else {
-                self.page_fade = None;
-            }
-        }
         // TEMP-SHOT-HOOK: 本机核对用，交付前移除 —— PHIRA_SHOT=<路径> 时每 120 帧把帧缓冲写成 PNG
         {
             use once_cell::sync::Lazy;

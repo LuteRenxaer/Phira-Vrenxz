@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh_CN</string>
 	<key>CFBundleDisplayName</key>
-	<string>Phira Pro</string>
+	<string>Phira-Vrenxz</string>
 	<key>CFBundleExecutable</key>
 	<string>phira-main</string>
 	<key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Phira Pro</string>
+	<string>Phira-Vrenxz</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -61,7 +61,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>org.flos.phirapro</string>
+			<string>com.luterencai.phiravrenxz</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>phira</string>

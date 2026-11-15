@@ -32,3 +32,5 @@ multi-removed-from-fav = Aus den Favoriten entfernt
 multi-select-all = Alle auswählen
 multi-select-invert = Auswahl umkehren
 fav-created = Favoriten Ordner erstellt
+
+loc-srv = Lokaler Server

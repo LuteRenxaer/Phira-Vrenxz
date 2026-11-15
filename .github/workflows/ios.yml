@@ -9,6 +9,8 @@ on:
       - 'Phira-Vrenxz-main/**'
       - 'prpr/**'
       - 'vendor/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'assets/**'
       - 'phira.xcodeproj/**'
       - 'xcode/**'
@@ -84,6 +86,22 @@ jobs:
           cp -R "$APP" out/Payload/
           (cd out && zip -qry PhiraVrenxz-ios-arm64-unsigned.ipa Payload)
           ls -lh out/PhiraVrenxz-ios-arm64-unsigned.ipa
+      - name: Emit app metadata
+        run: |
+          set -euo pipefail
+          APP="$(find build/dd/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n1)"
+          {
+            echo "DISPLAY_NAME=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP/Info.plist")"
+            echo "BUNDLE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$APP/Info.plist")"
+            echo "BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
+            echo "ASSET_FILES=$(find "$APP/assets" -maxdepth 1 -type f | wc -l)"
+            echo "ICON_SHA=$(shasum -a 256 xcode/Assets.xcassets/AppIcon.appiconset/icon1.png | awk '{print $1}')"
+          } > out/meta.txt
+          cat out/meta.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhiraVrenxz-ios-meta
+          path: out/meta.txt
       - uses: actions/upload-artifact@v4
         with:
           name: PhiraVrenxz-unsigned-ipa

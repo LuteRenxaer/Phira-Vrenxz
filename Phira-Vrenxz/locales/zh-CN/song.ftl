@@ -27,6 +27,7 @@ delete = 删除
 rate = 评分
 exercise = 练习
 offset = 调整延迟
+reveal = 谱面揭晓
 unlock = 播放解锁动画
 
 edit-cancel = 取消
@@ -50,6 +51,9 @@ warn = 警告
 cancel-not-saved = 你还没有保存信息，确定要退出吗？
 upload-not-saved = 你还没有保存谱面，确定要继续上传吗？
 upload-login-first = 请先登录
+upload-chart = 上传至PV服务器
+upload-chart-invalid = 请选择 .zip 格式的谱面文件
+upload-chart-success = 谱面上传成功！
 upload-builtin = 不能上传内置谱面
 upload-rules = 上传须知
 upload-rules-content =
@@ -70,6 +74,8 @@ ldb-load-failed = 加载排行榜失败
 ldb-no-rank = 无
 ldb-score = 分数
 ldb-std = 无瑕度
+ldb-srv-official = 官方榜
+ldb-srv-local = PV榜
 
 info-name = 名字
 info-composer = 曲师
@@ -171,7 +177,12 @@ exporting = 导出中…
 author-platform = 平台：{ $platform }
 author-view-profile = 查看主页
 xcsim-no-preview = XC-SIM 谱面没有预览音频
+locsrv-no-preview = 本地服务器谱面没有预览音频
 xcsim-downloading = 正在下载 XC-SIM 谱面
 xcsim-missing-id = XC-SIM 谱面缺少 ID
 xcsim-downloading-from = 正在从 XC-SIM 下载谱面
 xcsim-saving = 正在保存谱面
+
+replay = 回放
+
+replay-delete = 删除回放

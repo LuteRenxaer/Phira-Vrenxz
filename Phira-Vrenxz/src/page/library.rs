@@ -1,6 +1,6 @@
 prpr_l10n::tl_file!("library");
 
-use super::{FavoritesPage, NextPage, Page, SharedState};
+use super::{ChallengePage, FavoritesPage, NextPage, Page, SharedState};
 use crate::{
     charts_view::{ChartDisplayItem, ChartsView, NEED_UPDATE},
     client::{recv_raw, Chart, ChartRef, ChartRefChartInfo, Client, Collection, CollectionUpdate, LocalCollection},
@@ -23,7 +23,7 @@ use jni::{jni_sig, jni_str, objects::JObject, refs::Global, vm::JavaVM, EnvUnown
 use macroquad::prelude::*;
 use prpr::{
     ext::{poll_future, semi_black, semi_white, JoinToString, LocalTask, RectExt, SafeTexture, ScaleType},
-    scene::{request_file, request_input, return_input, show_error, show_message, take_input, NextScene},
+    scene::{request_file, request_input, return_input, show_error, show_message, take_input, HpLoseCondition, NextScene},
     task::Task,
     ui::{button_hit, DRectButton, Dialog, RectButton, Ui},
 };
@@ -127,6 +127,7 @@ pub struct LibraryPage {
     import_btn: DRectButton,
 
     search_btn: DRectButton,
+    search_rect: Rect,
     search_str: String,
     search_active: bool,
     search_selected: bool,
@@ -197,6 +198,18 @@ pub struct LibraryPage {
     export_progress: Arc<AtomicU32>,
     export_total: usize,
 
+    // 课题选谱：在谱面库里多选 3 首，凑满后进课题页
+    course_btn: DRectButton,
+    course_start: DRectButton,
+    course_hp_btn: DRectButton,
+    course_hp_val_btn: DRectButton,
+    course_hp_cond_btn: DRectButton,
+    course_hp_on: bool,
+    course_hp_idx: usize,
+    course_hp_lose: HpLoseCondition,
+    course_selection: Option<Vec<ChartRef>>,
+    challenge_launcher: Option<ChallengePage>,
+
     batch_download_queue: Option<Vec<(BriefChartInfo, Chart)>>,
     batch_download_current: Option<Downloading>,
     batch_download_progress: Arc<AtomicU32>,
@@ -214,12 +227,11 @@ impl LibraryPage {
                 (new_list(ChartListType::Local), || tl!("local")),
                 (new_list(ChartListType::Builtin), || tl!("builtin")),
                 (new_list(ChartListType::XCSim), || "XC-SIM".into()),
-                (new_list(ChartListType::LocalServer), || tl!("loc-srv")),
                 (new_list(ChartListType::Ranked), || ttl!("chart-ranked")),
                 (new_list(ChartListType::Special), || ttl!("chart-special")),
                 (new_list(ChartListType::Unstable), || ttl!("chart-unstable")),
                 (new_list(ChartListType::Popular), || tl!("popular")),
-            ] as [(ChartList, TitleFn); 8]),
+            ] as [(ChartList, TitleFn); 7]),
 
             current_page: 0,
             online_total_page: 0,
@@ -243,6 +255,7 @@ impl LibraryPage {
             import_btn: DRectButton::new(),
 
             search_btn: DRectButton::new(),
+            search_rect: Rect::new(0.35, 0.86, 0.53, 0.09),
             search_str: String::new(),
             search_active: false,
             search_selected: false,
@@ -316,6 +329,17 @@ impl LibraryPage {
             export_progress: Arc::default(),
             export_total: 0,
 
+            course_btn: DRectButton::new(),
+            course_start: DRectButton::new(),
+            course_hp_btn: DRectButton::new(),
+            course_hp_val_btn: DRectButton::new(),
+            course_hp_cond_btn: DRectButton::new(),
+            course_hp_on: true,
+            course_hp_idx: 3,
+            course_hp_lose: HpLoseCondition::BadOrMiss,
+            course_selection: None,
+            challenge_launcher: None,
+
             batch_download_queue: None,
             batch_download_current: None,
             batch_download_progress: Arc::default(),
@@ -323,14 +347,107 @@ impl LibraryPage {
             batch_download_current_name: Arc::default(),
         })
     }
+
+    /// 以「课题选谱」状态打开谱面库（主页「课题模式」入口用）。
+    ///
+    /// 与 Pro 一致：课题不再有独立选谱页，而是在谱面库里多选 3 首后直接开始。
+    pub fn new_course(icons: Arc<Icons>, rank_icons: [SafeTexture; 8]) -> Result<Self> {
+        let mut page = Self::new(icons, rank_icons)?;
+        page.enter_course_state();
+        Ok(page)
+    }
+
+    /// 进入课题多选态（不做页面跳转动画，构造时也可用）。
+    fn enter_course_state(&mut self) {
+        self.course_selection = Some(Vec::new());
+        for list in self.tabs.iter_mut() {
+            list.view.multi_select = Some(Vec::new());
+            list.view.selection_limit = Some(9);
+        }
+        self.multi_operation_btn.invalidate();
+        self.multi_select_btn.invalidate();
+        self.multi_select_cancel_btn.invalidate();
+    }
+
+    /// 退出课题多选态，恢复普通多选 / 列表行为。
+    fn exit_course(&mut self) {
+        self.course_selection = None;
+        self.course_start.invalidate();
+        for list in self.tabs.iter_mut() {
+            list.view.multi_select = None;
+            list.view.selection_limit = None;
+        }
+    }
+
+    /// 把课题多选结果解析成谱面条目（必须全部已在本地，否则给出提示并放弃）。
+    fn take_course_charts(&mut self, s: &SharedState) -> Option<Vec<ChartItem>> {
+        let selection = self.course_selection.clone()?;
+        let mut charts = Vec::with_capacity(selection.len());
+        for chart_ref in &selection {
+            let Some(path) = chart_ref.find_local_path().ok().flatten() else {
+                show_message("请先下载此谱面，再加入课题").warn();
+                return None;
+            };
+            let mut item = s
+                .charts_local
+                .iter()
+                .find(|it| it.local_path.as_deref() == Some(path.as_ref()))
+                .cloned();
+            if item.is_none() {
+                'search: for list in self.tabs.iter_mut() {
+                    if let Some(items) = &list.view.charts {
+                        for it in items.iter().filter_map(|it| it.chart.as_ref()) {
+                            if it.local_path.as_deref() == Some(path.as_ref()) || &it.to_bare_ref() == chart_ref {
+                                item = Some(it.clone());
+                                break 'search;
+                            }
+                        }
+                    }
+                }
+            }
+            let Some(item) = item.filter(|it| it.local_path.is_some()) else {
+                show_message("缺少课题谱面，请先下载或导入").warn();
+                return None;
+            };
+            charts.push(item);
+        }
+        Some(charts)
+    }
+
+    /// 点「开始游玩」：把已选 3 首谱面按顺序预填进课题页的三个槽位。
+    fn start_course(&mut self, s: &SharedState) -> Result<()> {
+        let len = self.course_selection.as_ref().map(|it| it.len()).unwrap_or(0);
+        if len < 3 {
+            show_message("请选择三首曲目后开始游玩").warn();
+            return Ok(());
+        }
+        let Some(charts) = self.take_course_charts(s) else {
+            return Ok(());
+        };
+        let mut page = ChallengePage::new_with_selection(Arc::clone(&self.icons), s.charts_local.clone(), charts)?;
+        page.set_hp(self.course_hp_on, self.course_hp_idx, self.course_hp_lose);
+        page.start_now();
+        self.exit_course();
+        self.challenge_launcher = Some(page);
+        Ok(())
+    }
 }
 
 impl LibraryPage {
     /// 进入内联搜索（不再弹 request_input 弹窗），弹出软键盘。
     fn begin_search(&mut self) {
         while get_char_pressed().is_some() {}
-        self.search_active = true;
-        self.show_keyboard(true);
+        #[cfg(target_os = "ios")]
+        {
+            // iOS 的内联键盘不可用：走系统原生输入框，结果由 take_input("search") 接收。
+            request_input("search", InputBox::new().default_text(&self.search_str));
+            return;
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            self.search_active = true;
+            self.show_keyboard(true);
+        }
     }
 
     fn finish_search(&mut self) {
@@ -1118,7 +1235,20 @@ mod ohos_export {
 
 impl Page for LibraryPage {
     fn label(&self) -> Cow<'static, str> {
-        tl!("label")
+        if self.course_selection.is_some() {
+            "课题模式".into()
+        } else {
+            tl!("label")
+        }
+    }
+
+    fn on_back_pressed(&mut self, _s: &mut SharedState) -> bool {
+        if self.course_selection.is_some() {
+            self.exit_course();
+            true
+        } else {
+            false
+        }
     }
 
     fn enter(&mut self, s: &mut SharedState) -> Result<()> {
@@ -1141,6 +1271,37 @@ impl Page for LibraryPage {
 
     fn touch(&mut self, touch: &Touch, s: &mut SharedState) -> Result<bool> {
         let t = s.t;
+        if self.course_btn.touch(touch, t) {
+            if self.course_selection.is_some() {
+                self.exit_course();
+            } else {
+                self.course_selection = Some(Vec::new());
+                self.tabs.goto(s.rt, 0);
+                for list in self.tabs.iter_mut() {
+                    list.view.multi_select = Some(Vec::new());
+                    list.view.selection_limit = Some(9);
+                }
+                self.multi_operation_btn.invalidate();
+                self.multi_select_btn.invalidate();
+                self.multi_select_cancel_btn.invalidate();
+            }
+            return Ok(true);
+        }
+        if self.course_selection.is_some() && self.course_start.touch(touch, t) {
+            self.start_course(s)?;
+            return Ok(true);
+        }
+        if self.course_hp_val_btn.touch(touch, t) {
+            self.course_hp_idx = (self.course_hp_idx + 1) % 5;
+            return Ok(true);
+        }
+        if self.course_hp_cond_btn.touch(touch, t) {
+            self.course_hp_lose = match self.course_hp_lose {
+                HpLoseCondition::BadOrMiss => HpLoseCondition::NonPerfect,
+                HpLoseCondition::NonPerfect => HpLoseCondition::BadOrMiss,
+            };
+            return Ok(true);
+        }
         if self.sync_fav_task.is_some()
             || self.export_task.is_some()
             || self.multi_create_fav_task.is_some()
@@ -1214,7 +1375,12 @@ impl Page for LibraryPage {
         if charts_view.transiting() {
             return Ok(true);
         }
-        if charts_view.touch(touch, t, s.rt)? {
+        let consumed = charts_view.touch(touch, t, s.rt)?;
+        // 课题模式：把卡片点击（选中/取消）同步到课题计数
+        if self.course_selection.is_some() {
+            self.course_selection = charts_view.multi_select.clone();
+        }
+        if consumed {
             return Ok(true);
         }
         if choose_cover {
@@ -1352,7 +1518,8 @@ impl Page for LibraryPage {
                 }
             }
         }
-        if self.tabs.selected_mut().view.multi_select.is_some() {
+        // 课题多选态下隐藏普通多选操作（导出/收藏/删除等），与 Pro 一致
+        if self.course_selection.is_none() && self.tabs.selected_mut().view.multi_select.is_some() {
             if self.multi_operation_btn.touch(touch, t) {
                 let is_online = self.tabs.selected().ty != ChartListType::Local;
                 let is_builtin = self.tabs.selected().ty == ChartListType::Builtin;
@@ -1390,6 +1557,9 @@ impl Page for LibraryPage {
 
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         let t = s.t;
+        if let Some(page) = &mut self.challenge_launcher {
+            page.update(s)?;
+        }
 
         if let Some(task) = &mut self.builtin_task {
             if let Some(res) = task.take() {
@@ -1460,6 +1630,13 @@ impl Page for LibraryPage {
             } else {
                 self.current_page = 0;
                 self.load_online();
+            }
+        }
+        // 课题模式：切 tab / 刷新列表后，把课题选择重新灌回每个列表的多选状态
+        if let Some(selection) = &self.course_selection {
+            for list in self.tabs.iter_mut() {
+                list.view.multi_select = Some(selection.clone());
+                list.view.selection_limit = Some(9);
             }
         }
         // 谱面合集页已移除：点击章节直接进入 Remember 章节（由主页章节按钮处理）
@@ -2133,6 +2310,71 @@ impl Page for LibraryPage {
             })
         })?;
 
+        // 课题模式入口：左下角「课题模式 / 退出」，选中态再叠一个「开始游玩」和已选计数
+        // 与 Pro 一致：走 HUD 槽位（可整体拖动，不参与缩放）
+        let sr = self.search_rect;
+        let course_rect = Rect::new(sr.x - 0.72, sr.y, 0.15, sr.h);
+
+        s.render_fader(ui, |ui| {
+            let mut paint_btn = |ui: &mut Ui, r: Rect| {
+                ui.fill_path(&r.rounded(0.012), semi_black(0.30));
+            };
+            paint_btn(ui, course_rect);
+            self.course_btn.render_text(
+                ui,
+                course_rect,
+                t,
+                if self.course_selection.is_some() { "退出" } else { "课题" },
+                0.32,
+                false,
+            );
+            if self.course_selection.is_some() {
+                paint_btn(
+                    ui,
+                    Rect::new(course_rect.x + course_rect.w + 0.008, course_rect.y, 0.16, course_rect.h),
+                );
+                self.course_start.render_text(
+                    ui,
+                    Rect::new(course_rect.x + course_rect.w + 0.008, course_rect.y, 0.16, course_rect.h),
+                    t,
+                    "开始",
+                    0.28,
+                    false,
+                );
+                paint_btn(
+                    ui,
+                    Rect::new(course_rect.x + course_rect.w + 0.176, course_rect.y, 0.17, course_rect.h),
+                );
+                self.course_hp_val_btn.render_text(
+                    ui,
+                    Rect::new(course_rect.x + course_rect.w + 0.176, course_rect.y, 0.17, course_rect.h),
+                    t,
+                    &format!("HP{}", [1., 20., 50., 100., 200.][self.course_hp_idx] as i32),
+                    0.24,
+                    false,
+                );
+                paint_btn(
+                    ui,
+                    Rect::new(course_rect.x + course_rect.w + 0.354, course_rect.y, 0.20, course_rect.h),
+                );
+                self.course_hp_cond_btn.render_text(
+                    ui,
+                    Rect::new(course_rect.x + course_rect.w + 0.354, course_rect.y, 0.20, course_rect.h),
+                    t,
+                    match self.course_hp_lose { HpLoseCondition::BadOrMiss => "Bad/Miss", HpLoseCondition::NonPerfect => "NonPerfect" },
+                    0.20,
+                    false,
+                );
+            }
+            if self.course_selection.is_some() {
+                ui.text(format!("已选 {} / 9", self.course_selection.as_ref().unwrap().len()))
+                    .pos(course_rect.center().x, course_rect.y - 0.02)
+                    .anchor(0.5, 1.)
+                    .size(0.26)
+                    .draw();
+            }
+        });
+
         if chosen != ChartListType::Popular {
             s.render_fader(ui, |ui| {
                 // HUD 自定义：右上按钮排（整体移动 / 缩放；排内按钮仍等距自动排列）。
@@ -2148,7 +2390,9 @@ impl Page for LibraryPage {
                 let mut r = Rect::new(bar.right(), bar.y, bar.h, bar.h);
                 r.x -= r.w;
 
-                if let Some(selected) = &mut self.tabs.selected_mut().view.multi_select {
+                // 课题多选态下不显示普通多选操作按钮
+                let course_active = self.course_selection.is_some();
+                if let Some(selected) = self.tabs.selected_mut().view.multi_select.as_mut().filter(|_| !course_active) {
                     self.multi_operation_btn.render_shadow(ui, r, t, |ui, path| {
                         ui.fill_path(&path, semi_black(0.3));
                         let cr = r.feather(-0.01);
@@ -2264,6 +2508,7 @@ impl Page for LibraryPage {
                     r.w -= r.h;
                 }
                 let rt = r.right();
+                self.search_rect = r;
                 self.search_btn.render_shadow(ui, r, t, |ui, path| {
                     ui.fill_path(&path, semi_black(0.3));
                 });
@@ -2453,7 +2698,14 @@ impl Page for LibraryPage {
         self.next_page.take().unwrap_or_default()
     }
 
-    fn next_scene(&mut self, _s: &mut SharedState) -> NextScene {
+    fn next_scene(&mut self, s: &mut SharedState) -> NextScene {
+        if let Some(page) = &mut self.challenge_launcher {
+            // 第一局必须是 Overlay：让谱面库留在场景栈底，结算 Pop 才能回来。
+            return match page.next_scene(s) {
+                NextScene::Replace(scene) => NextScene::Overlay(scene),
+                other => other,
+            };
+        }
         self.tabs.selected_mut().view.next_scene().unwrap_or_default()
     }
 }

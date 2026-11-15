@@ -402,7 +402,7 @@ impl Scene for EndingScene {
         // Re 课题谱面可能超官方 3 条上限，保留分页（每页最多 3 条，控件置于 Sum 条下方）
         if let Some(ch) = &self.challenge {
             const PER_PAGE: usize = 3;
-            let total = ch.rounds.len().max(1);
+            let total = ch.rounds.len();
             let pages = (total + PER_PAGE - 1) / PER_PAGE;
             let page = self.challenge_page.min(pages.saturating_sub(1));
             tran(gl, (1. - ran(now, 0.6, 1.8)).powi(3));
@@ -715,11 +715,11 @@ impl Scene for EndingScene {
         }
         match self.next {
             0 => NextScene::None,
-            1 => NextScene::Pop,
+            1 => if self.challenge.is_some() { NextScene::BackToMain } else { NextScene::Pop },
             2 => {
                 // [课题模式] 结算完成后携带课题结算数据回课题页（含所选谱面记录与总分评分）
-                if let Some(ch) = &self.challenge {
-                    NextScene::PopNWithResult(2, Box::new(ch.clone()))
+                if self.challenge.is_some() {
+                    NextScene::BackToMain
                 } else if let Some(rec) = &self.record {
                     NextScene::PopNWithResult(2, Box::new(rec.clone()))
                 } else {

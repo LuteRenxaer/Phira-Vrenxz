@@ -12,3 +12,7 @@ info-content =
 
 cant-delete-builtin = Không thể xoá Respack mặc định
 deleted = Đã xoá Respack
+export = Xuất
+exporting = Đang xuất...
+exported = Xuất thành công
+cant-export-builtin = Không thể xuất Respack mặc định

@@ -8,3 +8,7 @@ info-content =
     Описание: { $desc }
 cant-delete-builtin = Невозможно удалить встроенный ресурспак
 deleted = Удалено
+export = Экспорт
+exporting = Экспортирование...
+exported = Успешно экспортировано
+cant-export-builtin = Невозможно экспортировать встроенный ресурспак

@@ -754,11 +754,10 @@ impl Scene for CrashScene {
                     }
                     if copy_rect.contains(touch.position) {
                         let report = format!(
-                            "=== Phira-Vrenxz Crash Report ===\nError Code: {}\nReason: {}\nTitle: {}\nTip: {}",
+                            "=== Phira-Vrenxz Crash Report ===\nError Code: {}\nReason: {}\nTitle: {}",
                             self.code.code(),
                             self.code.reason(),
                             if self.custom_title.is_empty() { "哇!你的PhiLie崩溃啦!看来error先生愤怒了呢" } else { &self.custom_title },
-                            self.tip,
                         );
                         unsafe { get_internal_gl() }.quad_context.clipboard_set(&report);
                         self.copy_toast_time = now;
@@ -769,16 +768,6 @@ impl Scene for CrashScene {
         }
 
 
-        let tip_margin = 0.03;
-        draw_text_aligned(
-            ui,
-            &format!("Tip: {}", self.tip),
-            -1.0 + tip_margin,
-            top - tip_margin,
-            (0., 1.),
-            0.35,
-            Color::new(1., 1., 1., 0.5),
-        );
 
         // 复制成功提示（显示2秒后淡出）
         if self.copy_toast_time > 0. {

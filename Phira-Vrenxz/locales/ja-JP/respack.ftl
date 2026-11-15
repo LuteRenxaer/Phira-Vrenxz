@@ -11,3 +11,7 @@ info-content =
 cant-delete-builtin = 初めからあるリソースパックは削除できません
 
 deleted = 削除しました
+export = エクスポート
+exporting = エクスポート中...
+exported = エクスポートしました
+cant-export-builtin = 初めからあるリソースパックはエクスポートできません

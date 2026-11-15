@@ -12,3 +12,7 @@ info-content =
 
 cant-delete-builtin = 不能删除内置资源包
 deleted = 已删除
+export = 导出
+exporting = 导出中...
+exported = 导出成功
+cant-export-builtin = 不能导出内置资源包

@@ -1,6 +1,10 @@
 
 label = SETTINGS
 
+item-ui-style = UI Style
+item-ui-style-sub = Switch the overall UI look; the default style matches previous versions
+item-ui-style-default = Default
+item-ui-style-xcsim = XC-SIM
 general = General
 audio = Audio
 chart = Chart
@@ -39,6 +43,7 @@ item-adjust-sub = Adjust the audio and chart offset dynamically.
 item-music = Music Volume
 item-sfx = SFX Volume
 item-bgm = BGM Volume
+item-bgm-sub = Splash / Home background music
 item-cali = Adjust Offset
 item-preferred-sample-rate = Preferred Sample Rate
 preferred-sample-rate-default = System Default
@@ -157,6 +162,12 @@ custom-show-combo = Show Combo
 custom-show-acc = Show Accuracy
 custom-accent-color = Accent Color
 custom-edit = Edit
+custom-section-character = Character Stand
+custom-character = Current Character
+custom-character-intro = Character Intro
+custom-character-no-intro = No intro available
+custom-character-switch = Switch Character
+custom-character-switch-btn = Switch
 custom-section-ui-position = UI Position
 custom-score-x = Score X Offset
 custom-score-y = Score Y Offset
@@ -172,8 +183,8 @@ custom-reset-bg = Reset Background
 custom-reset = Reset
 custom-default-bg = Default Background
 custom-section-music = Custom Music
-custom-home-bgm = Home BGM
-custom-reset-home-bgm = Reset Home BGM
+custom-home-bgm = Splash / Home BGM
+custom-reset-home-bgm = Reset Splash / Home BGM
 custom-startup-bgm = Startup BGM
 custom-reset-startup-bgm = Reset Startup BGM
 custom-default-music = Default Music
@@ -215,6 +226,9 @@ item-roman-numerals = Roman Numerals
 item-roman-numerals-sub = Use Roman numerals to display difficulty level
 item-chinese-numerals = Chinese Numerals
 item-chinese-numerals-sub = Use Chinese numerals to display difficulty level
+item-hud = HUD Customization
+item-hud-sub = Drag the components of the main menu, library and settings to reposition and resize them
+item-hud-open = Manage
 item-reset-settings = Reset to Default
 item-reset-settings-sub = Restore all settings to default values
 item-reset-settings-btn = Reset
@@ -259,11 +273,11 @@ tutorial-load-failed = Failed to load tutorial
 
 
 about-update-log =
-  Version: V1.3.2
+  Version: V1.3.3
   Update notes:
-  1. Removed input box popups (inline input)
-  2. Renamed to Phira-Vrenxz
-  3. Improved game experience
+  1. Fixed a few bugs
+  2. Added some secret settings
+  3. PC has secret Debug stuff
 
   Original development: Prpr, Phira
   Operations & maintenance: Lute_Rencai
@@ -291,7 +305,41 @@ settings-console-log = Console Log
 settings-console-log-desc = Show cmd console window for debug logs when enabled
 settings-vsync = VSync
 settings-vsync-desc = Limit FPS to monitor refresh rate when enabled, disable for higher FPS
-settings-achievement = Achievements
-settings-achievement-system = Achievement System
-settings-achievement-desc = View unlocked achievements and progress
 settings-open = Open
+
+# Built-in home background (Phira-Vrenxz): which bundled background the home page uses
+item-home-bg = Built-in Home Background
+item-home-bg-default = Default
+item-home-bg-one = Background 1
+item-home-bg-two = Background 2
+item-home-bg-three = Background 3
+item-home-bg-old = Legacy Background
+item-home-bg-loginbg = WhatdoyouwantmorethanaHappyending
+
+custom-section-font = Font
+item-font = Font
+item-font-sub = Switch the font used by the UI
+item-import-font = Import font
+item-import-font-sub = Import a TTF/OTF font file and switch to it anytime
+font-default = Default
+font-import = Import
+font-switched = Font switched
+font-switch-failed = Failed to switch font
+
+migrate-settings-item = Sync legacy data
+migrate-settings-item-sub = Import from an older PhirLie / Phira-Vrenxz data folder (the auto prompt only appears before the first sync)
+migrate-settings-now = Sync now
+
+# Character customization (Phira-Vrenxz)
+custom-character-name = Character Name
+custom-character-illust = Character Illustration
+custom-character-no-illust = No illustration
+custom-character-reset = Reset Customization
+custom-character-reset-done = Character customization reset
+custom-character-illust-set = Illustration updated
+custom-character-illust-failed = Failed to update illustration
+
+visual = Visual
+color-palette-title = Color Palette
+color-palette-done = Done
+not-logged-in = Not Logged In

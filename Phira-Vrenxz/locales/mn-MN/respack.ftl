@@ -8,3 +8,7 @@ info-content =
     Description: { $desc }
 cant-delete-builtin = Суурилуулсан скинийг устгах боломжгүй
 deleted = Устгагдсан
+export = Экспорт
+exporting = Экспорт хийж байна...
+exported = Амжилттай экспортлосон
+cant-export-builtin = Суурилуулсан скинийг экспортлох боломжгүй

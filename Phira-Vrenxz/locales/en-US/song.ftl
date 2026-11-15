@@ -21,6 +21,7 @@ delete = Delete
 rate = Rate
 exercise = Practice
 offset = Adjust Offset
+reveal = Chart Reveal
 unlock = View Unlock Video
 edit-cancel = Cancel
 edit-save = Save
@@ -61,6 +62,8 @@ ldb-load-failed = Failed to load leaderboard.
 ldb-no-rank = None
 ldb-score = Score
 ldb-std = Purity
+ldb-srv-official = Official
+ldb-srv-local = Local
 info-name = Name
 info-composer = Composer
 info-charter = Charter
@@ -151,7 +154,14 @@ exporting = Exporting...
 author-platform = Platform: { $platform }
 author-view-profile = View Profile
 xcsim-no-preview = XC-SIM chart has no preview audio
+locsrv-no-preview = Local server chart has no preview audio
 xcsim-downloading = Downloading XC-SIM chart
 xcsim-missing-id = XC-SIM chart missing ID
 xcsim-downloading-from = Downloading chart from XC-SIM
 xcsim-saving = Saving chart
+
+upload-chart = Upload Chart
+
+upload-chart-invalid = Please select a .zip chart file
+
+upload-chart-success = Chart uploaded successfully!

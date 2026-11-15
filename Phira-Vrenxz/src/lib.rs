@@ -5,6 +5,7 @@ prpr_l10n::tl_file!("common" ttl crate::);
 mod inner;
 
 mod anim;
+mod bgshot;
 mod tips;
 mod censor;
 mod charts_view;
@@ -21,6 +22,8 @@ mod mp;
 mod pack;
 mod page;
 mod plugin;
+mod plugins;
+mod ppsr_features;
 mod popup;
 mod rate;
 mod recorder;
@@ -78,6 +81,8 @@ static DATA_PATH: Mutex<Option<String>> = Mutex::new(None);
 static CACHE_DIR: Mutex<Option<String>> = Mutex::new(None);
 pub static mut DATA: Option<Data> = None;
 
+/// UI 显示版本（协议版本仍用 CARGO_PKG_VERSION）
+pub const APP_VERSION: &str = "1.3.3PRO";
 static CRASH_SCENE_SHOWN: AtomicBool = AtomicBool::new(false);
 
 /// 拖拽导入谱面完成后置位，主场景 update 消费后刷新内存谱面列表（与手动导入一致）。
@@ -306,6 +311,7 @@ mod dir {
 
 async fn the_main() -> Result<()> {
     log::register();
+    bgshot::init();
 
     std::panic::set_hook(Box::new(|info| {
         let message = if let Some(s) = info.payload().downcast_ref::<&str>() {
@@ -418,6 +424,8 @@ async fn the_main() -> Result<()> {
         .unwrap_or_default();
     data.init().await?;
     set_data(data);
+    plugins::init();
+    prpr::scene::GLOBAL_OVERLAY.with(|f| *f.borrow_mut() = Some(crate::plugins::render_global));
     sync_data();
     save_data()?;
 
@@ -662,6 +670,13 @@ fn build_global_window_conf() -> Conf {
         );
     }
 
+    // 只渲染背景截图模式：按环境变量指定画面尺寸，并强制窗口化。
+    if let Some((w, h)) = bgshot::window_size() {
+        conf.window_width = w;
+        conf.window_height = h;
+        conf.fullscreen = false;
+    }
+
     conf
 }
 
@@ -693,6 +708,8 @@ pub fn set_console_enabled(enabled: bool) {
 
 #[no_mangle]
 pub extern "C" fn quad_main() {
+    // 窗口尺寸必须在创建窗口前确定，所以这里先解析只渲染背景截图的环境变量。
+    bgshot::init();
     macroquad::Window::from_config(build_global_window_conf(), async {
         if let Err(err) = the_main().await {
             error!(?err, "global error");

@@ -26,8 +26,13 @@ forget-password = Забыли пароль?
 
 startup-select-language = Выбор языка
 startup-tap-to-continue = Нажмите, чтобы продолжить
+startup-tap-to-skip = Tap to skip
 startup-tip = Совет: { $tip }
 
 startup-load-failed = Ошибка запуска
 startup-loading = Загрузка...
 
+
+srv-official = Официальный
+
+srv-local = Локальный

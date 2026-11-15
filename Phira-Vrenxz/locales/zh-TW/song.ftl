@@ -21,6 +21,7 @@ delete = 刪除
 rate = 評分
 exercise = 練習
 offset = 調整延遲
+reveal = 譜面揭曉
 unlock = 播放解鎖動畫
 edit-cancel = 取消
 edit-save = 儲存
@@ -60,6 +61,8 @@ ldb-load-failed = 載入排行榜失敗
 ldb-no-rank = 無
 ldb-score = 分數
 ldb-std = 無瑕度
+ldb-srv-official = 官方榜
+ldb-srv-local = 本地榜
 info-name = 曲名
 info-composer = 曲師
 info-charter = 譜師
@@ -140,7 +143,14 @@ exporting = 匯出中…
 author-platform = 平台：{ $platform }
 author-view-profile = 查看主頁
 xcsim-no-preview = XC-SIM 譜面沒有預覽音訊
+locsrv-no-preview = 本地伺服器譜面沒有預覽音訊
 xcsim-downloading = 正在下載 XC-SIM 譜面
 xcsim-missing-id = XC-SIM 譜面缺少 ID
 xcsim-downloading-from = 正在從 XC-SIM 下載譜面
 xcsim-saving = 正在儲存譜面
+
+upload-chart = 上傳譜面
+
+upload-chart-invalid = 請選擇 .zip 格式的譜面檔案
+
+upload-chart-success = 譜面已上傳成功！

@@ -1,6 +1,6 @@
 prpr_l10n::tl_file!("home");
 use super::{
-    load_font_with_cksum, set_bold_font, ChallengePage, LibraryPage, NextPage, Page, PhigrosLibraryPage, ResPackPage,
+    load_font_with_cksum, set_bold_font, LibraryPage, NextPage, Page, PhigrosLibraryPage, ResPackPage,
     SFader, SettingsPage, SharedState, BOLD_FONT_CKSUM,
 };
 use super::message::MessagePage;
@@ -283,12 +283,13 @@ impl HomePage {
         // 字标与开屏完全同一位置/字号：点开始之后它原地不动，只有下面的菜单淡入
         let cx = crate::splash_ui::sx(crate::splash_ui::CONTENT_CX);
         s.render_fader(ui, |ui| {
-            crate::splash_ui::draw_logo(ui, cx, -0.02, 1.50, 1.0);
+            let logo_size = if cfg!(target_os = "ios") { 1.28 } else { 1.50 };
+            crate::splash_ui::draw_logo(ui, cx, -0.02, logo_size, 1.0);
         });
 
         // 菜单列：与字标同宽，右端和字标右缘对齐
         let x0 = crate::splash_ui::sx(0.620);
-        let x1 = crate::splash_ui::sx(0.952);
+        let x1 = crate::splash_ui::sx(0.940);
         let w = x1 - x0;
 
         // ==== 游玩（主按钮）====
@@ -312,27 +313,10 @@ impl HomePage {
         });
 
         // ==== 课题模式（次按钮）====
-        let r_ch = Rect::new(x0, r_play.bottom() + 0.030, w, 0.098);
-        s.render_fader(ui, |ui| {
-            ui.alpha(p, |ui| {
-                self.btn_challenge.build(ui, t, r_ch, |ui, _| {
-                    let sk = r_ch.h * MENU_SKEW;
-                    draw_menu_button(ui, r_ch, false);
-                    ui.text("课题模式")
-                        .pos(r_ch.x + 0.052 + sk * 0.5, r_ch.center().y)
-                        .anchor(0., 0.5)
-                        .size(0.40)
-                        .color(WHITE)
-                        .draw();
-
-                });
-            });
-        });
-
         // ==== 图标行：消息 / 资源包 / 设置（同一斜切板，右端对齐）====
         let btn = 0.088;
         let gap = 0.024;
-        let row_y = r_ch.bottom() + 0.042;
+        let row_y = r_play.bottom() + 0.042;
         let r_msg = Rect::new(x1 - btn * 3. - gap * 2., row_y, btn, btn);
         let r_res = Rect::new(x1 - btn * 2. - gap, row_y, btn, btn);
         let r_set = Rect::new(x1 - btn, row_y, btn, btn);
@@ -443,14 +427,7 @@ impl Page for HomePage {
             self.next_page = Some(NextPage::Overlay(Box::new(LibraryPage::new(Arc::clone(&self.icons), s.icons.clone())?)));
             return Ok(true);
         }
-        if self.btn_challenge.touch(touch, t) {
-            s.reload_local_charts();
-            self.next_page = Some(NextPage::Overlay(Box::new(ChallengePage::new(
-                Arc::clone(&self.icons),
-                s.charts_local.clone(),
-            )?)));
-            return Ok(true);
-        }
+
         if self.btn_respack.touch(touch, t) {
             self.next_page = Some(NextPage::Overlay(Box::new(ResPackPage::new(Arc::clone(&self.icons))?)));
             return Ok(true);

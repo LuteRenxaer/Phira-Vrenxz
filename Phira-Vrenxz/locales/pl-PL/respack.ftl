@@ -10,3 +10,7 @@ info-content =
 
 cant-delete-builtin = Nie można usunąć wbudowanej paczki zasobów
 deleted = Usunięto
+export = Eksportuj
+exporting = Eksportowanie...
+exported = Wyeksportowano pomyślnie
+cant-export-builtin = Nie można wyeksportować wbudowanej paczki zasobów

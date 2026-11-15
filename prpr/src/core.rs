@@ -121,6 +121,7 @@ pub struct BpmList {
 }
 
 impl BpmList {
+    pub fn elements(&self) -> &[(f64, f64, f64)] { &self.elements }
 
     pub fn new(ranges: Vec<(f64, f64)>) -> Self {
         let mut elements = Vec::new();

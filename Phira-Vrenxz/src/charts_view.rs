@@ -109,6 +109,8 @@ pub struct ChartsView {
     movement: Option<(usize, usize)>,
 
     pub multi_select: Option<Vec<ChartRef>>,
+    /// 多选上限（课题模式为 3）；`None` 表示不限制（普通多选导出等）。
+    pub selection_limit: Option<usize>,
 }
 
 impl ChartsView {
@@ -140,6 +142,7 @@ impl ChartsView {
             movement: None,
 
             multi_select: None,
+            selection_limit: None,
         }
     }
 
@@ -256,6 +259,14 @@ impl ChartsView {
                                 }
                             });
                             if !removed {
+                                if self.selection_limit.is_some_and(|limit| sel.len() >= limit) {
+                                    show_message("课题只能选择三首曲目，请先取消一首").warn();
+                                    continue;
+                                }
+                                if self.selection_limit.is_some() && r.find_local_path()?.is_none() {
+                                    show_message("请先下载此谱面，再加入课题").warn();
+                                    continue;
+                                }
                                 sel.push(r);
                             }
                             continue;

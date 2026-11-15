@@ -41,6 +41,6 @@ migrate-fail-message =
 
 migrate-ok = Got it
 
-migrate-settings-item = Sync legacy data
-migrate-settings-item-sub = Import from an older PhirLie / Phira-Vrenxz data folder (the auto prompt only appears before the first sync)
-migrate-settings-now = Sync now
+migrate-settings-item = Синхронизировать старые данные
+migrate-settings-item-sub = Импорт из папки data старой версии PhirLie / Phira-Vrenxz (автоподсказка появляется только перед первой синхронизацией)
+migrate-settings-now = Синхронизировать сейчас

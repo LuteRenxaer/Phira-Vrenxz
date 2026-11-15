@@ -16,3 +16,5 @@ import = Importar
 offline-mode = Não é possível carregar beatmaps online no modo offline
 
 must-login = Você deve fazer login para visualizar gráficos on-line
+
+loc-srv = Servidor local
