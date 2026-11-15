@@ -312,6 +312,7 @@ pub struct InputDialog {
     cursor_timer: f32,
     delete_hold: f32,
     selection: Option<(usize, usize)>,
+    opened_at: f64,
 }
 
 impl InputDialog {
@@ -340,6 +341,7 @@ impl InputDialog {
             cursor_timer: 0.,
             delete_hold: 0.,
             selection: None,
+            opened_at: macroquad::time::get_time(),
         }
     }
 
@@ -423,6 +425,11 @@ impl InputDialog {
     }
 
     fn update_keyboard(&mut self) -> bool {
+        // 打开后的短暂预热期丢弃字符事件，避免菜单按键/输入法初始化把整串字符灌进来。
+        if macroquad::time::get_time() < self.opened_at + 0.25 {
+            while get_char_pressed().is_some() {}
+            return false;
+        }
         // Windows 上 IME 有时会吃掉 Ctrl 组合键；用物理键状态兜底。
         if let Some(shortcut) = crate::shortcut::poll() {
             match shortcut {
@@ -457,7 +464,10 @@ impl InputDialog {
         }
         let mut input = String::new();
         let mut backspace_char = false;
+        let mut accepted = 0usize;
         while let Some(c) = get_char_pressed() {
+            if accepted >= 64 { break; }
+            accepted += 1;
             // Windows/IME 把 Ctrl 组合键作为控制字符送进来时也能生效。
             match c {
                 '\u{1}' => {
