@@ -14,8 +14,7 @@ fn git_stdout(args: &[&str]) -> Option<String> {
 fn main() {
     dotenv_build::output(dotenv_build::Config::default()).unwrap();
 
-    #[cfg(windows)]
-    {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         // icon.ico 变了也要重新跑：embed_resource 只盯着 icons.rc，改了 ico 不 touch rc 的话
         // 会继续用旧图标（Windows 上表现为"图标被锁死"）。
         println!("cargo:rerun-if-changed=icon.ico");
