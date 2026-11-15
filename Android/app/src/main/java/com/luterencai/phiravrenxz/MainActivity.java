@@ -547,11 +547,12 @@ public class MainActivity extends Activity {
     }
 
     /** 把 SAF 返回的 content Uri 复制到应用缓存目录，返回本地绝对路径。 */
-    private void copyAssetTree(String path, File dest) throws IOException {
+    private void copyAssetTree(String path, File destDir) throws IOException {
         String[] children = getAssets().list(path);
         if (children == null || children.length == 0) {
             if (!path.isEmpty()) {
-                File outFile = new File(dest, path.substring(path.lastIndexOf('/') + 1));
+                String name = path.substring(path.lastIndexOf('/') + 1);
+                File outFile = new File(destDir, name);
                 if (!outFile.exists() || outFile.length() == 0) {
                     try (InputStream in = getAssets().open(path);
                          OutputStream out = new FileOutputStream(outFile)) {
@@ -563,7 +564,7 @@ public class MainActivity extends Activity {
             }
             return;
         }
-        File dir = path.isEmpty() ? dest : new File(dest, path.substring(path.lastIndexOf('/') + 1));
+        File dir = path.isEmpty() ? destDir : new File(destDir, path.substring(path.lastIndexOf('/') + 1));
         if (!dir.exists()) dir.mkdirs();
         for (String child : children) {
             copyAssetTree(path.isEmpty() ? child : path + "/" + child, dir);
