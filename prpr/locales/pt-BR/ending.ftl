@@ -15,3 +15,4 @@ upload-cancel = Cancelar envio
 upload-retry = Tentar de novo
 
 still-uploading = Carregando resultado, aguarde…
+detail = DETAILS

@@ -15,3 +15,4 @@ export = エクスポート
 exporting = エクスポート中...
 exported = エクスポートしました
 cant-export-builtin = 初めからあるリソースパックはエクスポートできません
+label = RESPACK

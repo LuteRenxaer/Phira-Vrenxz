@@ -11,3 +11,4 @@ update-desc =
     Beschreibung: { $desc }
 update-ignore = Ignorieren
 update-go = Ansehen
+cancel = Cancel

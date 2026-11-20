@@ -16,3 +16,4 @@ update-desc =
 update-ignore = Шинэчлэлтийг үл тоох
 update-go = Шинэчлэх
 
+cancel = Cancel

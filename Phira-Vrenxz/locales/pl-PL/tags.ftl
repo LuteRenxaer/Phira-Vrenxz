@@ -16,3 +16,6 @@ regular = Regularne
 troll = Troll
 plain = Proste
 visual = Wizualne
+filter-me = Uploaded by Self
+filter-unreviewed = Unreviewed
+filter-stabilize = Stabilization Request

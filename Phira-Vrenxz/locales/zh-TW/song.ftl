@@ -154,3 +154,15 @@ upload-chart = 上傳譜面
 upload-chart-invalid = 請選擇 .zip 格式的譜面檔案
 
 upload-chart-success = 譜面已上傳成功！
+mods-flip-y = 垂直反转
+mods-flip-y-sub = 在 Y 轴（上下）上镜像谱面，判定同步镜像
+mods-ghost = 幽灵
+mods-ghost-sub = Note 半透明化，防盯屏神器
+mods-random-x = 横摆
+mods-random-x-sub = 每个 Note 横向散开到确定性的随机位置（仅视觉）
+mods-fx-tv = 老电视
+mods-fx-tv-sub = 老式电视 / VHS 质感全屏特效
+mods-fx-scanline = 扫描线
+mods-fx-scanline-sub = 复古 CRT 扫描线特效
+mods-fx-glitch = 故障
+mods-fx-glitch-sub = 信号故障 / 画面撕裂特效

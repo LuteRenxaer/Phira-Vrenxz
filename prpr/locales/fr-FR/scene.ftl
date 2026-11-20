@@ -11,3 +11,4 @@ pasted = Collé depuis le presse-papiers
 select-all = All
 copy = Copy
 paste = Paste
+audio-backend-init-failed = Failed to initialize audio backend, running in silent mode.

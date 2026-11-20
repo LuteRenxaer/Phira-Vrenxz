@@ -26,3 +26,8 @@ tags = Tags
 tag-exists = A tag já existe
 
 illegal-input = Entrada ilegal
+enable-unlock = Unlock Video
+unlock-file = Unlock Video File
+how-to-add-collaborator = How to Add Collaborators
+rpe-170-speed = New Speed Tween
+attach-ui-fix = Attach UI Fix

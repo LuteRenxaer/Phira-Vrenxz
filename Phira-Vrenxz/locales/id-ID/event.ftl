@@ -13,3 +13,4 @@ btn-ongoing = Sedang berlangsung
 btn-ended = Berakhir
 
 ldb = Papan peringkat
+label = EVENTS

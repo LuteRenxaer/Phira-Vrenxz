@@ -16,3 +16,4 @@ update-desc =
 update-ignore = Не сейчас
 update-go = Обновить
 
+cancel = Cancel

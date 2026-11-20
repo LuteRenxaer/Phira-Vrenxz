@@ -1522,6 +1522,14 @@ impl GameScene {
         if self.pause_alpha > 0.001 {
             let h = 1. / res.aspect_ratio;
             // 楂樻柉妯＄硦鑳屾櫙锛氭殏鍋滄椂鎶撳彇鐢婚潰鍍忕礌锛岀敤 fastblur 鍋?CPU 绔珮鏂ā绯?
+            #[cfg(target_os = "android")]
+            {
+                // Android 的 glReadPixels 抓帧会得到白屏，不做模糊抓帧；
+                // 清掉可能残留的模糊纹理/离屏目标，避免复用到旧的白色画面。
+                self.pause_blur_tex = None;
+                self.pause_blur_rt = None;
+                self.pause_need_blur = false;
+            }
             if self.pause_need_blur && !cfg!(target_os = "android") {
                 let vp = ui.viewport;
                 let bw = (vp.2 as u32 / 8).max(1);
@@ -1635,7 +1643,7 @@ impl GameScene {
             ui.fill_path(&s1.rounded(0.01), Color::new(0., 0., 0., 0.4));
             {
                 let dy = 0.02;
-                ui.text("Max Combo")
+                ui.text(tl!("pause-max-combo"))
                     .pos(s1.x + 0.04, s1.bottom() - dy)
                     .anchor(0., 1.)
                     .size(0.28)
@@ -1647,7 +1655,7 @@ impl GameScene {
                     .size(0.55)
                     .color(WHITE)
                     .draw();
-                ui.text("Accuracy")
+                ui.text(tl!("pause-accuracy"))
                     .pos(s1.right() - 0.04, s1.bottom() - dy)
                     .anchor(1., 1.)
                     .size(0.28)
@@ -1684,15 +1692,15 @@ impl GameScene {
                         .color(WHITE)
                         .draw();
                 };
-                draw_count(ui, s2.x + s2.w * 0.12, "Perfect", counts[0]);
-                draw_count(ui, s2.x + s2.w * 0.30, "Good", counts[1]);
-                draw_count(ui, s2.x + s2.w * 0.44, "Bad", counts[2]);
-                draw_count(ui, s2.x + s2.w * 0.58, "Miss", counts[3]);
+                draw_count(ui, s2.x + s2.w * 0.12, &tl!("judge-perfect").into_owned(), counts[0]);
+                draw_count(ui, s2.x + s2.w * 0.30, &tl!("judge-good").into_owned(), counts[1]);
+                draw_count(ui, s2.x + s2.w * 0.44, &tl!("judge-bad").into_owned(), counts[2]);
+                draw_count(ui, s2.x + s2.w * 0.58, &tl!("judge-miss").into_owned(), counts[3]);
                 // Early / Late
                 let l = s2.x + s2.w * 0.72;
                 let rt = s2.x + s2.w * 0.94;
                 let cy = s2.center().y;
-                ui.text("Early")
+                ui.text(tl!("pause-early"))
                     .pos(l, cy - dy2 / 2.)
                     .anchor(0., 1.)
                     .size(0.24)
@@ -1704,7 +1712,7 @@ impl GameScene {
                     .size(0.24)
                     .color(WHITE)
                     .draw();
-                ui.text("Late")
+                ui.text(tl!("pause-late"))
                     .pos(l, cy + dy2 / 2.)
                     .anchor(0., 0.)
                     .size(0.24)

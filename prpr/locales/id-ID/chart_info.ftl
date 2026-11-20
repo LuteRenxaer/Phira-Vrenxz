@@ -26,3 +26,6 @@ intro = Deskripsi
 how-to-add-collaborator = Cara Menambahkan Kolaborator
 tags = Tags
 tag-exists = Tag duplikat terdeteksi
+rpe-170-speed = New Speed Tween
+attach-ui-fix = Attach UI Fix
+illegal-input = Unallowed input.

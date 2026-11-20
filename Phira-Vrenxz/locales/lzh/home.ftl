@@ -17,3 +17,4 @@ update-ignore = 忽此版
 update-go = 更新
 
 change-char = 更易角色
+cancel = Cancel

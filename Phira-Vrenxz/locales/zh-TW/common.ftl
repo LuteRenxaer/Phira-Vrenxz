@@ -25,3 +25,5 @@ favorites-online-only = 雲端收藏夾只能收藏線上譜面。本地譜面�
 contains-banned-words = 你的輸入包含違禁詞，請檢查後再提交
 hykb-not-bound-logout = 你的帳號未綁定好遊快爆，已退出登入
 hykb-login-cancelled = 已取消好遊快爆登入
+crash-unexpected = 游戏发生意外崩溃
+studio-tap-to-skip = 点击屏幕可跳过

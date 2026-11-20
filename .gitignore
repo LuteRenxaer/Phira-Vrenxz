@@ -59,3 +59,10 @@ backup_*
 
 # local server run logs
 mp-local*
+
+# AI 协作共享层（本地记录，不进仓库）
+/.ai-shared/
+/AGENTS.md
+
+# 本地备份（设置页等改动前快照）
+/.ai-backup/

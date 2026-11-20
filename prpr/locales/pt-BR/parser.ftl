@@ -40,3 +40,6 @@ shader-load-failed = Não é possível carregar o shader de  { $path }
 shader-not-found = Não é possível encontrar o shader predefinido  { $shader }
 effect-location = Com efeito  #{ $id }
 video-load-failed = Falha ao ler o vídeo de  { $path }
+gif-events-parse-failed = Failed to parse gif events.
+gif-load-failed = Failed to load gif at { $path }.
+hitsound-missing = Hitsound `{ $name }` is missing.

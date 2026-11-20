@@ -25,3 +25,5 @@ favorites-online-only = Nur Online-Charts können in Online-Favoriten gespeicher
 contains-banned-words = Die Eingabe enthält unzulässige Wörter; bitte überprüfe dies nochmal und versuche es erneut
 hykb-not-bound-logout = Das Konto ist nicht mit einem 3839-Games-Konto verknüpft; Du wurdest abgemeldet
 hykb-login-cancelled = Anmeldung bei 3839 Games abgebrochen
+crash-unexpected = Unexpected game crash
+studio-tap-to-skip = Tap to skip

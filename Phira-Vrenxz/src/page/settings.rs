@@ -152,15 +152,15 @@ enum SettingListType {
     About,
 }
 const SETTING_TABS: [(SettingListType, &str); 9] = [
-    (SettingListType::General, "通用"),
-    (SettingListType::Account, "账号"),
-    (SettingListType::Audio, "音频"),
-    (SettingListType::Chart, "谱面"),
-    (SettingListType::Visual, "谱面UI"),
-    (SettingListType::Custom, "自定义"),
-    (SettingListType::Debug, "调试"),
-    (SettingListType::Plugin, "插件"),
-    (SettingListType::About, "关于"),
+    (SettingListType::General, "tab-general"),
+    (SettingListType::Account, "tab-account"),
+    (SettingListType::Audio, "tab-audio"),
+    (SettingListType::Chart, "tab-chart"),
+    (SettingListType::Visual, "tab-visual"),
+    (SettingListType::Custom, "tab-custom"),
+    (SettingListType::Debug, "tab-debug"),
+    (SettingListType::Plugin, "tab-plugin"),
+    (SettingListType::About, "tab-about"),
 ];
 pub struct SettingsPage {
     list_general: GeneralList,
@@ -735,7 +735,7 @@ fn tab_bar(ui: &mut Ui, active: SettingListType) {
                 WHITE,
             );
         }
-        ui.text(*name)
+        ui.text(tl!(*name))
             .pos(fx(cx) + sk * 0.5, cy)
             .anchor(0.5, 0.5)
             .size(0.46)
@@ -834,7 +834,7 @@ fn draw_row(ui: &mut Ui, t: f32, r: Rect, row: &mut Row) {
             render_switch(ui, Rect::new(cr.x, cr.y, SIZE_SW_W, cr.h), t, switch, *on);
             let dr = Rect::new(cr.right() - 0.07, cr.y + cr.h * 0.22, 0.07, cr.h * 0.56);
             delete.build(ui, t, dr, |ui, _| {
-                ui.text("删除")
+                ui.text(tl!("row-delete"))
                     .pos(dr.center().x, dr.center().y)
                     .anchor(0.5, 0.5)
                     .size(0.24)
@@ -879,13 +879,9 @@ fn render_grid(
     let usable_w = area.w - SIZE_RIGHT_PAD;
     let col_w = (usable_w - SIZE_COL_GAP) * 0.5;
     let per_col = half.max(n - half) as f32;
-    // 行高按当前窗口自适应：行数多就压缩到刚好铺满可见区，避免最后一行被裁掉
-    let row_h = if per_col > 0. {
-        (area.h * 0.995 / per_col).min(SIZE_ROW_H).max(SIZE_ROW_H * 0.62)
-    } else {
-        SIZE_ROW_H
-    };
-    let total_h = per_col * row_h;
+    // 行高不再往下压：固定用 SIZE_ROW_H，行数多了就整体上下滚，别挤成一坨
+    let row_h = SIZE_ROW_H;
+    let total_h = per_col * row_h + SIZE_ROW_H * 0.3;
     *content_h = total_h;
     scroll.size((area.w, area.h));
     ui.scope(|ui| {
@@ -973,8 +969,8 @@ fn render_account(ui: &mut Ui, r: Rect, t: f32, icon: &SafeTexture, logout: &mut
         .color(semi_white(0.7))
         .draw();
     let info = match &me {
-        Some(me) => format!("ID: {}", me.id),
-        None => "ID: --".to_string(),
+        Some(me) => tl!("profile-id", "id" => me.id.to_string()),
+        None => tl!("profile-id-none").into_owned(),
     };
     ui.text(info)
         .pos(nx, av.y + 0.155)
@@ -984,7 +980,7 @@ fn render_account(ui: &mut Ui, r: Rect, t: f32, icon: &SafeTexture, logout: &mut
         .draw();
     // 简介
     let bio = me.as_ref().and_then(|m| m.bio.clone()).unwrap_or_default();
-    ui.text(if bio.is_empty() { "暂无简介".to_string() } else { bio })
+    ui.text(if bio.is_empty() { tl!("custom-character-no-intro").into_owned() } else { bio })
         .pos(r.x + 0.01, av.bottom() + 0.06)
         .anchor(0., 0.)
         .size(0.34)
@@ -1190,6 +1186,10 @@ impl Page for SettingsPage {
             }
             _ => {}
         }
+        // 行控件只认内容区里的点击：滚动后看不见的行、以及别处点进来都不该触发
+        if !self.scroll.contains(touch) {
+            return Ok(false);
+        }
         if self.scroll.touch(touch, t) {
             return Ok(true);
         }
@@ -1211,7 +1211,12 @@ impl Page for SettingsPage {
             self.scroll.y_scroller.halt();
             return Ok(true);
         }
-        if self.tab != SettingListType::Chart {
+        // 谱面/判定那些行只在本页或与其合并显示的页里才画，别的页不能再吃点击
+        let chart_rows_shown = matches!(
+            self.tab,
+            SettingListType::General | SettingListType::Visual | SettingListType::Custom | SettingListType::Debug
+        );
+        if chart_rows_shown {
             if let Some(p) = self.list_chart.touch(touch, t)? {
                 if p {
                     self.save_time = t;
@@ -2980,7 +2985,7 @@ impl ReplayList {
             );
             v.push(row_value(item.replay.name.clone(), Some(sub.into()), play, "播放"));
             v.push(row_value(format!("编辑：{}", item.replay.name), None, edit, "编辑"));
-            v.push(row_value(format!("删除：{}", item.replay.name), None, del, "删除"));
+            v.push(row_value(format!("删除：{}", item.replay.name), None, del, tl!("row-delete")));
         }
         v
     }
@@ -3109,7 +3114,7 @@ impl DebugList {
                 &mut self.crash_btn,
                 tl!("item-crash"),
             ),
-            row_value("打开回放目录", Some("在资源管理器中查看 replays/".into()), &mut self.replay_folder_btn, "打开"),
+            row_value("打开回放目录", Some("在资源管理器中查看 replays/".into()), &mut self.replay_folder_btn, tl!("settings-open")),
             row_value("清空回放", Some("删除 replays/ 下全部 JSON 回放".into()), &mut self.replay_clear_btn, "清空"),
             row_value("导出回放", Some("复制到 export/replays".into()), &mut self.replay_export_btn, "导出"),
         ]
@@ -3374,7 +3379,7 @@ impl CustomList {
                 .unwrap_or_else(|| def.to_string())
         };
         let bg_name = file_name(&data.custom_background_path, &tl!("custom-default-bg"));
-        let video_name = file_name(&data.home_video_path, "未选择");
+        let video_name = file_name(&data.home_video_path, &tl!("custom-not-selected"));
         // 主页和开屏共用同一首自定义音乐；旧数据只填了开屏路径时也能显示出来。
         let bgm_path = data.custom_bgm_path.as_ref().or(data.custom_startup_bgm_path.as_ref());
         let bgm_name = file_name(&bgm_path.cloned(), &tl!("custom-default-music"));
@@ -3384,12 +3389,12 @@ impl CustomList {
             config.custom_watermark.clone()
         };
         let combo_text = if config.custom_combo_text.is_empty() {
-            "COMBO".to_string()
+            tl!("item-combo-text-default").into_owned()
         } else {
             config.custom_combo_text.clone()
         };
         let autoplay_text = if config.autoplay_display_text.is_empty() {
-            "Autoplay".to_string()
+            tl!("item-autoplay-text-default").into_owned()
         } else {
             config.autoplay_display_text.clone()
         };
@@ -3419,10 +3424,10 @@ impl CustomList {
                 &mut self.autoplay_text_btn,
                 tl!("custom-edit"),
             ),
-            row_value(tl!("custom-select-bg"), Some(bg_name.into()), &mut self.custom_bg_btn, "选择"),
+            row_value(tl!("custom-select-bg"), Some(bg_name.into()), &mut self.custom_bg_btn, tl!("custom-select")),
             row_arrow(tl!("custom-reset-bg"), None, &mut self.reset_bg_btn),
             // ---- 右栏 ----
-            row_value(tl!("custom-home-bgm"), Some(bgm_name.into()), &mut self.custom_bgm_btn, "选择"),
+            row_value(tl!("custom-home-bgm"), Some(bgm_name.into()), &mut self.custom_bgm_btn, tl!("custom-select")),
             row_arrow(tl!("custom-reset-home-bgm"), None, &mut self.reset_bgm_btn),
             row_value(
                 tl!("custom-crash-title"),
@@ -3459,7 +3464,7 @@ impl CustomList {
                 "主页动态背景",
                 Some(video_name.into()),
                 &mut self.custom_video_btn,
-                "选择".to_string(),
+                tl!("custom-select").into_owned(),
             ),
             row_arrow("清除动态背景", None, &mut self.reset_video_btn),
         ]

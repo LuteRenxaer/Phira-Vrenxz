@@ -15,3 +15,4 @@ upload-cancel = Yüklemeyi iptal et
 upload-retry = Yeniden dene
 
 still-uploading = Sonuç yükleniyor, lütfen bekleyin...
+detail = DETAILS

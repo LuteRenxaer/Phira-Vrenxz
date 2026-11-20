@@ -16,3 +16,4 @@ update-desc =
 update-ignore = Bỏ qua
 update-go = Cập nhật
 
+cancel = Cancel

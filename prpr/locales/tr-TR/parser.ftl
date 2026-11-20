@@ -40,3 +40,6 @@ shader-load-failed = { $path } içindeki shader'lar yüklenemiyor
 shader-not-found = Ön ayar shader'ı bulunamıyor { $shader }
 effect-location = #{ $id }. etkide
 video-load-failed = { $path } yolundaki video yüklenemiyor
+gif-events-parse-failed = Failed to parse gif events.
+gif-load-failed = Failed to load gif at { $path }.
+hitsound-missing = Hitsound `{ $name }` is missing.

@@ -11,3 +11,4 @@ update-desc =
     คำอธิบาย：{ $desc }
 update-ignore = ไม่สนใจ
 update-go = ดู
+cancel = Cancel

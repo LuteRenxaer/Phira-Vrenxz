@@ -291,3 +291,57 @@ custom-character-illust-failed = Failed to update illustration
 visual = Visual
 color-palette-title = Color Palette
 color-palette-done = Done
+custom-section-character = Character Stand
+custom-character = Current Character
+custom-character-intro = Character Intro
+custom-character-no-intro = No intro available
+custom-character-switch = Switch Character
+custom-character-switch-btn = Switch
+item-hud = HUD Customization
+item-hud-sub = Drag the components of the main menu, library and settings to reposition and resize them
+item-hud-open = Manage
+not-logged-in = Not Logged In
+about-update-log =
+  Version: V1.3.3
+  Update notes:
+  1. Fixed a few bugs
+  2. Added some secret settings
+  3. PC has secret Debug stuff
+
+  Original development: Prpr, Phira
+  Operations & maintenance: Lute_Rencai
+  Testers:
+  Yangyangjiang~
+  Jihe Linyu
+  DVD
+  Development:
+  Lute_Rencai
+  Jihe Linyu
+  Bug QA:
+  Jihe Linyu
+  Jungle
+  Art:
+  Jihe Linyu
+  Lute_Rencai
+  Blue Archive
+
+  If you downloaded this from elsewhere, please join the
+  Phira-Vrenxz/Phi Launcher official group
+  QQ: 1103288774
+
+# Phira-Vrenxz settings
+tab-general = General
+tab-account = Account
+tab-audio = Audio
+tab-chart = Chart
+tab-visual = Chart UI
+tab-custom = Custom
+tab-debug = Debug
+tab-plugin = Plugins
+tab-about = About
+row-delete = Delete
+custom-select = Select
+custom-not-selected = Not selected
+item-autoplay-text-default = Autoplay
+profile-id = ID: { $id }
+profile-id-none = ID: --

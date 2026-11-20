@@ -6,3 +6,11 @@ not-opened = Niedostępny
 not-logged-in = Nie zalogowano
 
 failed-to-update = Nie załadowano informacji użytkownika
+note-try-login-again = Try logging in again.
+update = v{ $version } Update
+update-ignore = Ignore
+update-go = View
+cancel = Cancel
+update-desc =
+  Date: { $date }
+  Description: { $desc }

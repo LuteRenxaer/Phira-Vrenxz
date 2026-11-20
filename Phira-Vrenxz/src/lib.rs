@@ -65,7 +65,7 @@ use std::{
         mpsc, Mutex,
     },
 };
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[cfg(target_os = "android")]
 use jni::{
@@ -157,7 +157,35 @@ pub fn save_data() -> Result<()> {
     if migrate::migrated() {
         return Ok(());
     }
-    std::fs::write(format!("{}/data.json", dir::root()?), serde_json::to_string(get_data())?)?;
+    let root = match dir::root().with_context(|| "save_data: resolve root dir") {
+        Ok(root) => root,
+        Err(err) => {
+            error!(?err, "save_data: cannot resolve data root, skip saving");
+            return Ok(());
+        }
+    };
+    let path = format!("{root}/data.json");
+    let body = match serde_json::to_string(get_data()) {
+        Ok(body) => body,
+        Err(err) => {
+            error!(?err, "save_data: cannot serialize data, skip saving");
+            return Ok(());
+        }
+    };
+    match std::fs::write(&path, body.as_bytes()).with_context(|| format!("save_data: write {path}")) {
+        Ok(()) => {}
+        Err(err) => {
+            // 有的机器上目标文件的 ACL 会比目录更严（写不进去但目录可写），
+            // 先删后建通常能绕过，成功了就继续，失败也不让游戏退出。
+            if std::fs::remove_file(&path).is_ok()
+                && std::fs::write(&path, body.as_bytes()).is_ok()
+            {
+                warn!(?err, "save_data: rewritten after removing stale file");
+            } else {
+                error!(?err, "save_data failed, keep running without persisting");
+            }
+        }
+    }
     Ok(())
 }
 
@@ -334,6 +362,18 @@ async fn the_main() -> Result<()> {
     };
 
     init_assets();
+    #[cfg(target_os = "android")]
+    {
+        // 兜底：Android 首次启动若 assets 复制不完整，直接写入内置背景，避免初始化失败。
+        // assets 位于 DATA_PATH/assets（与 scene::assets_root 一致），不在 DATA_PATH/data 下。
+        let bg = crate::scene::assets_root().join("backgrounds/background.jpg");
+        if !bg.exists() {
+            if let Some(parent) = bg.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&bg, include_bytes!("../../assets/backgrounds/background.jpg"));
+        }
+    }
 
     #[cfg(target_os = "windows")]
     {

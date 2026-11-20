@@ -15,3 +15,4 @@ upload-cancel = Annuler le téléchargement
 upload-retry = Recommencer
 
 still-uploading = Mise en ligne toujours en cours…
+detail = DETAILS

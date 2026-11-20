@@ -16,3 +16,4 @@ update-desc =
 update-ignore = Ignorer cette mise à jour
 update-go = Mettre à jour
 
+cancel = Cancel

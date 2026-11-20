@@ -57,3 +57,10 @@ startup-loading = Laden...
 srv-official = Offiziell
 
 srv-local = Lokal
+startup-init-failed = Initialization failed
+startup-chart-resource = Chart Resources
+startup-expansion-package = Expansion Package
+startup-preparing-extract = Preparing to extract resources...
+startup-extracting = Extracting { $desc }...
+startup-extract-done = Extraction complete
+startup-extract-done-partial = Extraction complete (partial failure)

@@ -28,3 +28,11 @@ warn-deny-tos-policy = Accepter pour utiliser notre service en ligne
 
 open-in-web = Ouvrir dans la page Web
 
+favorites = Favorites
+default-fav-folder = Favorites
+favorites-online-only = Only online charts can be added to online favorites. Local charts: { $charts }
+contains-banned-words = Your input contains banned words. Please check and submit again.
+hykb-not-bound-logout = Your account is not bound to a 3839 Games account; you have been logged out.
+hykb-login-cancelled = 3839 Games login cancelled.
+crash-unexpected = Unexpected game crash
+studio-tap-to-skip = Tap to skip

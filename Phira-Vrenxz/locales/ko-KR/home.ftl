@@ -16,3 +16,4 @@ update-desc =
 update-ignore = 이 업데이트 넘기기
 update-go = 업데이트
 
+cancel = Cancel

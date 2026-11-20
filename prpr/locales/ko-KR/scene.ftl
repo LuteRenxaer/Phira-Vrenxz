@@ -11,3 +11,4 @@ pasted = 클립보드에서 붙여넣기
 select-all = All
 copy = Copy
 paste = Paste
+audio-backend-init-failed = Failed to initialize audio backend, running in silent mode.

@@ -14,3 +14,5 @@ update-desc =
   Descrição: { $desc }
 update-ignore = Ignorar esta atualização
 update-go = Atualizar
+note-try-login-again = Try logging in again.
+cancel = Cancel

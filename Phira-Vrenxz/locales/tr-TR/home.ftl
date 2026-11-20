@@ -15,3 +15,5 @@ update-desc =
 update-ignore = Bu güncellemeyi görmezden gel
 update-go = Güncelle
 
+note-try-login-again = Try logging in again.
+cancel = Cancel

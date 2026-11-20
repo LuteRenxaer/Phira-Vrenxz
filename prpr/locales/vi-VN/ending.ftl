@@ -15,3 +15,4 @@ upload-cancel = Huỷ tải lên
 upload-retry = Thử lại
 
 still-uploading = Đang tải lên, vui lòng chờ…
+detail = DETAILS

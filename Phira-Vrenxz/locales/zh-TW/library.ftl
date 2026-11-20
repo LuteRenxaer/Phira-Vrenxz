@@ -46,3 +46,13 @@ filter-rpe-charts = RPE 譜面 (*.pez)
 filter-zip-charts = ZIP 譜面 (*.zip)
 
 loc-srv = 本地伺服器
+builtin = 内置
+multi-download = 批量下载
+multi-download-all-exists = 所有选中的谱面已下载
+multi-download-complete = 批量下载完成
+multi-downloading = 下载中 ({ $current } / { $total })：{ $name }
+library-modify-builtin = 修改内置谱
+library-aspect-ratio = 宽高比
+library-force-aspect = 强制宽高比
+library-new-speed-easing = 新速度缓动
+library-ui-attach-fix = UI绑定修复

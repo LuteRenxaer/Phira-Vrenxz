@@ -57,3 +57,10 @@ startup-loading = 載入中...
 srv-official = 官方
 
 srv-local = 本地
+startup-init-failed = 初始化失败
+startup-chart-resource = 谱面资源
+startup-expansion-package = 扩展资源包
+startup-preparing-extract = 准备解压资源...
+startup-extracting = 正在解压{ $desc }...
+startup-extract-done = 解压完成
+startup-extract-done-partial = 解压完成（部分失败）
