@@ -16,3 +16,5 @@ export = Exportar
 exporting = Exportando...
 exported = Exportado com sucesso
 cant-export-builtin = Não é possível exportar uma skin integrada
+
+filter-zip-respack = Resource pack (*.zip)

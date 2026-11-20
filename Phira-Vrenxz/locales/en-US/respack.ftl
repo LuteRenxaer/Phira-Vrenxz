@@ -16,3 +16,5 @@ export = Export
 exporting = Exporting...
 exported = Successfully exported.
 cant-export-builtin = The built-in respack can't be exported.
+
+filter-zip-respack = Resource pack (*.zip)

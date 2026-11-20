@@ -16,3 +16,5 @@ export = Dışa Aktar
 exporting = Dışa aktarılıyor...
 exported = Başarıyla dışa aktarıldı
 cant-export-builtin = Gömülü gelen kaynak paketleri dışa aktarılamaz
+
+filter-zip-respack = Resource pack (*.zip)

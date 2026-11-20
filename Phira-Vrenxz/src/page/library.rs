@@ -1113,6 +1113,18 @@ fn present_export_picker(path: String) {
 }
 
 pub fn request_export(suggested_name: String) {
+    // 谱面导出：允许 .pez / .zip 两种
+    request_export_filtered(
+        suggested_name,
+        vec![
+            (tl!("filter-rpe-charts").to_string(), vec!["pez".to_string()]),
+            (tl!("filter-zip-charts").to_string(), vec!["zip".to_string()]),
+        ],
+    );
+}
+
+/// 指定过滤器调用导出对话框（桌面端的「保存类型」只显示这里给出的扩展名）
+pub fn request_export_filtered(suggested_name: String, filters: Vec<(String, Vec<String>)>) {
     cfg_if::cfg_if! {
         if #[cfg(target_os = "android")] {
             unsafe {
@@ -1152,13 +1164,13 @@ pub fn request_export(suggested_name: String) {
         } else if #[cfg(target_env = "ohos")] {
             miniquad::native::call_request_callback(format!("{{\"action\":\"request_export\",\"filename\":\"{}\"}}", suggested_name));
         } else {
-            if let Some(output_path) = rfd::FileDialog::new()
+            let mut dialog = rfd::FileDialog::new()
                 .set_title(tl!("multi-export-title"))
-                .set_file_name(&suggested_name)
-                .add_filter(tl!("filter-rpe-charts").as_ref(), &["pez"])
-                .add_filter(tl!("filter-zip-charts").as_ref(), &["zip"])
-                .save_file()
-            {
+                .set_file_name(&suggested_name);
+            for (label, exts) in &filters {
+                dialog = dialog.add_filter(label, exts);
+            }
+            if let Some(output_path) = dialog.save_file() {
                 let config = File::create(&output_path).map(|file| ExportConfig {
                     file,
                     deleter: Box::new(move || std::fs::remove_file(output_path)),

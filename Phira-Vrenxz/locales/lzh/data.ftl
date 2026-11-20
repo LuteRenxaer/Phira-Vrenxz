@@ -63,3 +63,5 @@ send-failed = 發敗矣
 pair-code-title = 配對之碼
 pair-code-prompt = 入發端所顯之數
 pair-failed = 配對敗矣
+
+filter-pfd = 數據之包 (*.pfd)

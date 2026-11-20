@@ -16,3 +16,5 @@ exporting = エクスポート中...
 exported = エクスポートしました
 cant-export-builtin = 初めからあるリソースパックはエクスポートできません
 label = RESPACK
+
+filter-zip-respack = Resource pack (*.zip)

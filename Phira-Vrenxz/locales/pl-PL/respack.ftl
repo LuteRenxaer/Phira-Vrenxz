@@ -15,3 +15,5 @@ exporting = Eksportowanie...
 exported = Wyeksportowano pomyślnie
 cant-export-builtin = Nie można wyeksportować wbudowanej paczki zasobów
 label = RESPACK
+
+filter-zip-respack = Resource pack (*.zip)

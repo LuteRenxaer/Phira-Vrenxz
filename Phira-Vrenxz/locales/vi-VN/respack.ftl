@@ -16,3 +16,5 @@ export = Xuất
 exporting = Đang xuất...
 exported = Xuất thành công
 cant-export-builtin = Không thể xuất Respack mặc định
+
+filter-zip-respack = Resource pack (*.zip)

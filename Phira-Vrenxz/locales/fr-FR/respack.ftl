@@ -16,3 +16,5 @@ export = Exporter
 exporting = Exportation en cours...
 exported = Export réussie.
 cant-export-builtin = Impossible d'exporter les textures intégrées.
+
+filter-zip-respack = Resource pack (*.zip)

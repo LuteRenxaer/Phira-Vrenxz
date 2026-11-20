@@ -12,3 +12,5 @@ export = ส่งออก
 exporting = กำลังส่งออก...
 exported = ส่งออกสำเร็จ
 cant-export-builtin = ไม่สามารถส่งออก Skin ได้
+
+filter-zip-respack = Resource pack (*.zip)

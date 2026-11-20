@@ -63,3 +63,5 @@ send-failed = 发送失败
 pair-code-title = 配对码
 pair-code-prompt = 输入发送端显示的数字
 pair-failed = 配对失败
+
+filter-pfd = 数据包 (*.pfd)

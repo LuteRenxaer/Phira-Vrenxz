@@ -1,6 +1,6 @@
-﻿prpr_l10n::tl_file!("respack");
+prpr_l10n::tl_file!("respack");
 
-use super::{Page, SharedState};
+use super::{request_export_filtered, Page, SharedState};
 use crate::{
     dir, get_data, get_data_mut,
     icons::Icons,
@@ -220,7 +220,11 @@ impl Page for ResPackPage {
             let path = item.path.clone().unwrap();
             let name = sanitize(&item.name);
             self.export_path = Some(path);
-            request_export(format!("{name}.zip"));
+            // 资源包只能是 zip：不给 pez 之类其它过滤器
+            request_export_filtered(
+                format!("{name}.zip"),
+                vec![(tl!("filter-zip-respack").to_string(), vec!["zip".to_string()])],
+            );
             return Ok(true);
         }
         Ok(false)

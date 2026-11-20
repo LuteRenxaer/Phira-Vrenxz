@@ -25,8 +25,8 @@ pub use home::HomePage;
 
 mod library;
 pub use library::{
-    request_export, resolve_export, take_export, ExportConfig, ExportInfo, LibraryPage, CHOOSE_COVER, CHOSEN_COVER,
-    FAV_UPDATED,
+    request_export, request_export_filtered, resolve_export, take_export, ExportConfig, ExportInfo, LibraryPage,
+    CHOOSE_COVER, CHOSEN_COVER, FAV_UPDATED,
 };
 
 mod message;

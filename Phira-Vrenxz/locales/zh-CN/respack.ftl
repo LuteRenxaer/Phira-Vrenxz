@@ -16,3 +16,5 @@ export = 导出
 exporting = 导出中...
 exported = 导出成功
 cant-export-builtin = 不能导出内置资源包
+
+filter-zip-respack = 资源包 (*.zip)

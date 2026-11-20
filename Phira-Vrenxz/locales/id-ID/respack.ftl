@@ -15,3 +15,5 @@ exporting = Mengekspor...
 exported = Berhasil diekspor
 cant-export-builtin = Tidak bisa mengekspor respack bawaan
 label = RESPACK
+
+filter-zip-respack = Resource pack (*.zip)

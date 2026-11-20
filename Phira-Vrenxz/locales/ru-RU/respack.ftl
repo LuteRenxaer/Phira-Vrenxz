@@ -12,3 +12,5 @@ export = Экспорт
 exporting = Экспортирование...
 exported = Успешно экспортировано
 cant-export-builtin = Невозможно экспортировать встроенный ресурспак
+
+filter-zip-respack = Resource pack (*.zip)

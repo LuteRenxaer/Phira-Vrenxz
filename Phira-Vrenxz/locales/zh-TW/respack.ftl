@@ -12,3 +12,5 @@ export = 匯出
 exporting = 匯出中...
 exported = 匯出成功
 cant-export-builtin = 不能匯出內建資源包
+
+filter-zip-respack = 資源包 (*.zip)

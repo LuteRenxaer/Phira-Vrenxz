@@ -16,3 +16,5 @@ export = 導出
 exporting = 正在導出…
 exported = 導出功矣。
 cant-export-builtin = 內置之資源包不可導出。
+
+filter-zip-respack = 資源之包 (*.zip)

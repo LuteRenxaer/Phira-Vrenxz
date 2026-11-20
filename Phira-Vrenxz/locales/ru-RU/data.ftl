@@ -63,3 +63,5 @@ send-failed = Send failed
 pair-code-title = Pairing code
 pair-code-prompt = Enter the code shown on the sending device
 pair-failed = Pairing failed
+
+filter-pfd = Data package (*.pfd)

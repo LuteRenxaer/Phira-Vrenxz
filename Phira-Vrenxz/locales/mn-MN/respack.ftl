@@ -12,3 +12,5 @@ export = Экспорт
 exporting = Экспорт хийж байна...
 exported = Амжилттай экспортлосон
 cant-export-builtin = Суурилуулсан скинийг экспортлох боломжгүй
+
+filter-zip-respack = Resource pack (*.zip)

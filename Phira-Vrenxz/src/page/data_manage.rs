@@ -1,6 +1,6 @@
 prpr_l10n::tl_file!("data");
 
-use super::{request_export, take_export, NextPage, Page, SharedState};
+use super::{request_export_filtered, take_export, NextPage, Page, SharedState};
 use crate::data_transfer::{
     self,
     lan::{self, RecvPhase, SendPhase},
@@ -751,7 +751,12 @@ impl Page for DataManagePage {
                         return Ok(true);
                     }
                     if self.step == Step::Select {
-                        request_export(format!("data.{}", PACKAGE_EXT));
+                        // 数据包只允许 .pfd：保存对话框的「保存类型」只列 pfd，
+                        // 否则会沿用谱面导出的 pez 过滤器把文件名写成 data.pfd.pez
+                        request_export_filtered(
+                            format!("data.{}", PACKAGE_EXT),
+                            vec![(tl!("filter-pfd").to_string(), vec![PACKAGE_EXT.to_string()])],
+                        );
                     } else if let Err(err) = self.begin_send() {
                         show_error(err.context(tl!("send-failed")));
                     }
