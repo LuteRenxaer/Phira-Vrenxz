@@ -690,11 +690,12 @@ impl GameScene {
         });
         judge.set_challenge(limits, challenge.is_some());
 
-        // [HP 血量模式] 课题 HP 配置优先，否则按普通游玩 mod（config.hp）应用
-        let hp_cfg = challenge
-            .as_ref()
-            .and_then(|c| c.hp)
-            .or_else(|| (matches!(mode, GameMode::Normal) && !preview_mode).then(|| res.config.hp_config()).flatten());
+        // [HP 血量模式] 课题里 HP 由课题页显式决定（开/关），关掉就是真的关，
+        // 不能再用普通游玩的 config.hp 兜底把它顶回来；只有非课题局才走全局 mod。
+        let hp_cfg = match challenge.as_ref() {
+            Some(c) => c.hp,
+            None => (matches!(mode, GameMode::Normal) && !preview_mode).then(|| res.config.hp_config()).flatten(),
+        };
         let (hp, hp_max, hp_lose, hp_running) = match hp_cfg {
             Some(c) => (c.max_hp, c.max_hp, c.lose_condition, true),
             None => (0., 0., HpLoseCondition::BadOrMiss, false),

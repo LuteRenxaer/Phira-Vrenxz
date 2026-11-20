@@ -12,7 +12,7 @@ info-content =
 
 cant-delete-builtin = 流螢猶欲留其衣
 deleted = 已刪除
-export = Export
-exporting = Exporting...
-exported = Successfully exported.
-cant-export-builtin = The built-in respack can't be exported.
+export = 導出
+exporting = 正在導出…
+exported = 導出功矣。
+cant-export-builtin = 內置之資源包不可導出。

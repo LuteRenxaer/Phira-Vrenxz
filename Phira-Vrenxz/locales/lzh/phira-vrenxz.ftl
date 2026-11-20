@@ -1,29 +1,29 @@
 
 # Settings page
-settings-console-log = 控制台日志
-settings-console-log-desc = 开启后显示 cmd 控制台窗口，用于查看调试日志
+settings-console-log = 控制台之誌
+settings-console-log-desc = 開則顯 cmd 控制台之窗，以觀調試之誌
 settings-vsync = 垂直同步
-settings-vsync-desc = 开启后帧率限制为显示器刷新率，关闭可提升帧率
-settings-open = 打开
+settings-vsync-desc = 開則幀率限於顯示器之刷新，關則可增幀率
+settings-open = 開
 
 # Multiplayer panel
-mp-server-no-local-chart = 当前服务器不支持本地谱面
-mp-syncing-chart = 正在同步谱面...
-mp-sync-failed = 谱面同步失败: { $err }
+mp-server-no-local-chart = 此伺服器不容本地譜面
+mp-syncing-chart = 正在同步譜面…
+mp-sync-failed = 譜面同步敗：{ $err }
 
 # Startup / loading
-startup-chart-resource = 谱面资源
-startup-preparing-extract = 准备解压资源...
-startup-extracting = 正在解压{ $desc }...
-startup-extract-done = 解压完成
-startup-extract-done-partial = 解压完成（部分失败）
+startup-chart-resource = 譜面之資
+startup-preparing-extract = 備解資源…
+startup-extracting = 正在解 { $desc }…
+startup-extract-done = 解畢
+startup-extract-done-partial = 解畢（有失）
 
 # Library / built-in chart modify
-library-modify-builtin = 修改内置谱
-library-aspect-ratio = 宽高比
-library-force-aspect = 强制宽高比
-library-new-speed-easing = 新速度缓动
-library-ui-attach-fix = UI绑定修复
+library-modify-builtin = 修改內置譜
+library-aspect-ratio = 寬高之比
+library-force-aspect = 強制寬高之比
+library-new-speed-easing = 新速度緩動
+library-ui-attach-fix = UI 綁定修復
 
 # Studio logo
-studio-tap-to-skip = 点击屏幕可跳过
+studio-tap-to-skip = 觸屏可跳

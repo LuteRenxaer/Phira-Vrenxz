@@ -19,5 +19,5 @@ batch-import-failed-chart = 批量導入敗矣：{ $chart }
 warning = 警
 warning-new-speed-event = 此譜用 RPE 1.7.0 所引之速度事件緩動。爲兼容計，Phira 默不啓對此事件之支持。若欲啓之，請於譜面信息中勾選「新速度緩動」。
 warning-attach-ui = 此譜用 UI 綁定。Phira 近版引 UI 綁定之修復，然或致賴舊行爲之譜生異。若有必要，請於譜面信息中取消勾選「UI 綁定修復」。
-import-font-success = Font imported
-import-font-failed = Failed to import font
+import-font-success = 字體已導入
+import-font-failed = 字體導入敗
