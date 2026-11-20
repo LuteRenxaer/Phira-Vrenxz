@@ -352,12 +352,28 @@ async fn the_main() -> Result<()> {
         };
         let location = info.location().map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
         crash_extra::record_panic(&message, location.clone());
+        let bt = std::backtrace::Backtrace::force_capture();
         error!(
             "panic occurred: {} at {}\n{}",
             message,
-            location.unwrap_or_else(|| "unknown".to_string()),
-            std::backtrace::Backtrace::force_capture()
+            location.clone().unwrap_or_else(|| "unknown".to_string()),
+            bt
         );
+        // 桌面端 exe 没有控制台，日志看不到；把 panic 现场单独落盘，方便排查 6010 这类崩溃。
+        let _ = std::panic::catch_unwind(|| {
+            if let Ok(root) = dir::root() {
+                let path = std::path::Path::new(&root).join("crash_panic.log");
+                let text = format!(
+                    "panic: {message}\nat: {}\n{bt}\n\n",
+                    location.unwrap_or_else(|| "unknown".to_string()),
+                    bt = std::backtrace::Backtrace::force_capture()
+                );
+                use std::io::Write as _;
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+                    let _ = f.write_all(text.as_bytes());
+                }
+            }
+        });
     }));
 
     #[cfg(target_env = "ohos")]
