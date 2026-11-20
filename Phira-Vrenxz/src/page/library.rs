@@ -54,6 +54,8 @@ thread_local! {
 }
 
 const PAGE_NUM: u64 = 28;
+/// 课题（谱面库课程）HP 档位：0 = 关（无血量），其余为最大 HP
+const COURSE_HP_OPTS: [f32; 6] = [0., 1., 20., 50., 100., 200.];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ChartListType {
@@ -335,7 +337,7 @@ impl LibraryPage {
             course_hp_val_btn: DRectButton::new(),
             course_hp_cond_btn: DRectButton::new(),
             course_hp_on: true,
-            course_hp_idx: 3,
+            course_hp_idx: 4,
             course_hp_lose: HpLoseCondition::BadOrMiss,
             course_selection: None,
             challenge_launcher: None,
@@ -425,7 +427,11 @@ impl LibraryPage {
             return Ok(());
         };
         let mut page = ChallengePage::new_with_selection(Arc::clone(&self.icons), s.charts_local.clone(), charts)?;
-        page.set_hp(self.course_hp_on, self.course_hp_idx, self.course_hp_lose);
+        page.set_hp(
+            self.course_hp_on,
+            self.course_hp_idx.saturating_sub(1),
+            self.course_hp_lose,
+        );
         page.start_now();
         self.exit_course();
         self.challenge_launcher = Some(page);
@@ -1304,10 +1310,12 @@ impl Page for LibraryPage {
             return Ok(true);
         }
         if self.course_hp_val_btn.touch(touch, t) {
-            self.course_hp_idx = (self.course_hp_idx + 1) % 5;
+            // 6 档：关 / 1 / 20 / 50 / 100 / 200 —— 0 就是「无血量」
+            self.course_hp_idx = (self.course_hp_idx + 1) % COURSE_HP_OPTS.len();
+            self.course_hp_on = self.course_hp_idx > 0;
             return Ok(true);
         }
-        if self.course_hp_cond_btn.touch(touch, t) {
+        if self.course_hp_cond_btn.touch(touch, t) && self.course_hp_on {
             self.course_hp_lose = match self.course_hp_lose {
                 HpLoseCondition::BadOrMiss => HpLoseCondition::NonPerfect,
                 HpLoseCondition::NonPerfect => HpLoseCondition::BadOrMiss,
@@ -2361,7 +2369,11 @@ impl Page for LibraryPage {
                     ui,
                     Rect::new(course_rect.x + course_rect.w + 0.176, course_rect.y, 0.17, course_rect.h),
                     t,
-                    &format!("HP{}", [1., 20., 50., 100., 200.][self.course_hp_idx] as i32),
+                    &if self.course_hp_on {
+                        format!("HP{}", COURSE_HP_OPTS[self.course_hp_idx] as i32)
+                    } else {
+                        "HP关".to_string()
+                    },
                     0.24,
                     false,
                 );
