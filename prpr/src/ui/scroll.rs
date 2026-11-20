@@ -188,6 +188,15 @@ impl Scroller {
     }
 
     pub fn update(&mut self, t: f32, extra_scroll: f32) {
+        // 非有限的时间/滚轮量会把 offset 变成 NaN，进而让 Ui 变换矩阵变 NaN，
+        // lyon 在 set_tolerance 处会 panic（ToleranceIsNaN），这里先挡掉。
+        if !t.is_finite() {
+            return;
+        }
+        if !extra_scroll.is_finite() {
+            return;
+        }
+        let prev_offset = self.offset;
         self.offset += extra_scroll * WHEEL_STEP;
         if extra_scroll.abs() > 1e-5 {
             self.speed = 0.;
@@ -236,6 +245,14 @@ impl Scroller {
             self.goto = None;
         } else {
             self.speed *= (0.5_f32).powf((t - self.last_time) / 0.4);
+        }
+        if !self.speed.is_finite() {
+            self.speed = 0.;
+        }
+        if !self.offset.is_finite() {
+            self.offset = if prev_offset.is_finite() { prev_offset } else { 0. };
+            self.speed = 0.;
+            self.goto = None;
         }
         self.last_time = t;
         self.pulled = false;
@@ -320,19 +337,27 @@ impl Scroll {
         let extra_scroll = if let Some(matrix) = self.matrix {
             let (mx, my) = mouse_position();
             let vp = crate::ext::get_viewport();
-            let pt = Point::new(
-                (mx - vp.0 as f32) / vp.2 as f32 * 2. - 1.,
-                ((my - (screen_height() - (vp.1 + vp.3) as f32)) / vp.3 as f32 * 2. - 1.) / (vp.2 as f32 / vp.3 as f32),
-            );
-            let pt = matrix.transform_point(&pt);
-            if pt.x < 0. || pt.y < 0. || pt.x > self.size.0 || pt.y > self.size.1 {
+            // viewport 尺寸为 0（最小化 / 残留离屏 target）时除法会得出 NaN，
+            // 直接当作没有滚轮输入。
+            if vp.2 <= 0 || vp.3 <= 0 || !(mx.is_finite() && my.is_finite()) {
                 0.
             } else {
-                let (x, y) = take_wheel();
-                if self.horizontal {
-                    -x
+                let pt = Point::new(
+                    (mx - vp.0 as f32) / vp.2 as f32 * 2. - 1.,
+                    ((my - (screen_height() - (vp.1 + vp.3) as f32)) / vp.3 as f32 * 2. - 1.) / (vp.2 as f32 / vp.3 as f32),
+                );
+                let pt = matrix.transform_point(&pt);
+                if !(pt.x.is_finite() && pt.y.is_finite())
+                    || pt.x < 0.
+                    || pt.y < 0.
+                    || pt.x > self.size.0
+                    || pt.y > self.size.1
+                {
+                    0.
                 } else {
-                    -y
+                    let (x, y) = take_wheel();
+                    let v = if self.horizontal { -x } else { -y };
+                    if v.is_finite() { v } else { 0. }
                 }
             }
         } else {

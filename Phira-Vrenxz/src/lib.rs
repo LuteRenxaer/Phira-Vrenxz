@@ -352,7 +352,12 @@ async fn the_main() -> Result<()> {
         };
         let location = info.location().map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
         crash_extra::record_panic(&message, location.clone());
-        error!("panic occurred: {} at {}", message, location.unwrap_or_else(|| "unknown".to_string()));
+        error!(
+            "panic occurred: {} at {}\n{}",
+            message,
+            location.unwrap_or_else(|| "unknown".to_string()),
+            std::backtrace::Backtrace::force_capture()
+        );
     }));
 
     #[cfg(target_env = "ohos")]

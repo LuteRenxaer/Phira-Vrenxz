@@ -731,8 +731,21 @@ impl<'a> Ui<'a> {
             color: None,
         });
         let viewport = viewport.unwrap_or_else(|| (0, 0, screen_width() as i32, screen_height() as i32));
+        // viewport 尺寸异常（0 宽 / 0 高）时 3/2 会算出 NaN，进而让所有 UI 全都偏成 NaN 并触发
+        // lyon 的 ToleranceIsNaN 崩溃；这里兜底成 1.0。
+        let top = if viewport.2 > 0 && viewport.3 > 0 {
+            viewport.3 as f32 / viewport.2 as f32
+        } else {
+            let (w, h) = (screen_width(), screen_height());
+            if w > 0. && h > 0. && w.is_finite() && h.is_finite() {
+                h / w
+            } else {
+                tracing::warn!("ui: invalid viewport {viewport:?}, falling back to top = 1.0");
+                1.0
+            }
+        };
         Self {
-            top: viewport.3 as f32 / viewport.2 as f32,
+            top,
             viewport,
 
             text_painter,
@@ -796,7 +809,20 @@ impl<'a> Ui<'a> {
     }
 
     fn set_tolerance(&mut self) {
-        let tol = 0.15 / (self.transform.transform_vector(&Vector::new(1., 0.)).norm() * screen_width() / 2.);
+        let scale = self.transform.transform_vector(&Vector::new(1., 0.)).norm() * screen_width() / 2.;
+        // 变换矩阵或屏幕宽度可能因为上一场景残留的 viewport / 最小化窗口变成非有限值，
+        // lyon 的 check_tolerance 遇到 NaN 会直接 panic（UnsupportedParamater(ToleranceIsNaN)），
+        // 所以这里兜底成固定 tolerance，避免整局崩在返回页面时。
+        let tol = if scale.is_finite() && scale > 1e-6 {
+            0.15 / scale
+        } else {
+            use std::sync::atomic::{AtomicBool, Ordering};
+            static WARNED: AtomicBool = AtomicBool::new(false);
+            if !WARNED.swap(true, Ordering::Relaxed) {
+                tracing::warn!("ui: non-finite tessellation scale ({scale}), falling back to fixed tolerance");
+            }
+            0.01
+        };
         self.fill_options.tolerance = tol;
         self.stroke_options.tolerance = tol;
     }
