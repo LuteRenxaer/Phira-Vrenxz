@@ -1383,6 +1383,9 @@ impl Page for SettingsPage {
         Ok(())
     }
     fn next_page(&mut self) -> NextPage {
+        if let Some(p) = self.list_general.take_data_request() {
+            return p;
+        }
         if self.tab == SettingListType::Audio {
             if let Some(p) = self.list_audio.next_page() {
                 return p;
@@ -1455,6 +1458,9 @@ struct GeneralList {
     roman_numerals_btn: DRectButton,
     chinese_numerals_btn: DRectButton,
     lan_btn: DRectButton,
+    /// 数据传输页入口（导入/导出 .pfd、局域网跨设备传输）
+    data_btn: DRectButton,
+    data_page: Option<NextPage>,
     cache_size: Option<u64>,
     cache_task: Option<Task<Result<u64>>>,
     tutorial_task: LocalTask<Result<NextScene>>,
@@ -1497,6 +1503,8 @@ impl GeneralList {
             roman_numerals_btn: DRectButton::new(),
             chinese_numerals_btn: DRectButton::new(),
             lan_btn: DRectButton::new(),
+            data_btn: DRectButton::new(),
+            data_page: None,
             cache_size: None,
             cache_task: None,
             tutorial_task: None,
@@ -1669,7 +1677,15 @@ impl GeneralList {
             self.lan_scene = Some(NextScene::Overlay(Box::new(crate::scene::LanScene::new())));
             return Ok(Some(false));
         }
+        if self.data_btn.touch(touch, t) {
+            self.data_page = Some(NextPage::Overlay(Box::new(super::DataManagePage::new())));
+            return Ok(Some(false));
+        }
         Ok(None)
+    }
+    /// 取出“打开数据传输页”的请求（由 SettingsPage 转成 next_page）
+    pub fn take_data_request(&mut self) -> Option<NextPage> {
+        self.data_page.take()
     }
     /// 关于页「观看教程」调用；加载完成后由 SettingsPage::next_scene 进入。
     pub fn start_tutorial(&mut self) {
@@ -1812,6 +1828,12 @@ impl GeneralList {
             "局域网联机",
             Some("实验性：同一局域网内建房/加入，支持传谱与准备".into()),
             &mut self.lan_btn,
+            "进入".to_string(),
+        ));
+        v.push(row_value(
+            "数据传输",
+            Some("导出/导入 .pfd 数据包，或经局域网跨设备传输".into()),
+            &mut self.data_btn,
             "进入".to_string(),
         ));
         v
