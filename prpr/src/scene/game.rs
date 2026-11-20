@@ -1610,7 +1610,21 @@ impl GameScene {
                 let bg_rect = Rect::new(-1., -h, 2., h * 2.);
                 ui.fill_rect(bg_rect, (tex, bg_rect, ScaleType::Fit, Color::new(1., 1., 1., 0.7 * self.pause_alpha)));
             } else {
-                draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., 0.5 * self.pause_alpha));
+                #[cfg(target_os = "android")]
+                {
+                    // Android 拿不到可用的帧截图（glReadPixels 出来是白的），不能靠上一帧缓冲当背景。
+                    // 这里自己铺谱面背景图，再压一层浓黑，保证暂停层绝不会是纯白。
+                    let bg_rect = Rect::new(-1., -h, 2., h * 2.);
+                    ui.fill_rect(
+                        bg_rect,
+                        (*res.background, bg_rect, ScaleType::Fit, Color::new(1., 1., 1., self.pause_alpha)),
+                    );
+                    draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., 0.8 * self.pause_alpha));
+                }
+                #[cfg(not(target_os = "android"))]
+                {
+                    draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., 0.5 * self.pause_alpha));
+                }
             }
 
             let old_alpha = ui.alpha;
