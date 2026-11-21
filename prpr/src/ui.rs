@@ -47,8 +47,23 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     ops::{Deref, DerefMut, Range},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
+
+/// 命中帧号：每帧渲染开始时自增一次，控件在 `set` 时记录当前帧号。
+/// 只在最近一两帧里被重新布置过的控件才接受触摸，
+/// 避免切页/换列表后残留的旧矩形把别处的点击抢走。
+static HIT_EPOCH: AtomicU64 = AtomicU64::new(0);
+
+/// 渲染一帧内容前调用一次（同一帧内多次渲染也只需一次）
+pub fn begin_hit_frame() {
+    HIT_EPOCH.fetch_add(1, Ordering::Relaxed);
+}
+
+#[inline]
+fn hit_epoch_now() -> u64 {
+    HIT_EPOCH.load(Ordering::Relaxed)
+}
 
 pub static PREFER_REDUCED_MOTION: AtomicBool = AtomicBool::new(false);
 
@@ -156,6 +171,7 @@ impl LongTouchState {
 pub struct RectButton {
     pts: Option<[Vec2; 4]>,
     id: Option<u64>,
+    epoch: u64,
 }
 
 impl Default for RectButton {
@@ -166,7 +182,12 @@ impl Default for RectButton {
 
 impl RectButton {
     pub fn new() -> Self {
-        Self { pts: None, id: None }
+        Self { pts: None, id: None, epoch: 0 }
+    }
+
+    /// 是否还在“有效帧”内：控件超过一帧没被重新布置，就不再吃触摸
+    pub fn fresh(&self) -> bool {
+        hit_epoch_now().saturating_sub(self.epoch) < 2
     }
 
     pub fn touching(&self) -> bool {
@@ -178,6 +199,9 @@ impl RectButton {
     }
 
     pub fn contains(&self, pos: Vec2) -> bool {
+        if !self.fresh() {
+            return false;
+        }
         if let Some([a, b, c, d]) = self.pts {
             let abp = (b - a).perp_dot(pos - a);
             let bcp = (c - b).perp_dot(pos - b);
@@ -190,6 +214,7 @@ impl RectButton {
     }
 
     pub fn set(&mut self, ui: &mut Ui, rect: Rect) {
+        self.epoch = hit_epoch_now();
         let mat = nalgebra_to_glm(&ui.transform) * ui.gl_transform;
         let tr = |x: f32, y: f32| {
             let pos = mat * vec4(x, y, 0., 1.);
@@ -323,6 +348,7 @@ impl DRectButton {
 
     pub fn invalidate(&mut self) {
         self.inner.pts = None;
+        self.inner.epoch = 0;
     }
 
     pub fn render_shadow(&mut self, ui: &mut Ui, r: Rect, t: f32, f: impl FnOnce(&mut Ui, Path)) {
@@ -509,6 +535,7 @@ pub struct Slider {
 
     touch: Option<(u64, f32, bool)>,
     rect: Rect,
+    rect_epoch: u64,
     pos: f32,
 }
 
@@ -526,6 +553,7 @@ impl Slider {
 
             touch: None,
             rect: Rect::default(),
+            rect_epoch: 0,
             pos: f32::INFINITY,
         }
     }
@@ -562,7 +590,7 @@ impl Slider {
             }
         } else if touch.phase == TouchPhase::Started {
             // 扁平样式下没有 +/- 按钮，整条轨道内都可以起手拖拽
-            if self.rect.contains(touch.position) {
+            if self.rect.contains(touch.position) && hit_epoch_now().saturating_sub(self.rect_epoch) < 2 {
                 self.touch = Some((touch.id, touch.position.x, false));
                 return Some(false);
             }
@@ -582,6 +610,7 @@ impl Slider {
         self.btn_inc
             .render_text(ui, Rect::new(r.right() + pad + size, cy, 0., 0.).feather(size), t, "+", 0.7, true);
         self.rect = ui.rect_to_global(r);
+        self.rect_epoch = hit_epoch_now();
         ui.text(text)
             .pos(r.x - (pad + size) * 2., cy)
             .anchor(1., 0.5)
@@ -634,30 +663,46 @@ impl Slider {
         }
     }
 
-    /// 扁平样式：只有细轨道和白色斜切手柄，不画 +/- 按钮与数值。
+    /// 扁平样式：深色斜切长轨道 + 中央白色斜切游标 + 两端细白斜条。
     /// 数值由调用方自己排版（设置页放在轨道上方右侧）。
     pub fn render_flat(&mut self, ui: &mut Ui, r: Rect, p: f32) {
-        self.rect = ui.rect_to_global(r);
+        // 热区上下放宽，细细的轨道也方便起手拖
+        self.rect = ui.rect_to_global(Rect::new(r.x, r.y - r.h * 1.1, r.w, r.h * 3.2));
+        self.rect_epoch = hit_epoch_now();
         let p = ((p - self.range.start) / (self.range.end - self.range.start)).clamp(0., 1.);
         let cy = r.center().y;
         let pos = (r.x + r.w * p, cy);
         self.pos = ui.to_global(pos).0;
-        let th = 0.0032;
-        ui.fill_rect(Rect::new(r.x, cy - th * 0.5, pos.0 - r.x, th), semi_white(0.88));
-        ui.fill_rect(Rect::new(pos.0, cy - th * 0.5, r.right() - pos.0, th), semi_white(0.20));
-        let w = 0.020;
-        let h = 0.040;
-        let x = pos.0 - w * 0.5;
-        let y = cy - h * 0.5;
-        let skew = h * 0.32;
-        use lyon::math::point;
-        let mut b = Path::builder();
-        b.begin(point(x + skew, y));
-        b.line_to(point(x + w + skew, y));
-        b.line_to(point(x + w, y + h));
-        b.line_to(point(x, y + h));
-        b.end(true);
-        ui.fill_path(&b.build(), WHITE);
+        let h = (r.h * 1.6).max(0.024);
+        let skew = h * 0.62;
+        let quad = |ui: &mut Ui, x: f32, y: f32, w: f32, hh: f32, sk: f32, c: Color| {
+            use lyon::math::point;
+            let mut b = Path::builder();
+            b.begin(point(x + sk, y));
+            b.line_to(point(x + w + sk, y));
+            b.line_to(point(x + w, y + hh));
+            b.line_to(point(x, y + hh));
+            b.end(true);
+            ui.fill_path(&b.build(), c);
+        };
+        // 轨道：整行贯穿的斜切深色条
+        let tx = r.x + skew;
+        let tw = r.w - skew;
+        quad(ui, tx, cy - h * 0.5, tw, h, skew * 0.55, Color::new(0.085, 0.090, 0.100, 0.72));
+        // 已选段：比轨道略亮，仍保持深色系
+        if p > 0.01 {
+            let sel_w = (pos.0 - tx).max(0.);
+            quad(ui, tx, cy - h * 0.5, sel_w, h, skew * 0.55, semi_white(0.20));
+        }
+        // 两端细白斜条
+        let cap_w = (h * 0.26).max(0.0035);
+        let cap_h = h * 1.55;
+        quad(ui, r.x + skew - cap_w * 0.35, cy - cap_h * 0.5, cap_w, cap_h, skew * 0.55, semi_white(0.88));
+        quad(ui, r.right() - cap_w * 0.65, cy - cap_h * 0.5, cap_w, cap_h, skew * 0.55, semi_white(0.88));
+        // 游标：白色斜切块
+        let cw = (h * 0.60).max(0.012);
+        let ch = h * 1.75;
+        quad(ui, pos.0 - cw * 0.5, cy - ch * 0.5, cw, ch, skew * 0.62, WHITE);
     }
 }
 

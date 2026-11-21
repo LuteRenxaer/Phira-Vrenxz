@@ -19,7 +19,7 @@ use prpr::{
     ext::{draw_parallelogram, open_url, poll_future, semi_black, semi_white, LocalTask, RectExt, SafeTexture, PARALLELOGRAM_SLOPE},
     scene::{request_file, request_input, return_file, return_input, show_error, show_message, take_file, take_input, CrashCode, CrashScene, NextScene},
     task::Task,
-    ui::{Dialog, DRectButton, FontArc, Scroll, Slider, TextPainter, Ui, PREFER_REDUCED_MOTION},
+    ui::{begin_hit_frame, Dialog, DRectButton, FontArc, Scroll, Slider, TextPainter, Ui, PREFER_REDUCED_MOTION},
 };
 use prpr_l10n::{LanguageIdentifier, LANG_IDENTS, LANG_NAMES};
 use reqwest::Url;
@@ -640,18 +640,35 @@ fn switch_smooth(r: Rect, on: bool) -> f32 {
         e.1.clamp(0., 1.)
     })
 }
-/// 开关：黑底斜切槽 + 白色斜切滑块（render_switch 供插件页/首启向导复用）
+/// 开关：深色斜切槽 + 白色斜切滑块，开启时左侧空白处有白色对勾（无描边）
 pub(crate) fn render_switch(ui: &mut Ui, r: Rect, t: f32, btn: &mut DRectButton, on: bool) {
     let p = switch_smooth(r, on);
     btn.build(ui, t, r, |ui, _| {
-        let skew = r.h * 0.34;
-        fill_slant(ui, r, skew, Color::new(0.10, 0.105, 0.12, 0.55));
-        stroke_slant(ui, r, skew, 0.0012, semi_white(0.22));
-        let kw = r.w * 0.52;
+        // 视觉上比热区收一圈：去掉描边后看起来更轻
+        let h = r.h * 0.80;
+        let w = r.w * 0.86;
+        let v = Rect::new(r.right() - w, r.center().y - h * 0.5, w, h);
+        let skew = h * 0.34;
+        fill_slant(ui, v, skew, Color::new(0.10, 0.105, 0.12, 0.55));
+        let kw = v.w * 0.52;
         // 滑块位置随动画插值，不再瞬移；快到端点时顺手把边缘对齐
-        let kx = r.x + (r.w - kw) * p;
-        let kr = Rect::new(kx, r.y, kw, r.h);
+        let kx = v.x + (v.w - kw) * p;
+        let kr = Rect::new(kx, v.y, kw, v.h);
         fill_slant(ui, kr, skew, WHITE);
+        // 开启态：左侧深色区里的白色对勾，随滑块到位淡入
+        let a = ((p - 0.55) / 0.45).clamp(0., 1.);
+        if a > 0.001 {
+            let left_w = v.w - kw;
+            let cx = v.x + left_w * 0.5 + skew * 0.55;
+            let cy = v.center().y;
+            let d = v.h * 0.30;
+            use lyon::math::point;
+            let mut b = lyon::path::Path::builder();
+            b.begin(point(cx - d * 0.95, cy + d * 0.02));
+            b.line_to(point(cx - d * 0.28, cy + d * 0.72));
+            b.line_to(point(cx + d * 1.00, cy - d * 0.80));
+            ui.stroke_path(&b.build(), (v.h * 0.15).max(0.0042), semi_white(a));
+        }
     });
 }
 /// 设置页左上角返回按钮：结算页重试键同款斜切按钮 + 镜像 proceed 图标。
@@ -852,11 +869,11 @@ fn draw_row(ui: &mut Ui, t: f32, r: Rect, row: &mut Row) {
         Ctl::Choose { btn, .. } => btn.render_flat(ui, cr, t, CTL_TEXT_SIZE),
         Ctl::Slider { slider, value, text } => {
             let text = text.clone();
-            let track = Rect::new(cr.x, cr.y + cr.h * 0.62, cr.w, cr.h * 0.38);
+            let track = Rect::new(cr.x, cr.y + cr.h * 0.42, cr.w, cr.h * 0.40);
             ui.text(text)
-                .pos(cr.right(), track.y - 0.003)
+                .pos(cr.right(), track.y - 0.002)
                 .anchor(1., 1.)
-                .size(0.28)
+                .size(0.26)
                 .color(semi_white(0.75))
                 .draw();
             slider.render_flat(ui, track, *value);
@@ -1271,6 +1288,8 @@ impl Page for SettingsPage {
     }
     fn render(&mut self, ui: &mut Ui, s: &mut SharedState) -> Result<()> {
         let t = s.t;
+        // 每帧重置命中帧号：只有这一帧真正画过的控件才接收触摸
+        begin_hit_frame();
         s.fader.render(ui, s.t, |ui| {
             // 背景由 MainScene 统一绘制（与主页同一套底板），这里只画设置页自己的内容。
             let top = ui.top;
