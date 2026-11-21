@@ -22,6 +22,7 @@ rate = Үнэлэх
 exercise = Дасгал
 offset = Офсет тохируулах
 reveal = Chart Reveal
+render = Render
 unlock = Онгойлгосон видео тоглуулах
 edit-cancel = Цуцлах
 edit-save = Хадгалах

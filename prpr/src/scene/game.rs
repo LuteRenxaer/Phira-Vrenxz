@@ -652,16 +652,26 @@ impl GameScene {
         .context("Failed to load resources")?;
 
 
-        chart.hitsounds.drain().for_each(|(name, clip)| {
-            if let Ok(clip) = res.create_sfx(clip) {
-                res.extra_sfxs.insert(name, clip);
-            }
-        });
+        // Offline render never plays in-game audio; creating every hit sound would
+        // flood sasa's bounded renderer channel (the silent backend has no mixer
+        // consumer), so skip the extra renderers in that mode.
+        let silent_render = std::env::var_os("PHIRA_RENDER_SILENT").is_some();
+        if !silent_render {
+            chart.hitsounds.drain().for_each(|(name, clip)| {
+                if let Ok(clip) = res.create_sfx(clip) {
+                    res.extra_sfxs.insert(name, clip);
+                }
+            });
+        }
 
         // [HP 血量模式] 失败演出音效：HP 耗尽时播放 TrackCrash
-        let crash_sfx = crash_bytes.and_then(|bytes| {
-            AudioClip::new(bytes).ok().and_then(|clip| res.create_sfx(clip).ok())
-        });
+        let crash_sfx = if silent_render {
+            None
+        } else {
+            crash_bytes.and_then(|bytes| {
+                AudioClip::new(bytes).ok().and_then(|clip| res.create_sfx(clip).ok())
+            })
+        };
 
         let exercise_range = (chart.offset + info_offset + res.config.offset) as f64..res.track_length;
 
@@ -1361,6 +1371,7 @@ impl GameScene {
             );
 
             let is_autoplay = res.config.autoplay();
+            let autoplay_text_mode = is_autoplay && !res.config.autoplay_combo_style;
 
             if (self.judge.combo() >= 3 || is_autoplay) && res.config.show_combo && !self.hp_running {
                 if legacy_aui {
@@ -1368,7 +1379,7 @@ impl GameScene {
                     let btm = self
                         .chart
                         .with_element(ui, res, UIElement::ComboNumber, None, (res.config.combo_offset_x, combo_top + unit_h / 2.), |ui, c| {
-                            if is_autoplay {
+                            if autoplay_text_mode {
                                 let text = &res.config.autoplay_display_text;
                                 let size = 0.45;
                                 let color = Color::new(1.0, 0.8, 0.2, c.a);
@@ -1395,7 +1406,7 @@ impl GameScene {
 
                     self.chart
                         .with_element(ui, res, UIElement::Combo, None, (res.config.combo_offset_x, combo_top + unit_h * 0.2), |ui, c| {
-                            ui.text(if is_autoplay { "" } else { combo_display })
+                            ui.text(if autoplay_text_mode { "" } else { combo_display })
                                 .pos(res.config.combo_offset_x, combo_top)
                                 .anchor(0.5, 0.)
                                 .size(0.4)
@@ -1403,7 +1414,7 @@ impl GameScene {
                                 .draw_using(&PGR_FONT);
                         });
                 } else {
-                    if is_autoplay {
+                    if autoplay_text_mode {
                         let text = &res.config.autoplay_display_text;
                         let size = 0.6;
                         let color = Color::new(1.0, 0.8, 0.2, res.alpha);
@@ -3122,27 +3133,6 @@ impl Scene for GameScene {
         }
 
         let msaa = res.config.sample_count > 1;
-        let started_touches: Vec<(f32, f32)> = Judge::get_touches()
-            .iter()
-            .filter(|it| it.phase == TouchPhase::Started)
-            .map(|it| (it.position.x, it.position.y))
-            .collect();
-        eprintln!(
-            "[DBG] R0 t={:.3} reveal={} p11={:.4} p22={:.4} models={} emit={} block={} vp={:.3}x{:.3} asp={:.4} playing={} paused={} touches={:?}",
-            res.time,
-            self.mode == GameMode::Reveal,
-            unsafe { get_internal_gl() }.quad_gl.get_projection_matrix().x_axis.x,
-            unsafe { get_internal_gl() }.quad_gl.get_projection_matrix().y_axis.y,
-            res.model_stack.len(),
-            res.emitter.is_empty(),
-            self.chart.blocked_touches.len(),
-            ui.viewport.2,
-            ui.viewport.3,
-            res.aspect_ratio,
-            matches!(self.state, State::Playing),
-            tm.paused(),
-            started_touches
-        );
 
         let chart_onto = res
             .chart_target
@@ -3187,16 +3177,6 @@ impl Scene for GameScene {
                 if self.mode == GameMode::Reveal { 1. / REVEAL_ZOOM_OUT } else { 1. },
             )),
             |res| {
-                let m = res.model_stack.last().unwrap();
-                eprintln!(
-                    "[DBG] R1 t={:.3} m11={:.4} m22={:.4} proj_p11={:.4} proj_p22={:.4} ct={}",
-                    res.time,
-                    m[(0, 0)],
-                    m[(1, 1)],
-                    unsafe { get_internal_gl() }.quad_gl.get_projection_matrix().x_axis.x,
-                    unsafe { get_internal_gl() }.quad_gl.get_projection_matrix().y_axis.y,
-                    res.chart_target.is_some()
-                );
                 self.chart.render(ui, res);
 
                 // [噪域] 噪域区域渲染（Phigros 官方 shader 语义合成：ActiveBlock/ReadyBlock/

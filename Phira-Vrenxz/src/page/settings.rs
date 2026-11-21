@@ -33,7 +33,7 @@ const SIZE_CTL_H: f32 = 0.046;
 const SIZE_SW_W: f32 = 0.100;
 const SIZE_CTL_MAX: f32 = 0.26;
 /// 滑块比其它控件长一截，拖着更舒服
-const SIZE_SLIDER_W: f32 = 0.36;
+const SIZE_SLIDER_W: f32 = 0.22;
 /// 内容区（屏幕比例）
 const CONTENT_X0: f32 = 0.130;
 const CONTENT_X1: f32 = 0.870;
@@ -228,9 +228,29 @@ fn fill_quad(ui: &mut Ui, pts: [(f32, f32); 4], color: Color) {
     b.end(true);
     ui.fill_path(&b.build(), color);
 }
+/// 对勾：两段实心四边形，避免细描边在某些缩放下直接看不见
+fn check_shape(ui: &mut Ui, cx: f32, cy: f32, d: f32, t: f32, color: Color) {
+    let pts = [
+        (cx - d * 0.95, cy + d * 0.02),
+        (cx - d * 0.28, cy + d * 0.72),
+        (cx + d * 1.00, cy - d * 0.80),
+    ];
+    let seg = |a: (f32, f32), b: (f32, f32)| {
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let len = (dx * dx + dy * dy).sqrt().max(1e-6);
+        let (nx, ny) = (-dy / len * t * 0.5, dx / len * t * 0.5);
+        [
+            (a.0 + nx, a.1 + ny),
+            (b.0 + nx, b.1 + ny),
+            (b.0 - nx, b.1 - ny),
+            (a.0 - nx, a.1 - ny),
+        ]
+    };
+    fill_quad(ui, seg(pts[0], pts[1]), color);
+    fill_quad(ui, seg(pts[1], pts[2]), color);
+}
 /// 斜切矩形（上边缘右移 skew）
-fn fill_slant(ui: &mut Ui, r: Rect, skew: f32, color: Color) {
-    fill_quad(
+fn fill_slant(ui: &mut Ui, r: Rect, skew: f32, color: Color) {    fill_quad(
         ui,
         [
             (r.x + skew, r.y),
@@ -646,30 +666,27 @@ fn switch_smooth(r: Rect, on: bool) -> f32 {
 pub(crate) fn render_switch(ui: &mut Ui, r: Rect, t: f32, btn: &mut DRectButton, on: bool) {
     let p = switch_smooth(r, on);
     btn.build(ui, t, r, |ui, _| {
-        // 视觉上比热区收一圈：去掉描边后看起来更轻
-        let h = r.h * 0.80;
-        let w = r.w * 0.86;
+        // 参照样式：左深色块（矮一截，内含细对勾）+ 右白色斜块（满高），两块等宽
+                let h = r.h * 0.82;
+                let w = r.w * 0.95;
         let v = Rect::new(r.right() - w, r.center().y - h * 0.5, w, h);
-        let skew = h * 0.34;
-        fill_slant(ui, v, skew, Color::new(0.10, 0.105, 0.12, 0.55));
-        let kw = v.w * 0.52;
-        // 滑块位置随动画插值，不再瞬移；快到端点时顺手把边缘对齐
-        let kx = v.x + (v.w - kw) * p;
-        let kr = Rect::new(kx, v.y, kw, v.h);
-        fill_slant(ui, kr, skew, WHITE);
-        // 开启态：左侧深色区里的白色对勾，随滑块到位淡入
-        let a = ((p - 0.55) / 0.45).clamp(0., 1.);
+        let skew = h * 0.30;
+        let kw = w * 0.5;
+        // 深色块占据滑块对面那一半：开启时在左，关闭时在右
+        let dx = v.x + (w - kw) * (1. - p);
+        // 深色块右侧多伸 0.004 压到白块下面，斜角处不会漏出背景缝
+        let dark = Rect::new(dx - 0.002, v.center().y - h * 0.36, kw + 0.004, h * 0.72);
+        fill_slant(ui, dark, skew, Color::new(0.165, 0.175, 0.200, 0.92));
+        // 白色滑块：满高、等宽，随动画滑动
+        let kx = v.x + (w - kw) * p;
+        fill_slant(ui, Rect::new(kx, v.y, kw, h), skew, WHITE);
+        // 开启态：深色块里的细对勾，随滑块到位淡入
+        let a = ((p - 0.60) / 0.40).clamp(0., 1.);
         if a > 0.001 {
-            let left_w = v.w - kw;
-            let cx = v.x + left_w * 0.5 + skew * 0.55;
-            let cy = v.center().y;
-            let d = v.h * 0.30;
-            use lyon::math::point;
-            let mut b = lyon::path::Path::builder();
-            b.begin(point(cx - d * 0.95, cy + d * 0.02));
-            b.line_to(point(cx - d * 0.28, cy + d * 0.72));
-            b.line_to(point(cx + d * 1.00, cy - d * 0.80));
-            ui.stroke_path(&b.build(), (v.h * 0.15).max(0.0042), semi_white(a));
+            let cx = dark.center().x + skew * 0.5;
+            let cy = dark.center().y + dark.h * 0.02;
+                        let d = dark.h * 0.27;
+            check_shape(ui, cx, cy, d, (dark.h * 0.018).max(0.0014), semi_white(a));
         }
     });
 }
@@ -871,7 +888,7 @@ fn draw_row(ui: &mut Ui, t: f32, r: Rect, row: &mut Row) {
         Ctl::Choose { btn, .. } => btn.render_flat(ui, cr, t, CTL_TEXT_SIZE),
         Ctl::Slider { slider, value, text } => {
             let text = text.clone();
-            let track = Rect::new(cr.x, cr.y + cr.h * 0.44, cr.w, cr.h * 0.44);
+            let track = Rect::new(cr.x, cr.y + cr.h * 0.46, cr.w, cr.h * 0.34);
             ui.text(text)
                 .pos(cr.right(), track.y - 0.002)
                 .anchor(1., 1.)

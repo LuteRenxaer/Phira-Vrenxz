@@ -71,6 +71,7 @@ dependencies = [
  "sevenz-rust",
  "sha2",
  "smallvec",
+ "socket2",
  "tap",
  "tempfile",
  "tokio",

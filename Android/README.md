@@ -31,10 +31,10 @@ Phira-Vrenxz 的 `Phira-Vrenxz` crate（lib 名 `phira_vrenxz`，cdylib）会生
 # 安装 cargo-ndk（一次即可）
 cargo install cargo-ndk
 
-# 在仓库根目录下为各 ABI 编译 release 库
-cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 \
+# 在仓库根目录编译 arm64-v8a release 库（APK 当前只打包该 ABI）
+cargo ndk -t arm64-v8a \
     -o Android/app/src/main/jniLibs \
-    build --release -p Phira-Vrenxz
+    build --release -p Phira-Vrenxz --features video
 ```
 
 > crate 名是 `Phira-Vrenxz`，`[lib] name = "phira_vrenxz"`，

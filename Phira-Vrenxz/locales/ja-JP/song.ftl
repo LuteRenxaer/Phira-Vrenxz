@@ -27,6 +27,7 @@ delete = 削除
 exercise = 練習
 offset = 補正
 reveal = Chart Reveal
+render = Render
 
 edit-cancel = キャンセル
 edit-save = 保存

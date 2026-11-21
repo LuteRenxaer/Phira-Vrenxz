@@ -28,6 +28,7 @@ rate = Rate
 exercise = Latihan
 offset = Penyesuaian offset
 reveal = Chart Reveal
+render = Render
 
 edit-cancel = Cancel
 edit-save = Save

@@ -428,7 +428,16 @@ impl InputDialog {
         // 打开后的短暂预热期丢弃字符事件，避免菜单按键/输入法初始化把整串字符灌进来。
         if macroquad::time::get_time() < self.opened_at + 0.25 {
             while get_char_pressed().is_some() {}
-            return false;
+            // Keep the dialog alive during the warm-up frame.  Returning false
+            // here used to make the caller drop the just-opened input box.
+            return true;
+        }
+        // While the IME is composing (pinyin, candidates...), Backspace belongs
+        // to the IME, not to the text box.  Swallow this frame so deleting an
+        // IME candidate does not also delete committed text or reach the scene.
+        if ime_composing() {
+            while get_char_pressed().is_some() {}
+            return true;
         }
         // Windows 上 IME 有时会吃掉 Ctrl 组合键；用物理键状态兜底。
         if let Some(shortcut) = crate::shortcut::poll() {
@@ -522,6 +531,8 @@ impl InputDialog {
                 self.text.replace_range(s..e, "");
                 self.cursor = s;
             }
+            // macroquad on Windows delivers this frame's char queue in reverse
+            // order, so reverse it back before inserting.
             let reversed: String = input.chars().rev().collect();
             self.text.insert_str(self.cursor, &reversed);
             self.cursor += input.len();
@@ -895,7 +906,36 @@ extern "system" {
     fn GetActiveWindow() -> *mut std::ffi::c_void;
     fn ImmGetContext(hwnd: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
     fn ImmSetOpenStatus(himc: *mut std::ffi::c_void, fopen: i32);
+    fn ImmGetCompositionStringW(
+        himc: *mut std::ffi::c_void,
+        index: u32,
+        buf: *mut std::ffi::c_void,
+        len: u32,
+    ) -> i32;
     fn ImmReleaseContext(hwnd: *mut std::ffi::c_void, himc: *mut std::ffi::c_void) -> i32;
+}
+
+#[cfg(windows)]
+fn ime_composing() -> bool {
+    const GCS_COMPSTR: u32 = 0x0008;
+    unsafe {
+        let hwnd = GetActiveWindow();
+        if hwnd.is_null() {
+            return false;
+        }
+        let himc = ImmGetContext(hwnd);
+        if himc.is_null() {
+            return false;
+        }
+        let len = ImmGetCompositionStringW(himc, GCS_COMPSTR, std::ptr::null_mut(), 0);
+        ImmReleaseContext(hwnd, himc);
+        len > 0
+    }
+}
+
+#[cfg(not(windows))]
+fn ime_composing() -> bool {
+    false
 }
 
 #[cfg(windows)]
@@ -1349,7 +1389,27 @@ impl Main {
                 dialog.update(self.last_update_time as _);
             }
         });
-        self.scenes.last_mut().unwrap().update(&mut self.tm)?;
+        // The input dialog must consume the keyboard *before* the scene sees it.
+        // Updating it in render() meant Backspace/Delete first reached the game,
+        // so IME deletion also fired the scene's own shortcut.
+        let had_input_dialog = INPUT_DIALOG.with(|it| it.borrow().is_some());
+        let _input_open = INPUT_DIALOG.with(|it| {
+            let mut guard = it.borrow_mut();
+            if let Some(dlg) = guard.as_mut() {
+                if !dlg.update_keyboard() {
+                    drop(guard);
+                    *it.borrow_mut() = None;
+                    false
+                } else {
+                    true
+                }
+            } else {
+                false
+            }
+        });
+        if !had_input_dialog {
+            self.scenes.last_mut().unwrap().update(&mut self.tm)?;
+        }
         Ok(())
     }
 
@@ -1391,12 +1451,7 @@ impl Main {
             INPUT_DIALOG.with(|it| {
                 let mut guard = it.borrow_mut();
                 if let Some(dlg) = guard.as_mut() {
-                    if !dlg.update_keyboard() {
-                        drop(guard);
-                        *it.borrow_mut() = None;
-                    } else {
-                        dlg.render(&mut ui, self.tm.now() as _);
-                    }
+                    dlg.render(&mut ui, self.tm.now() as _);
                 }
             });
             let remove = FULL_LOADING.with(|it| {

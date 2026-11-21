@@ -95,6 +95,14 @@ impl FileSystem for ExternalFileSystem {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let mut file = self.0.open(path)?;
+            // The offline renderer runs inside macroquad's single-threaded future
+            // executor, which has no Tokio reactor.  Reading synchronously there
+            // avoids `spawn_blocking` panicking when a resource pack is selected.
+            if std::env::var_os("PHIRA_RENDER_SILENT").is_some() {
+                let mut res = Vec::new();
+                file.read_to_end(&mut res)?;
+                return Ok(res);
+            }
             tokio::task::spawn_blocking(move || {
                 let mut res = Vec::new();
                 file.read_to_end(&mut res)?;
@@ -152,6 +160,12 @@ impl ZipFileSystem {
         Self::from_source(ZipSource::Memory(Cursor::new(bytes)))
     }
 
+    /// Prefix inside the archive that roots the chart.  Needed by renderers
+    /// that read the archive synchronously instead of going through tokio.
+    pub fn root(&self) -> &str {
+        &self.1
+    }
+
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let file = File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
@@ -164,7 +178,27 @@ impl ZipFileSystem {
             .file_names()
             .filter(|it| it.ends_with('/') && it.find('/') == Some(it.len() - 1))
             .collect::<Vec<_>>();
-        let root = if root_dirs.len() == 1 { root_dirs[0].to_owned() } else { String::new() };
+        let root = if root_dirs.len() == 1 {
+            root_dirs[0].to_owned()
+        } else if root_dirs.is_empty() {
+            // Some zip writers (PowerShell's Compress-Archive, for example)
+            // don't emit an explicit `chart/` entry, but still put every file
+            // under one top-level directory.  Detect that prefix from names.
+            let names = zip.file_names().filter(|it| !it.ends_with('/')).collect::<Vec<_>>();
+            let mut roots = names
+                .iter()
+                .filter_map(|name| name.split_once('/').map(|(head, _)| head))
+                .collect::<Vec<_>>();
+            roots.sort_unstable();
+            roots.dedup();
+            if roots.len() == 1 && names.iter().all(|name| name.starts_with(&format!("{}/", roots[0]))) {
+                format!("{}/", roots[0])
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
         Ok(Self(Arc::new(Mutex::new(zip)), root))
     }
 

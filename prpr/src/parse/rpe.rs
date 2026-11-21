@@ -848,20 +848,16 @@ async fn parse_judge_line(
                         .await
                         .with_context(|| ptl!("gif-load-failed", "path" => rpe.texture.clone()))?;
                     let frames = GifFrames::new(
-                        tokio::spawn(async move {
-                            let decoder = gif::GifDecoder::new(Cursor::new(data))?;
-                            debug!("decoding gif");
-                            Ok::<std::vec::Vec<_>, ImageError>(decoder.into_frames().collect())
-                        })
-                        .into_future()
-                        .await??
-                        .into_iter()
-                        .map(|frame| -> (u128, SafeTexture) {
-                            let frame = frame.unwrap();
-                            let delay: Duration = frame.delay().into();
-                            (delay.as_millis(), SafeTexture::from(DynamicImage::ImageRgba8(frame.into_buffer())))
-                        })
-                        .collect(),
+                        gif::GifDecoder::new(Cursor::new(data))?
+                            .into_frames()
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .map(|frame| -> (u128, SafeTexture) {
+                                let frame = frame.unwrap();
+                                let delay: Duration = frame.delay().into();
+                                (delay.as_millis(), SafeTexture::from(DynamicImage::ImageRgba8(frame.into_buffer())))
+                            })
+                            .collect(),
                     );
                     debug!("gif decoded");
                     let events = parse_gif_events(r, events, bezier_map, &frames).with_context(|| ptl!("gif-events-parse-failed"))?;

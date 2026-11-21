@@ -28,6 +28,7 @@ mod ppsr_features;
 mod popup;
 mod rate;
 mod recorder;
+mod render;
 mod resource;
 mod score_upload;
 mod scene;
@@ -256,7 +257,7 @@ async fn import_dropped_chart(path: String) {
 #[cfg(target_os = "windows")]
 extern "C" {
     fn FindWindowW(lpClassName: *const u16, lpWindowName: *const u16) -> *mut std::ffi::c_void;
-    fn ShowWindow(hWnd: *mut std::ffi::c_void, nCmdShow: i32) -> bool;
+    fn ShowWindow(hWnd: *mut std::ffi::c_void, nCmdShow: i32) -> i32;
 }
 
 pub fn set_fullscreen_mode(fullscreen: bool) {
@@ -682,6 +683,7 @@ async fn the_main() -> Result<()> {
             show_error(err);
         }
         if main.should_exit() {
+            prpr::gamepad::shutdown();
             break 'app;
         }
 
@@ -697,7 +699,15 @@ async fn the_main() -> Result<()> {
             }
         }
 
-        if let Some(limit) = Some(get_data().config.fps_limit).filter(|v| *v > 0) {
+        // While the offline renderer runs in a child process it competes for
+        // GPU/CPU; cap the UI to 30 fps so the window stays responsive instead
+        // of fighting the renderer for every frame.
+        let limit = if crate::render::is_rendering() {
+            30.0
+        } else {
+            get_data().config.fps_limit as f32
+        };
+        if limit > 0.0 {
             let target = 1. / limit as f64;
             let elapsed = tm.real_time() - frame_start as f64;
             if elapsed < target {
@@ -711,7 +721,7 @@ async fn the_main() -> Result<()> {
     Ok(())
 }
 
-fn build_global_window_conf() -> Conf {
+fn build_global_window_conf(render_opts: Option<&render::RenderOptions>) -> Conf {
     let mut conf = build_conf();
     conf.window_title = "Phira-Vrenxz".to_owned();
     conf.icon = Some(miniquad::conf::Icon {
@@ -730,6 +740,17 @@ fn build_global_window_conf() -> Conf {
         conf.platform.swap_interval = Some(
             if data.as_ref().is_some_and(|d| d.config.vsync && !d.config.eff_vsync_off()) { 1 } else { 0 },
         );
+    }
+
+    // `--render` 是离屏渲染：窗口只用于创建 GL 上下文，不需要铺满屏幕；
+    // 实际输出分辨率由 render 模块的 MSRenderTarget 决定。
+    if let Some(opts) = render_opts {
+        conf.fullscreen = false;
+        conf.window_width = (opts.width / 3).clamp(320, 960) as i32;
+        conf.window_height = (opts.height / 3).clamp(180, 540) as i32;
+        conf.window_resizable = false;
+        conf.platform.swap_interval = Some(0);
+        conf.sample_count = 1;
     }
 
     // 只渲染背景截图模式：按环境变量指定画面尺寸，并强制窗口化。
@@ -772,7 +793,15 @@ pub fn set_console_enabled(enabled: bool) {
 pub extern "C" fn quad_main() {
     // 窗口尺寸必须在创建窗口前确定，所以这里先解析只渲染背景截图的环境变量。
     bgshot::init();
-    macroquad::Window::from_config(build_global_window_conf(), async {
+    let render_opts = render::parse_cli();
+    macroquad::Window::from_config(build_global_window_conf(render_opts.as_ref()), async {
+        if let Some(opts) = render_opts {
+            if let Err(err) = render::run(opts).await {
+                eprintln!("render failed: {err:?}");
+                error!(?err, "offline render failed");
+            }
+            return;
+        }
         if let Err(err) = the_main().await {
             error!(?err, "global error");
         }

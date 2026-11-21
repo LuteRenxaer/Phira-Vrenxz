@@ -28,6 +28,7 @@ rate = 평점
 exercise = 연습
 offset = 오프셋 조정
 reveal = Chart Reveal
+render = Render
 unlock = 해금 영상 재생
 
 edit-cancel = 취소

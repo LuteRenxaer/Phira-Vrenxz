@@ -28,6 +28,7 @@ rate = 评分
 exercise = 练习
 offset = 调整延迟
 reveal = 谱面揭晓
+render = 渲染
 unlock = 播放解锁动画
 
 edit-cancel = 取消

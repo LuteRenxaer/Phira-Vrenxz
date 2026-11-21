@@ -22,6 +22,7 @@ rate = Оценить
 exercise = Практика
 offset = Задержка
 reveal = Chart Reveal
+render = Render
 unlock = Видео разблокировки
 edit-cancel = Отмена
 edit-save = Сохранить

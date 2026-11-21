@@ -412,6 +412,11 @@ pub async fn spawn_task<R: Send + 'static>(f: impl FnOnce() -> Result<R> + Send 
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        // The offline renderer has no Tokio reactor; run blocking file work
+        // inline instead of panicking in `spawn_blocking`.
+        if std::env::var_os("PHIRA_RENDER_SILENT").is_some() {
+            return f();
+        }
         tokio::task::spawn_blocking(f).await?
     }
 }
@@ -445,7 +450,34 @@ pub fn screen_aspect() -> f32 {
     vp.2 as f32 / vp.3 as f32
 }
 
+pub struct SilentBackend {
+    // Keep the mixer receiver alive.  Dropping it closes the channel and every
+    // later `create_music` / `create_sfx` fails with a misleading "buffer is full".
+    _setup: Option<sasa::backend::BackendSetup>,
+}
+
+impl sasa::backend::Backend for SilentBackend {
+    fn setup(&mut self, setup: sasa::backend::BackendSetup) -> Result<()> {
+        self._setup = Some(setup);
+        Ok(())
+    }
+
+    fn start(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn consume_broken(&self) -> bool {
+        false
+    }
+}
+
 pub fn create_audio_manger(config: &Config) -> Result<AudioManager> {
+    // Offline render is a hidden background process: gameplay audio must never
+    // reach the sound device.  A dummy backend keeps sasa's mixer alive (the
+    // scene still calls play/pause) without opening an output stream.
+    if std::env::var_os("PHIRA_RENDER_SILENT").is_some() {
+        return Ok(AudioManager::new(SilentBackend { _setup: None })?);
+    }
     #[cfg(target_os = "android")]
     {
         use sasa::backend::oboe::*;

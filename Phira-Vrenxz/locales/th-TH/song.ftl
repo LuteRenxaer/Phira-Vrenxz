@@ -22,6 +22,7 @@ rate = Rate
 exercise = ฝึก
 offset = ปรับ Offset
 reveal = Chart Reveal
+render = Render
 unlock = เล่น Unlock video
 edit-cancel = ยกเลิก
 edit-save = บันทึก

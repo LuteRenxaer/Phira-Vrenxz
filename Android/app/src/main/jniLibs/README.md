@@ -4,17 +4,20 @@
 
 ```
 app/src/main/jniLibs/
-├── arm64-v8a/        libphira_vrenxz.so   （绝大多数现代手机）
-├── armeabi-v7a/      libphira_vrenxz.so   （32 位老设备，如需支持请加该 ABI）
-└── x86_64/           libphira_vrenxz.so   （模拟器）
+└── arm64-v8a/        libphira_vrenxz.so   （真机，当前唯一打包的 ABI）
 ```
+
+> 没有 `armeabi-v7a` 配套的 `libc++_shared.so`，也没有 `x86_64` 预编译 FFmpeg，故只支持 arm64-v8a。
 
 ## 编译命令
 
 ```powershell
-# 在仓库根目录执行
-cargo ndk -t arm64-v8a -t x86_64 -o Android/app/src/main/jniLibs build --release -p Phira-Vrenxz
+# 在仓库根目录执行（必须显式开启 video，否则谱面内嵌视频会被直接丢弃）
+cargo ndk -t arm64-v8a -o Android/app/src/main/jniLibs build --release -p Phira-Vrenxz --features video
 ```
+
+> 视频解码依赖 `prpr-avc/static-lib/<target>/` 里的 FFmpeg 静态库。
+> Android 端临时视频文件写入应用 cache 目录（不是不可写的 `/data/local/tmp`）。
 
 > crate 名是 `Phira-Vrenxz`，其 `[lib] name = "phira_vrenxz"`，
 > 生成的库名为 `libphira_vrenxz.so`（对应 `MainActivity.LIBRARY_NAME = "phira_vrenxz"`）。

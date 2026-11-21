@@ -28,6 +28,7 @@ rate = Đánh giá
 exercise = Luyện tập
 offset = Hiệu chỉnh
 reveal = Chart Reveal
+render = Render
 unlock = Xem video mở màn
 
 edit-cancel = Huỷ

@@ -28,6 +28,7 @@ rate = Noter
 exercise = S'exercer
 offset = Ajuster le décalage
 reveal = Chart Reveal
+render = Render
 unlock = Jouer la vidéo de déverrouillage
 
 edit-cancel = Annuler

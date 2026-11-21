@@ -28,6 +28,7 @@ rate = Avaliar
 exercise = Treinar
 offset = Ajustar deslocamento
 reveal = Chart Reveal
+render = Render
 
 edit-cancel = Cancelar
 edit-save = Salvar

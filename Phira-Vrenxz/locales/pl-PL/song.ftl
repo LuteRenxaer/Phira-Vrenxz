@@ -27,6 +27,7 @@ delete = Usuń
 exercise = Ćwicz
 offset = Ustaw opóźnienie
 reveal = Chart Reveal
+render = Render
 
 edit-cancel = Anuluj
 edit-save = Zapisz

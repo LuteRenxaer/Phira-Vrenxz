@@ -155,6 +155,7 @@ still-loading = 仍載中…
 export = 導出
 exporting = 導出中…
 reveal = 譜面之顯
+render = Render
 ldb-srv-official = 官方
 ldb-srv-local = Local
 mods-flip-y = 上下翻轉

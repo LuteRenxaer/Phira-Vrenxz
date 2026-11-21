@@ -22,6 +22,7 @@ rate = 評分
 exercise = 練習
 offset = 調整延遲
 reveal = 譜面揭曉
+render = 渲染
 unlock = 播放解鎖動畫
 edit-cancel = 取消
 edit-save = 儲存

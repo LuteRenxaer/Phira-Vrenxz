@@ -28,6 +28,7 @@ rate = Oyla
 exercise = Antrenman Yap
 offset = Dengeyi Ayarla
 reveal = Chart Reveal
+render = Render
 unlock = Videoyu Aç
 
 edit-cancel = İptal

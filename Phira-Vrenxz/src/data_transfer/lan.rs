@@ -24,6 +24,26 @@ const DISCOVER_ADDR: &str = "255.255.255.255:27100";
 const DISCOVER_INTERVAL: Duration = Duration::from_secs(2);
 const POLL_INTERVAL: Duration = Duration::from_millis(120);
 
+/// 绑定发现端口。多开时端口会被别的实例占住，普通 bind 会直接失败，
+/// 于是发送端收不到发现广播、接收端永远停在「搜索中」；这里带地址/端口复用重试。
+fn bind_discovery_socket(port: u16) -> Option<UdpSocket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let try_once = |reuse: bool| -> Option<UdpSocket> {
+        let s = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).ok()?;
+        if reuse {
+            let _ = s.set_reuse_address(true);
+            #[cfg(unix)]
+            let _ = s.set_reuse_port(true);
+        }
+        s.bind(&SocketAddr::from(([0, 0, 0, 0], port)).into()).ok()?;
+        let _ = s.set_read_timeout(Some(POLL_INTERVAL));
+        UdpSocket::from(s).into()
+    };
+    let socket = try_once(true).or_else(|| try_once(false))?;
+    let _ = socket.set_broadcast(true);
+    Some(socket)
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type")]
 enum Msg {
@@ -111,11 +131,10 @@ impl Sender {
         let udp_stop = Arc::clone(&stop);
         let offer_name = name.clone();
         thread::spawn(move || {
-            let Ok(socket) = UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)) else {
+            let Some(socket) = bind_discovery_socket(DISCOVERY_PORT) else {
                 tracing::warn!("failed to bind data transfer discovery port");
                 return;
             };
-            let _ = socket.set_read_timeout(Some(POLL_INTERVAL));
             let mut buf = [0u8; 1024];
             while !udp_stop.load(Ordering::Relaxed) {
                 let Ok((n, addr)) = socket.recv_from(&mut buf) else {

@@ -248,6 +248,9 @@ pub struct Config {
     pub roman_numerals: bool,
     pub chinese_numerals: bool,
     pub autoplay_display_text: String,
+    /// Autoplay 模式显示连击数 + COMBO 文本（false 时显示 Autoplay 文本）
+    #[serde(default)]
+    pub autoplay_combo_style: bool,
     pub disable_effect: bool,
     pub double_click_to_pause: bool,
     #[serde(default)]
@@ -489,6 +492,7 @@ impl Default for Config {
             roman_numerals: false,
             chinese_numerals: false,
             autoplay_display_text: "Autoplay".to_string(),
+            autoplay_combo_style: false,
             disable_effect: false,
             double_click_to_pause: true,
             dynamic_background: DynamicBackgroundMode::Off,

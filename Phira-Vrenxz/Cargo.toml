@@ -70,6 +70,7 @@ reqwest = { workspace = true, default-features = false, features = [
 ] }
 semver = { version = "1.0.27", features = ["serde"] }
 serde = { workspace = true, features = ["derive"] }
+socket2 = "0.6"
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sha2 = { workspace = true }

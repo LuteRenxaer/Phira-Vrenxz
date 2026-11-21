@@ -66,6 +66,7 @@ pub struct EndingScene {
     player_name: String,
     player_rks: Option<f32>,
     autoplay: bool,
+    autoplay_text: String,
     speed: f32,
     next: u8,
     update_state: Option<RecordUpdateState>,
@@ -150,6 +151,7 @@ impl EndingScene {
             player_name: config.player_name.clone(),
             player_rks,
             autoplay: config.autoplay(),
+            autoplay_text: config.autoplay_display_text.clone(),
             speed: config.speed,
             next: 0,
             upload_fn,
@@ -305,7 +307,7 @@ impl Scene for EndingScene {
                 format!(" {:.2}x", self.speed)
             };
             let text = if self.autoplay {
-                format!("Phira-Vrenxz[AUTOPLAY] {spd}")
+                format!("Phira-Vrenxz[{}] {spd}", self.autoplay_text)
             } else if !self.rated {
                 format!("Phira-Vrenxz[UNRATED] {spd}")
             } else if let Some(state) = &self.update_state {

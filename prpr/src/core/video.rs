@@ -8,6 +8,98 @@ use serde::Deserialize;
 use std::{cell::RefCell, io::Write};
 use tempfile::NamedTempFile;
 
+/// Android apps cannot write to `/data/local/tmp` (Rust's default `temp_dir`),
+/// so ask the Java side for the app cache directory instead.  Without this,
+/// enabling the `video` feature would make every chart that embeds a video
+/// fail to load with a permission error.
+#[cfg(target_os = "android")]
+fn android_cache_dir() -> Option<std::path::PathBuf> {
+    use std::ffi::{c_void, CStr};
+    use std::ptr;
+
+    unsafe {
+        let env = miniquad::native::attach_jni_env();
+        if env.is_null() {
+            return None;
+        }
+        let activity = ndk_context::android_context().context() as *mut c_void;
+        if activity.is_null() {
+            return None;
+        }
+
+        let get_class = (**env).GetObjectClass.unwrap();
+        let get_method = (**env).GetMethodID.unwrap();
+        let call_object = (**env).CallObjectMethod.unwrap();
+        let delete_local = (**env).DeleteLocalRef.unwrap();
+        let get_chars = (**env).GetStringUTFChars.unwrap();
+        let release_chars = (**env).ReleaseStringUTFChars.unwrap();
+
+        let activity_class = get_class(env, activity);
+        let get_cache_dir = get_method(
+            env,
+            activity_class,
+            c"getCacheDir".as_ptr(),
+            c"()Ljava/io/File;".as_ptr(),
+        );
+        delete_local(env, activity_class);
+        if get_cache_dir.is_null() {
+            return None;
+        }
+        let file = call_object(env, activity, get_cache_dir) as *mut c_void;
+        if file.is_null() {
+            return None;
+        }
+
+        let file_class = get_class(env, file);
+        let get_absolute_path = get_method(
+            env,
+            file_class,
+            c"getAbsolutePath".as_ptr(),
+            c"()Ljava/lang/String;".as_ptr(),
+        );
+        delete_local(env, file_class);
+        if get_absolute_path.is_null() {
+            delete_local(env, file);
+            return None;
+        }
+        let path_str = call_object(env, file, get_absolute_path) as *mut c_void;
+        delete_local(env, file);
+        if path_str.is_null() {
+            return None;
+        }
+
+        let chars = get_chars(env, path_str, ptr::null_mut());
+        if chars.is_null() {
+            delete_local(env, path_str);
+            return None;
+        }
+        let path = CStr::from_ptr(chars).to_string_lossy().into_owned();
+        release_chars(env, path_str, chars);
+        delete_local(env, path_str);
+
+        let path = std::path::PathBuf::from(path);
+        if path.is_dir() { Some(path) } else { None }
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn ios_temp_dir() -> Option<std::path::PathBuf> {
+    let dir = objc2_foundation::NSTemporaryDirectory().to_string();
+    if dir.is_empty() { None } else { Some(std::path::PathBuf::from(dir)) }
+}
+
+fn new_video_temp_file() -> Result<NamedTempFile> {
+    #[cfg(target_os = "android")]
+    if let Some(dir) = android_cache_dir() {
+        return Ok(NamedTempFile::new_in(dir)?);
+    }
+    #[cfg(target_os = "ios")]
+    if let Some(dir) = ios_temp_dir() {
+        return Ok(NamedTempFile::new_in(dir)?);
+    }
+    Ok(NamedTempFile::new()?)
+}
+
 thread_local! {
     static VIDEO_BUFFERS: RefCell<[Vec<u8>; 3]> = RefCell::default();
 }
@@ -49,7 +141,7 @@ fn new_tex(w: u32, h: u32) -> Texture2D {
 
 impl Video {
     pub fn new(data: Vec<u8>, start_time: f64, scale_type: ScaleType, alpha: Anim<f32>, dim: Anim<f32>) -> Result<Self> {
-        let mut video_file = NamedTempFile::new()?;
+        let mut video_file = new_video_temp_file()?;
         video_file.write_all(&data)?;
         drop(data);
         let path = video_file.path().as_os_str().to_str().unwrap().to_owned();

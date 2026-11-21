@@ -22,6 +22,7 @@ rate = Bewerten
 exercise = Üben
 offset = Offset anpassen
 reveal = Chart Reveal
+render = Render
 unlock = Video zum Entsperren ansehen
 edit-cancel = Abbrechen
 edit-save = Speichern

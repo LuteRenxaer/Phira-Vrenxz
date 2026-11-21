@@ -673,7 +673,7 @@ impl Slider {
         let cy = r.center().y;
         let pos = (r.x + r.w * p, cy);
         self.pos = ui.to_global(pos).0;
-        let h = (r.h * 1.5).max(0.030);
+        let h = (r.h * 1.35).max(0.022);
         let skew = h * 0.62;
         let quad = |ui: &mut Ui, x: f32, y: f32, w: f32, hh: f32, sk: f32, c: Color| {
             use lyon::math::point;
@@ -695,13 +695,13 @@ impl Slider {
             quad(ui, tx, cy - h * 0.5, sel_w, h, skew * 0.55, semi_white(0.20));
         }
         // 两端细白斜条
-        let cap_w = (h * 0.30).max(0.004);
-        let cap_h = h * 1.65;
+        let cap_w = (h * 0.26).max(0.0035);
+        let cap_h = h * 1.50;
         quad(ui, r.x + skew - cap_w * 0.35, cy - cap_h * 0.5, cap_w, cap_h, skew * 0.55, semi_white(0.88));
         quad(ui, r.right() - cap_w * 0.65, cy - cap_h * 0.5, cap_w, cap_h, skew * 0.55, semi_white(0.88));
         // 游标：白色斜切块
-        let cw = (h * 0.72).max(0.016);
-        let ch = h * 1.70;
+        let cw = (h * 0.55).max(0.011);
+        let ch = h * 1.45;
         quad(ui, pos.0 - cw * 0.5, cy - ch * 0.5, cw, ch, skew * 0.62, WHITE);
     }
 }

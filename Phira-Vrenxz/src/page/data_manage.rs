@@ -477,6 +477,7 @@ impl DataManagePage {
     fn render_receiving(&mut self, ui: &mut Ui, inner: Rect, t: f32) {
         let devices = self.receive.as_ref().map(|it| it.devices.clone()).unwrap_or_default();
         if devices.is_empty() {
+            let err = self.receive.as_ref().and_then(|it| it.error.clone());
             ui.text(tl!("receiving-searching"))
                 .pos(inner.center().x, inner.y + 0.25)
                 .anchor(0.5, 0.5)
@@ -484,6 +485,16 @@ impl DataManagePage {
                 .size(0.36)
                 .color(semi_white(0.6))
                 .draw();
+            if let Some(err) = err {
+                ui.text(err)
+                    .pos(inner.center().x, inner.y + 0.34)
+                    .anchor(0.5, 0.5)
+                    .no_baseline()
+                    .size(0.26)
+                    .max_width(inner.w - 0.1)
+                    .color(Color::new(1., 0.45, 0.45, 0.95))
+                    .draw();
+            }
             return;
         }
         while self.device_btns.len() < devices.len() {

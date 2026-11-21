@@ -328,6 +328,37 @@ impl LoadingScene {
 
     /// HUD 编辑：加载页示例预览。不加载任何谱面、不进入游戏，纯示例数据供编辑器拖拽布局；
     /// load_task 置空后场景会一直停留在加载页（finish_time 无穷），点返回即回主菜单。
+    /// Offline-render loading screen: real chart art and info, but no load task
+    /// and an infinite finish time so it stays on screen for a fixed duration.
+    pub fn render_preview(
+        mut info: ChartInfo,
+        background: SafeTexture,
+        illustration: SafeTexture,
+        tip: Option<String>,
+    ) -> Self {
+        if let Some(tip) = tip {
+            info.tip = if tip.trim().is_empty() { None } else { Some(tip) };
+        }
+        if info.tip.is_none() {
+            info.tip = Some(crate::config::TIPS.choose(&mut thread_rng()).unwrap().to_owned());
+        }
+        let charter = Regex::new(r"\[!:[0-9]+:([^:]*)\]")
+            .unwrap()
+            .replace_all(&info.charter, "$1")
+            .to_string();
+        Self {
+            info,
+            background,
+            illustration,
+            load_task: None,
+            next_scene: None,
+            finish_time: f32::INFINITY,
+            enter_time: None,
+            target: None,
+            charter,
+        }
+    }
+
     pub fn hud_preview() -> Self {
         let mut info = ChartInfo::default();
         info.name = "示例谱面".to_owned();

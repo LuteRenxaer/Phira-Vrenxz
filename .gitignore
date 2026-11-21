@@ -43,6 +43,9 @@ inner.rs
 
 /test
 /log*
+/tmp
+/recordings
+*.render.log
 /build_event_debug.sh
 
 

@@ -43,6 +43,23 @@ pub struct GamepadInput {
 #[cfg(any(target_arch = "wasm32", target_os = "android", target_os = "ios", target_env = "ohos"))]
 pub struct GamepadInput {}
 
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios", target_env = "ohos")))]
+impl Drop for GamepadInput {
+    fn drop(&mut self) {
+        // gilrs' Drop joins its polling thread.  During Windows TLS/process
+        // teardown that join can abort with "threads should not terminate
+        // unexpectedly"; leaking the handle lets the OS reclaim it instead.
+        if let Some(gilrs) = self.gilrs.take() {
+            std::mem::forget(gilrs);
+        }
+    }
+}
+
+#[cfg(any(target_arch = "wasm32", target_os = "android", target_os = "ios", target_env = "ohos"))]
+impl Drop for GamepadInput {
+    fn drop(&mut self) {}
+}
+
 impl Default for GamepadInput {
     fn default() -> Self {
         Self::new()
@@ -432,6 +449,52 @@ thread_local! {
     static GAMEPLAY_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+static ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Offline renderers do not need gilrs.  Keeping `GAMEPAD` uninitialized also
+/// avoids gilrs' thread-local destructor running after the GL context is gone.
+pub fn set_enabled(enabled: bool) {
+    ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn is_enabled() -> bool {
+    ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios", target_env = "ohos")))]
+fn empty_input() -> GamepadInput {
+    GamepadInput {
+        gilrs: None,
+        buttons: Default::default(),
+        menu_down: false,
+        sticks: [None; 2],
+        a_was_down: false,
+        b_was_down: false,
+        x_was_down: false,
+        y_was_down: false,
+        home_was_down: false,
+        retry_timer: 0.0,
+    }
+}
+
+#[cfg(any(target_arch = "wasm32", target_os = "android", target_os = "ios", target_env = "ohos"))]
+fn empty_input() -> GamepadInput {
+    GamepadInput {}
+}
+
+/// Called on the main thread before process exit.  gilrs' Drop joins its
+/// polling thread and panics with "threads should not terminate unexpectedly"
+/// during Windows TLS teardown; leaking that object keeps shutdown clean.
+pub fn shutdown() {
+    ENABLED.store(false, std::sync::atomic::Ordering::Relaxed);
+    let _ = GAMEPAD.try_with(|cell| {
+        if let Ok(mut it) = cell.try_borrow_mut() {
+            let old = std::mem::replace(&mut *it, empty_input());
+            std::mem::forget(old);
+        }
+    });
+}
+
 /// GameScene marks itself active so the UI cursor does not fire extra touches
 /// while the player is using the controller to hit notes.
 pub fn set_gameplay_active(active: bool) {
@@ -493,6 +556,9 @@ pub fn last_frame() -> GamepadFrame {
 }
 
 pub fn poll_global() {
+    if !is_enabled() {
+        return;
+    }
     let dt = macroquad::prelude::get_frame_time();
     GAMEPAD.with(|it| {
         let mut guard = it.borrow_mut();

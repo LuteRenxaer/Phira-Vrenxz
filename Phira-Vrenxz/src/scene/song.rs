@@ -356,6 +356,131 @@ struct LdbItem {
     pub btn: RectButton,
 }
 
+const RENDER_RESOLUTIONS: [(u32, u32); 3] = [(1280, 720), (1920, 1080), (2560, 1440)];
+const RENDER_FPS: [u32; 3] = [30, 60, 120];
+const RENDER_QUALITY: [(u8, &str); 3] = [(18, "高"), (23, "中"), (28, "省空间")];
+const RENDER_BACKENDS: [&str; 2] = ["CPU（兼容）", "GPU（NVENC）"];
+const RENDER_AUTOPLAY_STYLES: [&str; 2] = ["默认 Autoplay 文本", "Combo 数字样式"];
+
+struct RenderSettingsUi {
+    open: bool,
+    rendering: bool,
+    done: bool,
+    error: Option<String>,
+    resolution: usize,
+    fps: usize,
+    quality: usize,
+    audio: bool,
+    backend: usize,
+    loading: bool,
+    loading_secs: f64,
+    ending: bool,
+    ending_secs: f64,
+    indicator: bool,
+    watermark: bool,
+    autoplay_combo: bool,
+    autoplay_text: String,
+    aspect: Option<f32>,
+    aspect_text: String,
+    tip: String,
+    res_pack: usize,
+    packs: Vec<(String, String)>,
+    preview_was_playing: bool,
+    ppsr_was_collapsed: bool,
+    suppress_until: f64,
+
+    progress: f32,
+    progress_path: Option<std::path::PathBuf>,
+    started: Option<std::time::Instant>,
+    child: Option<std::process::Child>,
+
+    option_btns: [RectButton; 14],
+    dur_btns: [RectButton; 4],
+    start_btn: RectButton,
+    cancel_btn: RectButton,
+}
+
+impl RenderSettingsUi {
+    fn new() -> Self {
+        Self {
+            open: false,
+            rendering: false,
+            done: false,
+            error: None,
+            resolution: 1,
+            fps: 1,
+            quality: 0,
+            audio: true,
+            backend: 0,
+            loading: false,
+            loading_secs: 2.0,
+            ending: false,
+            ending_secs: 3.0,
+            indicator: true,
+            watermark: false,
+            autoplay_combo: false,
+            autoplay_text: "Autoplay".to_owned(),
+            aspect: None,
+            aspect_text: "自动".to_owned(),
+            tip: String::new(),
+            res_pack: 0,
+            packs: Vec::new(),
+            preview_was_playing: false,
+            ppsr_was_collapsed: false,
+            suppress_until: 0.,
+            progress: 0.,
+            progress_path: None,
+            started: None,
+            child: None,
+            option_btns: [RectButton::new(); 14],
+            dur_btns: [RectButton::new(); 4],
+            start_btn: RectButton::new(),
+            cancel_btn: RectButton::new(),
+        }
+    }
+
+    fn opts(&self, packs: &[(String, String)]) -> crate::render::GameRenderOptions {
+        let (base_w, base_h) = RENDER_RESOLUTIONS[self.resolution.min(2)];
+        let (width, height) = if let Some(aspect) = self.aspect {
+            let h = base_h;
+            let w = ((h as f32 * aspect).round() as u32).max(2);
+            (w - w % 2, h)
+        } else {
+            (base_w, base_h)
+        };
+        crate::render::GameRenderOptions {
+            fps: RENDER_FPS[self.fps.min(2)],
+            width,
+            height,
+            crf: RENDER_QUALITY[self.quality.min(2)].0,
+            audio: self.audio,
+            backend: if self.backend == 1 {
+                crate::render::RenderBackend::Gpu
+            } else {
+                crate::render::RenderBackend::Cpu
+            },
+            loading: self.loading,
+            loading_secs: self.loading_secs,
+            ending: self.ending,
+            ending_secs: self.ending_secs,
+            indicator: self.indicator,
+            watermark: self.watermark,
+            autoplay_style: if self.autoplay_combo {
+                crate::render::AutoplayStyle::Combo
+            } else {
+                crate::render::AutoplayStyle::Default
+            },
+            autoplay_text: self.autoplay_text.clone(),
+            aspect: self.aspect,
+            tip: (!self.tip.trim().is_empty()).then(|| self.tip.clone()),
+            res_pack: packs
+                .get(self.res_pack)
+                .map(|(_, path)| path.clone()),
+        }
+    }
+}
+
+
 pub struct SongScene {
     illu: Illustration,
 
@@ -363,7 +488,7 @@ pub struct SongScene {
 
     back_btn: RectButton,
     play_btn: DRectButton,
-    render_btn: RectButton,
+    render_settings: RenderSettingsUi,
 
     icons: Arc<Icons>,
 
@@ -569,7 +694,7 @@ impl SongScene {
 
             back_btn: RectButton::new(),
             play_btn: DRectButton::new(),
-            render_btn: RectButton::new(),
+            render_settings: RenderSettingsUi::new(),
 
             icons,
 
@@ -1071,6 +1196,8 @@ impl SongScene {
             self.menu_options.push("exercise");
             self.menu_options.push("offset");
             self.menu_options.push("reveal");
+            // 离线渲染入口与「谱面揭晓」放在同一个菜单位置。
+            self.menu_options.push("render");
             if prpr::replay::latest_for_name(&self.info.name).is_some() {
                 // 回放功能暂时隐藏
             }
@@ -2245,6 +2372,421 @@ impl SongScene {
         }));
     }
 
+    fn render_packs(&self) -> Vec<(String, String)> {
+        let mut packs = vec![("默认".to_owned(), String::new())];
+        if let Ok(base) = dir::respacks() {
+            for name in &get_data().respacks {
+                let path = format!("{base}/{name}");
+                let display = crate::render::respack_display_name(&path).unwrap_or_else(|| name.clone());
+                packs.push((display, path));
+            }
+        }
+        packs
+    }
+
+    fn handle_render_setting(&mut self, index: usize) {
+        match index {
+            0 => self.render_settings.resolution = (self.render_settings.resolution + 1) % RENDER_RESOLUTIONS.len(),
+            1 => self.render_settings.fps = (self.render_settings.fps + 1) % RENDER_FPS.len(),
+            2 => self.render_settings.audio = !self.render_settings.audio,
+            3 => self.render_settings.quality = (self.render_settings.quality + 1) % RENDER_QUALITY.len(),
+            4 => self.render_settings.backend = (self.render_settings.backend + 1) % RENDER_BACKENDS.len(),
+            5 => {
+                request_input(
+                    "render-aspect",
+                    InputBox::new().default_text(if self.render_settings.aspect_text == "自动" {
+                        "16:9"
+                    } else {
+                        self.render_settings.aspect_text.as_str()
+                    }),
+                );
+            }
+            6 => {
+                let len = self.render_settings.packs.len();
+                self.render_settings.res_pack = (self.render_settings.res_pack + 1) % len.max(1);
+            }
+            7 => self.render_settings.loading = !self.render_settings.loading,
+            8 => self.render_settings.ending = !self.render_settings.ending,
+            9 => self.render_settings.indicator = !self.render_settings.indicator,
+            10 => self.render_settings.watermark = !self.render_settings.watermark,
+            11 => self.render_settings.autoplay_combo = !self.render_settings.autoplay_combo,
+            12 => {
+                request_input(
+                    "render-autoplay-text",
+                    InputBox::new().default_text(self.render_settings.autoplay_text.as_str()),
+                );
+            }
+            13 => {
+                request_input("render-tip", InputBox::new().default_text(self.render_settings.tip.as_str()));
+            }
+            _ => {}
+        }
+    }
+
+    fn adjust_render_duration(&mut self, index: usize) {
+        let delta = if index % 2 == 1 { 0.5 } else { -0.5 };
+        if index < 2 {
+            self.render_settings.loading_secs = (self.render_settings.loading_secs + delta).clamp(0.2, 15.0);
+        } else {
+            self.render_settings.ending_secs = (self.render_settings.ending_secs + delta).clamp(0.2, 15.0);
+        }
+    }
+
+    fn open_render_settings(&mut self) {
+        if !self.render_settings.rendering {
+            self.render_settings.done = false;
+            self.render_settings.error = None;
+            self.render_settings.progress = 0.;
+            self.render_settings.progress_path = None;
+            self.render_settings.started = None;
+        }
+        self.render_settings.packs = self.render_packs();
+        self.render_settings.open = true;
+        self.render_settings.suppress_until = 0.;
+        self.render_settings.ppsr_was_collapsed = self.ppsr_collapsed;
+        self.ppsr_collapsed = true;
+        self.render_settings.preview_was_playing = self
+            .preview
+            .as_mut()
+            .map(|music| !music.paused())
+            .unwrap_or(false);
+        if let Some(music) = &mut self.preview {
+            let _ = music.pause();
+        }
+    }
+
+    fn close_render_settings(&mut self, now: f64) {
+        if self.render_settings.rendering {
+            return;
+        }
+        self.render_settings.open = false;
+        // The song page has a play button right under this panel.  A click that
+        // closes the panel must not fall through to it and start gameplay audio.
+        self.render_settings.suppress_until = now + 0.2;
+        self.ppsr_collapsed = self.render_settings.ppsr_was_collapsed;
+        if self.render_settings.preview_was_playing {
+            if let Some(music) = &mut self.preview {
+                let _ = music.play();
+            }
+            self.render_settings.preview_was_playing = false;
+        }
+    }
+
+    fn touch_render_settings(&mut self, touch: &Touch, now: f64) -> Result<bool> {
+        if !self.render_settings.open {
+            return Ok(false);
+        }
+        if self.render_settings.rendering {
+            return Ok(true);
+        }
+        if self.render_settings.done {
+            if self.render_settings.cancel_btn.touch(touch) || self.render_settings.start_btn.touch(touch) {
+                                self.render_settings.done = false;
+                self.close_render_settings(now);
+            }
+            return Ok(true);
+        }
+        if self.render_settings.cancel_btn.touch(touch) {
+                        self.close_render_settings(now);
+            return Ok(true);
+        }
+        if self.render_settings.start_btn.touch(touch) {
+                        self.start_render(now)?;
+            return Ok(true);
+        }
+        for i in 0..4 {
+            if self.render_settings.dur_btns[i].touch(touch) {
+                                self.adjust_render_duration(i);
+                return Ok(true);
+            }
+        }
+        for i in 0..14 {
+            if self.render_settings.option_btns[i].touch(touch) {
+                self.handle_render_setting(i);
+                return Ok(true);
+            }
+        }
+        // The panel is modal: swallow taps outside it too.
+        Ok(true)
+    }
+
+    fn start_render(&mut self, now: f64) -> Result<()> {
+        let Some(path) = self.local_path.clone() else {
+            bail!("谱面尚未下载");
+        };
+        let output = crate::render::default_game_output(&path);
+        let packs = if self.render_settings.packs.is_empty() {
+            self.render_packs()
+        } else {
+            self.render_settings.packs.clone()
+        };
+        let opts = self.render_settings.opts(&packs);
+        match crate::render::spawn_render_with(&path, &output, opts.clone()) {
+            Ok(child) => {
+                crate::render::set_rendering(true);
+                self.render_settings.child = Some(child);
+                self.render_settings.rendering = true;
+                self.render_settings.done = false;
+                self.render_settings.error = None;
+                self.render_settings.progress = 0.;
+                self.render_settings.progress_path = Some(output.with_extension("render.log"));
+                self.render_settings.started = Some(std::time::Instant::now());
+                self.render_settings.suppress_until = now + 0.2;
+                // Keep the panel open: it turns into an in-place progress view.
+            }
+            Err(err) => {
+                self.render_settings.error = Some(format!("{err:#}"));
+                show_error(err.context("启动渲染失败"));
+            }
+        }
+        Ok(())
+    }
+
+    fn poll_render(&mut self) {
+        if !self.render_settings.rendering {
+            return;
+        }
+        let status = match self.render_settings.child.as_mut() {
+            Some(child) => match child.try_wait() {
+                Ok(status) => status,
+                Err(err) => {
+                    self.render_settings.error = Some(format!("{err:#}"));
+                    self.render_settings.rendering = false;
+                    crate::render::set_rendering(false);
+                    return;
+                }
+            },
+            None => return,
+        };
+        if let Some(status) = status {
+            self.render_settings.child = None;
+            self.render_settings.rendering = false;
+            self.render_settings.done = true;
+            crate::render::set_rendering(false);
+            if !status.success() {
+                self.render_settings.error = Some(format!("ffmpeg 退出码 {status}"));
+            }
+        }
+        if let Some(path) = &self.render_settings.progress_path {
+            if let Ok(text) = std::fs::read_to_string(path) {
+                if let Some(line) = text.lines().rev().find(|line| line.starts_with("progress=")) {
+                    if let Some(p) = line
+                        .trim_start_matches("progress=")
+                        .split('%')
+                        .next()
+                        .and_then(|v| v.parse::<f32>().ok())
+                    {
+                        self.render_settings.progress = p.clamp(0., 100.);
+                    }
+                }
+            }
+        }
+    }
+
+    fn render_render_settings(&mut self, ui: &mut Ui) {
+        if !self.render_settings.open {
+            return;
+        }
+        self.poll_render();
+        ui.fill_rect(ui.screen_rect(), semi_black(0.62));
+        let panel = Rect::new(-0.48, -0.40, 0.96, 0.80);
+        ui.fill_path(&panel.rounded(0.035), Color::new(0.035, 0.045, 0.065, 0.98));
+        ui.fill_path(&Rect::new(panel.x, panel.y, panel.w, 0.008).rounded(0.004), semi_white(0.18));
+
+        ui.text(if self.render_settings.done {
+            "渲染完成"
+        } else if self.render_settings.rendering {
+            "正在渲染中..."
+        } else {
+            "渲染设置"
+        })
+            .pos(0., -0.36)
+            .anchor(0.5, 0.5)
+            .no_baseline()
+            .size(0.46)
+            .color(semi_white(0.95))
+            .draw();
+        ui.text("后台渲染，不会外放声音")
+            .pos(0., -0.315)
+            .anchor(0.5, 0.5)
+            .no_baseline()
+            .size(0.22)
+            .color(semi_white(0.55))
+            .draw();
+
+        if self.render_settings.rendering || self.render_settings.done {
+            let bar = Rect::new(-0.38, 0.06, 0.76, 0.04);
+            ui.fill_path(&bar.rounded(0.02), semi_white(0.12));
+            let fill_w = (bar.w * self.render_settings.progress / 100.0).max(0.0);
+            ui.fill_path(&Rect::new(bar.x, bar.y, fill_w, bar.h).rounded(0.02), Color::new(0.86, 0.72, 0.18, 1.));
+            ui.text(format!("{:.0}%", self.render_settings.progress))
+                .pos(0., 0.155)
+                .anchor(0.5, 0.5)
+                .no_baseline()
+                .size(0.36)
+                .color(semi_white(0.95))
+                .draw();
+            if let Some(started) = self.render_settings.started {
+                ui.text(format!("已用时 {:.1}s", started.elapsed().as_secs_f32()))
+                    .pos(0., 0.21)
+                    .anchor(0.5, 0.5)
+                    .no_baseline()
+                    .size(0.2)
+                    .color(semi_white(0.5))
+                    .draw();
+            }
+            if let Some(err) = &self.render_settings.error {
+                ui.text(err)
+                    .pos(0., 0.27)
+                    .anchor(0.5, 0.5)
+                    .no_baseline()
+                    .size(0.2)
+                    .color(Color::new(0.95, 0.35, 0.35, 1.))
+                    .draw();
+            } else {
+                ui.text(if self.render_settings.done { "视频已保存" } else { "正在编码视频，请保持此窗口开启" })
+                    .pos(0., 0.27)
+                    .anchor(0.5, 0.5)
+                    .no_baseline()
+                    .size(0.2)
+                    .color(semi_white(0.55))
+                    .draw();
+            }
+            if self.render_settings.done {
+                let close = Rect::new(-0.14, 0.32, 0.28, 0.065);
+                ui.fill_path(&close.rounded(0.012), Color::new(0.86, 0.72, 0.18, 1.));
+                ui.text("关闭")
+                    .pos(close.center().x, close.center().y)
+                    .anchor(0.5, 0.5)
+                    .no_baseline()
+                    .size(0.28)
+                    .color(Color::new(0.04, 0.04, 0.05, 1.))
+                    .draw();
+                self.render_settings.cancel_btn.set(ui, close);
+                self.render_settings.start_btn.set(ui, close);
+            }
+            return;
+        }
+
+        let packs = self.render_settings.packs.clone();
+        let opts = self.render_settings.opts(&packs);
+        let left_values = [
+            format!("{} × {}", opts.width, opts.height),
+            format!("{} fps", opts.fps),
+            if self.render_settings.audio { "音乐 + 打击音".to_owned() } else { "静音视频".to_owned() },
+            format!("{}（CRF {}）", RENDER_QUALITY[self.render_settings.quality.min(2)].1, opts.crf),
+            RENDER_BACKENDS[self.render_settings.backend.min(1)].to_owned(),
+            self.render_settings.aspect_text.clone(),
+            packs
+                .get(self.render_settings.res_pack)
+                .map(|(name, _)| name.clone())
+                .unwrap_or_else(|| "默认".to_owned()),
+        ];
+        let right_values = [
+            if self.render_settings.loading {
+                format!("开 · {:.1}s", self.render_settings.loading_secs)
+            } else {
+                "关".to_owned()
+            },
+            if self.render_settings.ending {
+                format!("开 · {:.1}s", self.render_settings.ending_secs)
+            } else {
+                "关".to_owned()
+            },
+            if self.render_settings.indicator { "显示".to_owned() } else { "隐藏".to_owned() },
+            if self.render_settings.watermark { "显示".to_owned() } else { "隐藏".to_owned() },
+            RENDER_AUTOPLAY_STYLES[if self.render_settings.autoplay_combo { 1 } else { 0 }].to_owned(),
+            if self.render_settings.autoplay_text.trim().is_empty() {
+                "Autoplay".to_owned()
+            } else {
+                self.render_settings.autoplay_text.clone()
+            },
+            if self.render_settings.tip.trim().is_empty() {
+                "随机".to_owned()
+            } else {
+                self.render_settings.tip.clone()
+            },
+        ];
+        let labels = [
+            "分辨率", "帧率", "视频音轨", "质量", "渲染后端", "画面比例", "资源包",
+            "加载场景", "结算场景", "判定指示器", "版本水印", "Autoplay 样式", "Autoplay 文本", "提示 tip",
+        ];
+        let rows = 7;
+        let (rw, rh) = (0.44, 0.062);
+        let row_y = |i: usize| -0.255 + i as f32 * 0.075;
+        for col in 0..2 {
+            let x = if col == 0 { -0.46 } else { 0.02 };
+            for i in 0..rows {
+                let idx = col * rows + i;
+                let r = Rect::new(x, row_y(i), rw, rh);
+                let hovering = self.render_settings.option_btns[idx].touching();
+                ui.fill_path(&r.rounded(0.01), if hovering { semi_white(0.1) } else { semi_black(0.3) });
+                ui.text(labels[idx])
+                    .pos(r.x + 0.018, r.center().y)
+                    .anchor(0., 0.5)
+                    .no_baseline()
+                    .size(0.21)
+                    .color(semi_white(0.7))
+                    .draw();
+                let value = if col == 0 { &left_values[i] } else { &right_values[i] };
+                let value_x = if idx == 7 || idx == 8 { r.right() - 0.14 } else { r.right() - 0.025 };
+                ui.text(value)
+                    .pos(value_x, r.center().y)
+                    .anchor(1., 0.5)
+                    .no_baseline()
+                    .size(0.2)
+                    .color(semi_white(0.95))
+                    .draw();
+                if idx == 7 || idx == 8 {
+                    let sub_y = r.center().y - 0.018;
+                    for (j, symbol) in [(0usize, "−"), (1usize, "+")] {
+                        let sub_i = if idx == 7 { j } else { 2 + j };
+                        let sub = Rect::new(r.right() - 0.095 + j as f32 * 0.045, sub_y, 0.04, 0.036);
+                        ui.fill_path(&sub.rounded(0.018), semi_white(0.14));
+                        ui.text(symbol)
+                            .pos(sub.center().x, sub.center().y)
+                            .anchor(0.5, 0.5)
+                            .no_baseline()
+                            .size(0.2)
+                            .color(semi_white(0.9))
+                            .draw();
+                        self.render_settings.dur_btns[sub_i].set(ui, sub);
+                    }
+                } else {
+                    ui.text("›")
+                        .pos(r.right() - 0.01, r.center().y)
+                        .anchor(0.5, 0.5)
+                        .no_baseline()
+                        .size(0.24)
+                        .color(semi_white(0.4))
+                        .draw();
+                }
+                self.render_settings.option_btns[idx].set(ui, r);
+            }
+        }
+
+        let start = Rect::new(-0.34, 0.31, 0.34, 0.07);
+        let cancel = Rect::new(0.06, 0.31, 0.26, 0.07);
+        ui.fill_path(&start.rounded(0.012), Color::new(0.86, 0.72, 0.18, 1.));
+        ui.text("开始渲染")
+            .pos(start.center().x, start.center().y)
+            .anchor(0.5, 0.5)
+            .no_baseline()
+            .size(0.3)
+            .color(Color::new(0.04, 0.04, 0.05, 1.))
+            .draw();
+        self.render_settings.start_btn.set(ui, start);
+
+        ui.fill_path(&cancel.rounded(0.012), semi_white(0.14));
+        ui.text("取消")
+            .pos(cancel.center().x, cancel.center().y)
+            .anchor(0.5, 0.5)
+            .no_baseline()
+            .size(0.28)
+            .color(semi_white(0.8))
+            .draw();
+        self.render_settings.cancel_btn.set(ui, cancel);
+    }
 }
 
 impl Scene for SongScene {
@@ -2379,6 +2921,12 @@ impl Scene for SongScene {
 
     fn touch(&mut self, tm: &mut TimeManager, touch: &Touch) -> Result<bool> {
         let t = tm.now() as f32;
+        if (t as f64) < self.render_settings.suppress_until {
+            return Ok(true);
+        }
+        if self.render_settings.open {
+            return self.touch_render_settings(touch, t as f64);
+        }
         if self.ppsr_panel.touch(touch) {
             return Ok(true);
         }
@@ -2534,18 +3082,6 @@ impl Scene for SongScene {
         if self.back_btn.touch(touch) {
             back_sound();
             self.next_scene = Some(NextScene::PopWithResult(Box::new(false)));
-            return Ok(true);
-        }
-        if self.scene_task.is_none() && self.next_scene.is_none() && self.render_btn.touch(touch) {
-            play_sound();
-            if self.local_path.is_some() {
-                crate::recorder::set_render_on_next_play(true);
-                self.mods.insert(prpr::config::Mods::AUTOPLAY);
-                *prpr::scene::LAUNCH_FLASH.lock().unwrap() = Some(t as f64);
-                self.launch(GameMode::Normal, false)?;
-            } else {
-                self.start_download()?;
-            }
             return Ok(true);
         }
         if self.scene_task.is_none() && self.next_scene.is_none() && self.play_btn.touch(touch, t) {
@@ -2838,6 +3374,12 @@ impl Scene for SongScene {
                 "reveal" => {
                     *prpr::scene::LAUNCH_FLASH.lock().unwrap() = Some(t as f64);
                     self.launch(GameMode::Reveal, false)?;
+                }
+                "render" => {
+                    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                    self.open_render_settings();
+                    #[cfg(any(target_os = "android", target_os = "ios"))]
+                    prpr::scene::show_error(Error::msg("离线渲染仅支持桌面版；手机端请直接游玩查看视频"));
                 }
                 "replay" => {
                     if let Some(replay) = prpr::replay::latest_for_name(&self.info.name) {
@@ -3259,6 +3801,38 @@ impl Scene for SongScene {
                         })
                         .into())
                     }));
+                }
+                "render-autoplay-text" => {
+                    self.render_settings.autoplay_text = if text.trim().is_empty() {
+                        "Autoplay".to_owned()
+                    } else {
+                        text
+                    };
+                }
+                "render-tip" => {
+                    self.render_settings.tip = text;
+                }
+                "render-aspect" => {
+                    let t = text.trim();
+                    if t.is_empty() || t == "自动" || t.eq_ignore_ascii_case("auto") {
+                        self.render_settings.aspect = None;
+                        self.render_settings.aspect_text = "自动".to_owned();
+                    } else {
+                        let parsed = if let Some((w, h)) = t.split_once(':') {
+                            w.trim().parse::<f32>().ok().zip(h.trim().parse::<f32>().ok()).map(|(w, h)| w / h)
+                        } else {
+                            t.parse::<f32>().ok()
+                        };
+                        match parsed {
+                            Some(v) if (0.4..=3.0).contains(&v) => {
+                                self.render_settings.aspect = Some(v);
+                                self.render_settings.aspect_text = t.to_owned();
+                            }
+                            _ => {
+                                show_message("画面比例格式：16:9 或 1.777（0.4–3.0）").ok();
+                            }
+                        }
+                    }
                 }
                 _ => return_input(id, text),
             }
@@ -3771,6 +4345,8 @@ impl Scene for SongScene {
                 ui.fill_rect(ui.screen_rect(), WHITE);
             }
         }
+
+        self.render_render_settings(ui);
 
         Ok(())
     }
