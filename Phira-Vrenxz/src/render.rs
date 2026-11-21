@@ -647,6 +647,34 @@ impl FrameReader {
         Ok(())
     }
 
+    // OpenGL ES (iOS/Android) has no glMapBuffer; map only exists in desktop
+    // GL.  Offline rendering never runs on mobile, but the renderer is still
+    // compiled into the shared library, so use a plain client-memory readback
+    // there to keep the linker happy.
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    fn drain_one(&mut self, stdin: &mut impl Write) -> Result<()> {
+        let bytes = self.width as usize * self.height as usize * 4;
+        let mut pixels = vec![0u8; bytes];
+        unsafe {
+            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+            glReadPixels(
+                0,
+                0,
+                self.width,
+                self.height,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                pixels.as_mut_ptr() as *mut _,
+            );
+        }
+        stdin
+            .write_all(&pixels)
+            .context("failed to write frame to ffmpeg")?;
+        self.drained += 1;
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     fn drain_one(&mut self, stdin: &mut impl Write) -> Result<()> {
         let idx = (self.drained % self.pbos.len() as u64) as usize;
         let bytes = self.width as usize * self.height as usize * 4;
