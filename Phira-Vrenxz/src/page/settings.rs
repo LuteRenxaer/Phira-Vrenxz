@@ -32,6 +32,8 @@ const SIZE_RIGHT_PAD: f32 = 0.022;
 const SIZE_CTL_H: f32 = 0.046;
 const SIZE_SW_W: f32 = 0.100;
 const SIZE_CTL_MAX: f32 = 0.26;
+/// 滑块比其它控件长一截，拖着更舒服
+const SIZE_SLIDER_W: f32 = 0.36;
 /// 内容区（屏幕比例）
 const CONTENT_X0: f32 = 0.130;
 const CONTENT_X1: f32 = 0.870;
@@ -816,7 +818,7 @@ fn ctl_width(ui: &mut Ui, ctl: &Ctl) -> f32 {
         }
         Ctl::Arrow { .. } => 0.058,
         Ctl::Choose { w, .. } => *w,
-        Ctl::Slider { .. } => SIZE_CTL_MAX,
+        Ctl::Slider { .. } => SIZE_SLIDER_W,
         Ctl::None => 0.,
     }
 }
@@ -869,7 +871,7 @@ fn draw_row(ui: &mut Ui, t: f32, r: Rect, row: &mut Row) {
         Ctl::Choose { btn, .. } => btn.render_flat(ui, cr, t, CTL_TEXT_SIZE),
         Ctl::Slider { slider, value, text } => {
             let text = text.clone();
-            let track = Rect::new(cr.x, cr.y + cr.h * 0.42, cr.w, cr.h * 0.40);
+            let track = Rect::new(cr.x, cr.y + cr.h * 0.44, cr.w, cr.h * 0.44);
             ui.text(text)
                 .pos(cr.right(), track.y - 0.002)
                 .anchor(1., 1.)
