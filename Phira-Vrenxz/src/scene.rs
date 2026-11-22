@@ -590,8 +590,10 @@ async fn import_adofai_from(
         }
     }
     if !has_audio_file(root) {
-        write_silent_wav(&root.join("silence.wav"))?;
-        info.music = "silence.wav".to_owned();
+        bail!(
+            "ADOFAI 缺少音频文件（{}）。请把 .adofai 和 settings.songFilename 指向的音频放在同一目录，或一起打包成 zip 后再导入。",
+            info.music
+        );
     }
 
     std::fs::write(root.join("info.yml"), serde_yaml::to_string(&info)?)?;

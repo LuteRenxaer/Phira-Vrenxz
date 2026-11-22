@@ -162,14 +162,23 @@ fn difficulty_value(value: &Value) -> f32 {
     }
 }
 
-/// A tile angle is the amount the planet rotates before the next tile:
-/// 180° = one beat.  ADOFAI treats 0° as a full 360° turn.
-fn angle_beats(angle: f64) -> f64 {
-    // ADOFAI treats 0° as a full 360° spin.  Negative angles are the same
-    // rotation in the other direction, so their magnitude is one beat per
-    // 180° as well; only zero needs the full-turn special case.
-    let angle = if angle.abs() < 1e-6 { 360.0 } else { angle.abs() };
-    angle / 180.0
+/// ADOFAI stores an absolute tile direction.  The travel time to the next
+/// tile is determined by the relative direction change.
+fn relative_beats(current: f64, next: f64, twirled: bool) -> f64 {
+    let mut delta = (next - current) % 360.0;
+    if delta < 0.0 {
+        delta += 360.0;
+    }
+    if delta.abs() < 1e-6 {
+        delta = 360.0;
+    }
+    if twirled {
+        delta = 360.0 - delta;
+        if delta.abs() < 1e-6 {
+            delta = 360.0;
+        }
+    }
+    delta / 180.0
 }
 
 fn is_midspin(angle: f64) -> bool {
@@ -354,21 +363,58 @@ pub fn convert_with_key_mode(source: &str, fallback_name: &str, key_mode: KeyMod
         bail!("ADOFAI chart has no angleData/pathData floors");
     }
     let mut tile_angles = Vec::new();
-    let mut tile_beats = Vec::new();
-    let mut floor_to_beat = vec![0.0f64; raw_angles.len() + 1];
-    let mut beat = 0.0f64;
+    let mut tile_twirl = Vec::new();
+    let mut twirl_floors: Vec<usize> = chart
+        .action
+        .iter()
+        .filter(|it| it.event_type == "Twirl")
+        .map(|it| it.floor)
+        .collect();
+    twirl_floors.sort_unstable();
+    let mut twirl = false;
+    let mut twirl_cursor = 0usize;
     for (floor, angle) in raw_angles.iter().enumerate() {
-        floor_to_beat[floor] = beat;
+        while twirl_cursor < twirl_floors.len() && twirl_floors[twirl_cursor] <= floor {
+            twirl = !twirl;
+            twirl_cursor += 1;
+        }
         if !is_midspin(*angle) {
             tile_angles.push(*angle);
-            tile_beats.push(beat);
-            beat += angle_beats(*angle);
+            tile_twirl.push(twirl);
         }
     }
-    floor_to_beat[raw_angles.len()] = beat;
     if tile_angles.is_empty() {
         bail!("ADOFAI chart has no playable tiles");
     }
+
+    // `angleData` holds absolute tile directions, not the rotation to the
+    // next tile.  The beat at tile i is the sum of the relative angles of the
+    // intervals before it.
+    let mut tile_beats = Vec::with_capacity(tile_angles.len());
+    let mut beat = 0.0f64;
+    for i in 0..tile_angles.len() {
+        tile_beats.push(beat);
+        if i + 1 < tile_angles.len() {
+            beat += relative_beats(tile_angles[i], tile_angles[i + 1], tile_twirl[i]);
+        }
+    }
+    let mut floor_to_beat = vec![0.0f64; raw_angles.len() + 1];
+    let mut actual_floor = 0usize;
+    for (floor, angle) in raw_angles.iter().enumerate() {
+        if is_midspin(*angle) {
+            // A midspin marker belongs to the tile before it, so events at
+            // this raw index happen at that tile's time.
+            floor_to_beat[floor] = actual_floor
+                .checked_sub(1)
+                .and_then(|i| tile_beats.get(i))
+                .copied()
+                .unwrap_or(0.0);
+        } else {
+            floor_to_beat[floor] = tile_beats[actual_floor];
+            actual_floor += 1;
+        }
+    }
+    floor_to_beat[raw_angles.len()] = beat;
     let centers = floor_centers(&tile_angles);
     // Pure-config chart: one judge line, `key_mode.keys()` fixed lanes.
     // The horizontal component of the ADOFAI path picks the lane when the
@@ -555,7 +601,8 @@ mod tests {
         assert_eq!(bpm.len(), 2);
         assert_eq!(bpm[0]["bpm"].as_f64(), Some(120.0));
         assert_eq!(bpm[1]["bpm"].as_f64(), Some(240.0));
-        assert_eq!(bpm[1]["startTime"][0].as_u64(), Some(3));
+        assert_eq!(bpm[1]["startTime"][0].as_u64(), Some(1));
+        assert_eq!(bpm[1]["startTime"][1].as_u64(), Some(90));
     }
 
     #[test]
