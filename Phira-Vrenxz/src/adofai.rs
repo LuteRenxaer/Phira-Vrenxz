@@ -6,7 +6,7 @@
 //! tap note per floor, keeping the rhythm and BPM changes instead of drawing
 //! ADOFAI's 2-D tile path.
 //!
-//! Timing uses ADOFAI's rule that one floor is exactly one beat.  `SetSpeed`
+//! Timing uses ADOFAI's rule that a 180° tile angle is one beat.  `SetSpeed`
 //! actions at a floor change the BPM from that beat on, which the generated
 //! `BPMList` preserves.
 
@@ -24,6 +24,43 @@ pub struct Converted {
     pub song: Option<String>,
     /// File name from `settings.previewImage`, if it looks like a local path.
     pub background: Option<String>,
+}
+
+/// Pure-config key layout chosen at import time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyMode {
+    K4,
+    K5,
+    K6,
+}
+
+impl KeyMode {
+    pub const ALL: [Self; 3] = [Self::K4, Self::K5, Self::K6];
+
+    pub fn keys(self) -> usize {
+        match self {
+            Self::K4 => 4,
+            Self::K5 => 5,
+            Self::K6 => 6,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::K4 => "4K",
+            Self::K5 => "5K",
+            Self::K6 => "6K",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "4k" | "4K" => Some(Self::K4),
+            "5k" | "5K" => Some(Self::K5),
+            "6k" | "6K" => Some(Self::K6),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,7 +165,10 @@ fn difficulty_value(value: &Value) -> f32 {
 /// A tile angle is the amount the planet rotates before the next tile:
 /// 180° = one beat.  ADOFAI treats 0° as a full 360° turn.
 fn angle_beats(angle: f64) -> f64 {
-    let angle = if angle <= 0.0 { 360.0 } else { angle };
+    // ADOFAI treats 0° as a full 360° spin.  Negative angles are the same
+    // rotation in the other direction, so their magnitude is one beat per
+    // 180° as well; only zero needs the full-turn special case.
+    let angle = if angle.abs() < 1e-6 { 360.0 } else { angle.abs() };
     angle / 180.0
 }
 
@@ -303,6 +343,10 @@ fn bpm_timeline(
 }
 
 pub fn convert(source: &str, fallback_name: &str) -> Result<Converted> {
+    convert_with_key_mode(source, fallback_name, KeyMode::K4)
+}
+
+pub fn convert_with_key_mode(source: &str, fallback_name: &str, key_mode: KeyMode) -> Result<Converted> {
     let source = source.trim_start_matches('\u{feff}');
     let chart: AdofaiChart = serde_json::from_str(source).context("invalid ADOFAI JSON")?;
     let raw_angles = angles(&chart);
@@ -326,14 +370,40 @@ pub fn convert(source: &str, fallback_name: &str) -> Result<Converted> {
         bail!("ADOFAI chart has no playable tiles");
     }
     let centers = floor_centers(&tile_angles);
-    // Pure-config chart: only the horizontal component of the ADOFAI path is
-    // kept.  Normalize it on its own so even a mostly-vertical path still
-    // spreads its notes across the single judge line instead of collapsing
-    // into one point.
+    // Pure-config chart: one judge line, `key_mode.keys()` fixed lanes.
+    // The horizontal component of the ADOFAI path picks the lane when the
+    // path actually moves sideways; a vertical path falls back to a
+    // round-robin lane pattern so it does not collapse into one column.
+    let key_count = key_mode.keys();
     let x_min = centers.iter().map(|&(x, _)| x).fold(f64::INFINITY, f64::min);
     let x_max = centers.iter().map(|&(x, _)| x).fold(f64::NEG_INFINITY, f64::max);
     let x_span = x_max - x_min;
-    let note_x = |x: f64| if x_span > 1e-6 { (x - x_min) / x_span * 1.8 - 0.9 } else { 0.0 };
+    let lane_pos = |lane: usize| -0.9 + 1.8 * lane as f64 / (key_count - 1) as f64;
+    let mut lanes = Vec::with_capacity(centers.len());
+    let mut last_lane: Option<usize> = None;
+    for (i, &(x, _)) in centers.iter().enumerate() {
+        let nx = if x_span > 1e-9 { ((x - x_min) / x_span).clamp(0.0, 1.0) } else { 0.0 };
+        let mut lane = if x_span > 0.02 {
+            ((nx * key_count as f64).floor() as usize).min(key_count - 1)
+        } else {
+            i % key_count
+        };
+        // Avoid two consecutive notes in the same lane; a pure-config chart
+        // still needs readable separation between taps.
+        if last_lane == Some(lane) {
+            lane = if lane == 0 {
+                1
+            } else if lane == key_count - 1 {
+                key_count - 2
+            } else if i % 2 == 0 {
+                lane - 1
+            } else {
+                lane + 1
+            };
+        }
+        lanes.push(lane);
+        last_lane = Some(lane);
+    }
     let bpms = bpm_timeline(&chart.settings, &chart.action, &floor_to_beat, beat);
 
     let song = file_component(&chart.settings.song_filename)
@@ -370,7 +440,7 @@ pub fn convert(source: &str, fallback_name: &str) -> Result<Converted> {
         preview_start: 0.0,
         preview_end: (chart.settings.song_length > 0.0).then_some(chart.settings.song_length as f32),
         offset: if chart.settings.offset.is_finite() { chart.settings.offset as f32 / 1000.0 } else { 0.0 },
-        tags: vec!["ADOFAI".to_owned()],
+        tags: vec!["ADOFAI".to_owned(), format!("{}K", key_count)],
         ..Default::default()
     };
     // Keep metadata consistent even when the caller writes info.yml directly.
@@ -379,17 +449,15 @@ pub fn convert(source: &str, fallback_name: &str) -> Result<Converted> {
     let notes: Vec<Value> = centers
         .iter()
         .enumerate()
-        .map(|(i, &(x, _y))| {
+        .map(|(i, &_center)| {
             let time = beat_triple(tile_beats[i]);
             json!({
                 "type": 1,
                 "above": 1,
                 "startTime": time.clone(),
                 "endTime": time,
-                // Pure-config chart: one judge line, keep the rhythm and the
-                // horizontal variation, but do not reproduce ADOFAI's 2-D
-                // track as a visual gimmick.
-                "positionX": note_x(x) * 675.0,
+                // Pure-config chart: one judge line, one fixed lane per note.
+                "positionX": lane_pos(lanes[i]) * 675.0,
                 "yOffset": 0.0,
                 "alpha": 255,
                 "hitsound": null,
@@ -413,7 +481,6 @@ pub fn convert(source: &str, fallback_name: &str) -> Result<Converted> {
             })
         })
         .collect();
-
     let chart_json = serde_json::to_string_pretty(&json!({
         "META": {
             "offset": 0,

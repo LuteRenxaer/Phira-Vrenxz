@@ -553,11 +553,12 @@ async fn import_adofai_from(
     adofai_path: &Path,
     local_path: String,
     source_root: &Path,
+    key_mode: crate::adofai::KeyMode,
 ) -> Result<(LocalChart, ParseWarnings)> {
     let source = std::fs::read_to_string(adofai_path)
         .with_context(|| format!("cannot read ADOFAI chart {}", adofai_path.display()))?;
     let fallback = adofai_path.file_stem().and_then(|it| it.to_str()).unwrap_or("ADOFAI");
-    let converted = crate::adofai::convert(&source, fallback)?;
+    let converted = crate::adofai::convert_with_key_mode(&source, fallback, key_mode)?;
 
     std::fs::write(root.join("chart.json"), &converted.chart_json)?;
 
@@ -607,9 +608,9 @@ async fn import_adofai_from(
     ))
 }
 
-async fn import_adofai_path(path: &Path, source_root: &Path) -> Result<(LocalChart, ParseWarnings)> {
+async fn import_adofai_path(path: &Path, source_root: &Path, key_mode: crate::adofai::KeyMode) -> Result<(LocalChart, ParseWarnings)> {
     let (root, id) = gen_custom_dir()?;
-    let result = import_adofai_from(&root, path, format!("custom/{id}"), source_root).await;
+    let result = import_adofai_from(&root, path, format!("custom/{id}"), source_root, key_mode).await;
     if result.is_err() {
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -620,14 +621,21 @@ async fn import_adofai_path(path: &Path, source_root: &Path) -> Result<(LocalCha
 /// `.pez` archives as well as a bare ADOFAI `.adofai` JSON file (or a folder
 /// containing one plus its audio/background).
 pub async fn import_chart_path(path: &Path) -> Result<(LocalChart, ParseWarnings)> {
+    import_chart_path_with_mode(path, crate::adofai::KeyMode::K4).await
+}
+
+pub async fn import_chart_path_with_mode(
+    path: &Path,
+    key_mode: crate::adofai::KeyMode,
+) -> Result<(LocalChart, ParseWarnings)> {
     if path.is_dir() {
         if let Some(adofai) = find_adofai(path) {
-            return import_adofai_path(&adofai, path).await;
+            return import_adofai_path(&adofai, path, key_mode).await;
         }
         bail!("folder does not contain an .adofai chart");
     }
     if looks_like_adofai(path) {
-        return import_adofai_path(path, path.parent().unwrap_or_else(|| Path::new("."))).await;
+        return import_adofai_path(path, path.parent().unwrap_or_else(|| Path::new(".")), key_mode).await;
     }
     let file = File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
     import_chart(file).await
@@ -639,7 +647,7 @@ pub async fn import_chart_to(dir: &Path, local_path: String, file: File) -> Resu
     unzip_into(BufReader::new(file), &dir, true)?;
     if !root.join("info.yml").exists() && !root.join("info.txt").exists() && !root.join("info.csv").exists() {
         if let Some(adofai_path) = find_adofai(&root) {
-            return import_adofai_from(&root, &adofai_path, local_path, &root).await;
+            return import_adofai_from(&root, &adofai_path, local_path, &root, crate::adofai::KeyMode::K4).await;
         }
     }
     let mut fs = fs_from_path(&local_path)?;

@@ -226,8 +226,19 @@ fn poll_dropped_files() -> Vec<String> {
     paths
 }
 
+/// 拖入的 `.adofai` 先交给主场景选择 4K/5K/6K，再开始导入。
+static PENDING_ADOFAI: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+pub fn take_pending_adofai() -> Option<String> {
+    PENDING_ADOFAI.lock().ok().and_then(|mut it| it.take())
+}
+
 /// 导入拖入的谱面压缩包（zip）到自定义谱面目录，并刷新内存列表。
 async fn import_dropped_chart(path: String) {
+    if path.to_ascii_lowercase().ends_with(".adofai") {
+        *PENDING_ADOFAI.lock().unwrap() = Some(path);
+        return;
+    }
     let err_ctx = || format!("导入谱面失败: {path}");
     let path_buf = std::path::PathBuf::from(&path);
     if !path_buf.exists() {
