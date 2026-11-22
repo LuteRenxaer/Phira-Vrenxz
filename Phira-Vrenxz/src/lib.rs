@@ -57,7 +57,7 @@ use prpr::{
 };
 use prpr_l10n::set_prefered_locale;
 #[cfg(not(feature = "hykb"))]
-use prpr_l10n::{GLOBAL, LANGS};
+use prpr_l10n::{LanguageIdentifier, GLOBAL, LANGS, LANG_IDENTS};
 use scene::{SetupScene, StudioLogoScene};
 use std::{
     any::Any,
@@ -128,6 +128,15 @@ pub fn sync_data() {
         #[cfg(not(feature = "hykb"))]
         let default_lang = LANGS[GLOBAL.order.lock().unwrap()[0]].to_owned();
         get_data_mut().language = Some(default_lang);
+    }
+    // Languages removed from the build: migrate old configs to the first supported language.
+    let unsupported = get_data()
+        .language
+        .as_ref()
+        .and_then(|it| it.parse::<LanguageIdentifier>().ok())
+        .map_or(true, |id| !GLOBAL.lang_map.contains_key(&id));
+    if unsupported {
+        get_data_mut().language = Some(LANG_IDENTS[0].to_string());
     }
     set_prefered_locale(get_data().language.as_ref().and_then(|it| it.parse().ok()));
     let _ = client::set_access_token_sync(get_data().tokens.as_ref().map(|it| &*it.0));

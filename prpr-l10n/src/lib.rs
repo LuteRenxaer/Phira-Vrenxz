@@ -17,22 +17,11 @@ mod macros;
 pub mod tools;
 
 langs! {
-    "de-DE": "Deutsch",
-    "en-US": "English",
-    "fr-FR": "Français",
-    "id-ID": "Bahasa Indonesia",
-    "ja-JP": "日本語",
-    "ko-KR": "한국어",
-    "mn-MN": "Монгол",
-    "pl-PL": "Polski",
-    "pt-BR": "Português",
-    "ru-RU": "Русский",
-    "th-TH": "แบบไทย",
-    "tr-TR": "Türkçe",
-    "vi-VN": "Tiếng Việt",
     "zh-CN": "简体中文",
     "zh-TW": "繁體中文",
-    "lzh": "文言"}
+    "en-US": "English",
+    "ja-JP": "日本語",
+    "ko-KR": "한국어"}
 
 #[macro_export]
 macro_rules! fallback_langid {
