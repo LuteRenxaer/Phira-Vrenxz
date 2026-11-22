@@ -1,0 +1,481 @@
+//! ADOFAI (A Dance of Fire and Ice) chart importer.
+//!
+//! ADOFAI stores a chart as one JSON file: `settings`, `angleData` / `pathData`
+//! and a list of floor actions.  Phira cannot load it directly, so this module
+//! converts the path into a small RPE chart: one invisible judge line with one
+//! tap note per floor, positioned in 2D via `positionX` / `yOffset`.
+//!
+//! Timing uses ADOFAI's rule that one floor is exactly one beat.  `SetSpeed`
+//! actions at a floor change the BPM from that beat on, which the generated
+//! `BPMList` preserves.
+
+use anyhow::{bail, Context, Result};
+use prpr::info::{ChartFormat, ChartInfo};
+use serde::Deserialize;
+use serde_json::{json, Map, Value};
+use std::path::Path;
+
+#[derive(Default)]
+pub struct Converted {
+    pub chart_json: String,
+    pub info: ChartInfo,
+    /// File name from `settings.song`, if it looks like a local path.
+    pub song: Option<String>,
+    /// File name from `settings.previewImage`, if it looks like a local path.
+    pub background: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AdofaiChart {
+    #[serde(default)]
+    settings: AdofaiSettings,
+    #[serde(default)]
+    angle_data: Vec<Option<f64>>,
+    #[serde(default)]
+    path_data: String,
+    #[serde(default, alias = "actions")]
+    action: Vec<AdofaiAction>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AdofaiSettings {
+    #[serde(default)]
+    song: String,
+    #[serde(default)]
+    song_filename: String,
+    #[serde(default)]
+    artist: String,
+    #[serde(default)]
+    author: String,
+    #[serde(default = "default_bpm")]
+    bpm: f64,
+    #[serde(default = "default_speed")]
+    speed_multiplier: f64,
+    #[serde(default)]
+    preview_image: String,
+    #[serde(default)]
+    song_length: f64,
+    #[serde(default)]
+    offset: f64,
+    #[serde(default)]
+    difficulty: Value,
+    #[serde(default)]
+    level_desc: String,
+}
+
+fn default_bpm() -> f64 {
+    120.0
+}
+
+fn default_speed() -> f64 {
+    1.0
+}
+
+#[derive(Debug, Deserialize)]
+struct AdofaiAction {
+    #[serde(default)]
+    floor: usize,
+    #[serde(rename = "eventType", default)]
+    event_type: String,
+    #[serde(flatten)]
+    data: Map<String, Value>,
+}
+
+fn number(map: &Map<String, Value>, key: &str) -> Option<f64> {
+    map.get(key).and_then(Value::as_f64)
+}
+
+fn text<'a>(map: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
+    map.get(key).and_then(Value::as_str)
+}
+
+fn file_component(path: &str) -> Option<String> {
+    if path.trim().is_empty() || path.contains("://") {
+        return None;
+    }
+    Path::new(path)
+        .file_name()
+        .map(|it| it.to_string_lossy().into_owned())
+        .filter(|it| !it.is_empty())
+}
+
+fn difficulty_value(value: &Value) -> f32 {
+    if let Some(s) = value.as_str() {
+        return match s.trim().to_ascii_lowercase().as_str() {
+            "easy" => 3.0,
+            "normal" => 6.0,
+            "hard" => 9.0,
+            "harder" => 11.0,
+            "insane" => 13.0,
+            "turbo" => 15.0,
+            _ => 9.0,
+        };
+    }
+    match value.as_f64() {
+        Some(1.0) => 3.0,
+        Some(2.0) => 6.0,
+        Some(3.0) => 9.0,
+        Some(4.0) => 11.0,
+        Some(5.0) => 13.0,
+        Some(6.0) => 15.0,
+        _ => 9.0,
+    }
+}
+
+/// ADOFAI's old `pathData` uses one character for each tile direction.
+/// `!` (999°) is a midspin and does not count as a separate hit tile.
+fn decode_path_data(source: &str) -> Vec<f64> {
+    source
+        .chars()
+        .filter_map(|c| {
+            Some(match c {
+                'R' => 0.0,
+                'p' => 15.0,
+                'J' => 30.0,
+                'E' => 45.0,
+                'T' => 60.0,
+                'o' => 75.0,
+                'U' => 90.0,
+                'q' => 105.0,
+                'G' => 120.0,
+                'Q' => 135.0,
+                'H' => 150.0,
+                'W' => 165.0,
+                'L' => 180.0,
+                'x' => 195.0,
+                'N' => 210.0,
+                'Z' => 225.0,
+                'F' => 240.0,
+                'V' => 255.0,
+                'D' => 270.0,
+                'Y' => 285.0,
+                'B' => 300.0,
+                'C' => 315.0,
+                'M' => 330.0,
+                'A' => 345.0,
+                '!' => 999.0,
+                _ => return None,
+            })
+        })
+        .collect()
+}
+
+fn angles(chart: &AdofaiChart) -> Vec<f64> {
+    // `null` still marks a floor; `999` is ADOFAI's midspin marker.  Both are
+    // kept here so action floor indices stay aligned; `convert` then removes
+    // midspins from the note list (they are part of the previous tile).
+    if chart.angle_data.is_empty() {
+        decode_path_data(&chart.path_data)
+    } else {
+        chart.angle_data.iter().map(|it| it.unwrap_or(999.0)).collect()
+    }
+}
+
+/// Places every floor at its 2-D center on the ADOFAI tile path.  ADOFAI
+/// angles are counter-clockwise with `0` = right and `90` = up.
+fn floor_centers(angles: &[f64]) -> Vec<(f64, f64)> {
+    let mut x = 0.0;
+    let mut y = 0.0;
+    let mut out = Vec::with_capacity(angles.len());
+    for angle in angles {
+        let rad = angle.to_radians();
+        let (sx, cx) = rad.sin_cos();
+        out.push((x + cx * 0.5, y + sx * 0.5));
+        x += cx;
+        y += sx;
+    }
+    fit_centers(out)
+}
+
+/// Fit the path into the visible Phira world.  Uses one uniform scale so the
+/// ADOFAI path keeps its shape instead of being stretched to 16:9.
+fn fit_centers(mut points: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
+    if points.is_empty() {
+        return points;
+    }
+    let (mut min_x, mut max_x, mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+    for &(x, y) in &points {
+        min_x = min_x.min(x);
+        max_x = max_x.max(x);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y);
+    }
+    let w = (max_x - min_x).max(1e-6);
+    let h = (max_y - min_y).max(1e-6);
+    // World x is [-1, 1]; world y is roughly [-0.5625, 0.5625] at 16:9.
+    let scale = (1.85 / w).min(1.05 / h);
+    let cx = (min_x + max_x) / 2.0;
+    let cy = (min_y + max_y) / 2.0;
+    for (x, y) in &mut points {
+        *x = (*x - cx) * scale;
+        *y = (*y - cy) * scale;
+    }
+    points
+}
+
+/// Build the BPM timeline.  Every floor is one beat; `SetSpeed` at floor N
+/// changes the BPM starting with the tile at floor N.
+fn bpm_timeline(
+    settings: &AdofaiSettings,
+    actions: &[AdofaiAction],
+    floor_to_tile: &[usize],
+    floor_count: usize,
+) -> Vec<(f64, f64)> {
+    let base = if settings.bpm.is_finite() && settings.bpm > 0.0 {
+        settings.bpm
+    } else {
+        120.0
+    };
+    let speed = if settings.speed_multiplier.is_finite() && settings.speed_multiplier > 0.0 {
+        settings.speed_multiplier
+    } else {
+        1.0
+    };
+    let mut bpm = base * speed;
+    let mut changes: Vec<(usize, f64)> = vec![(0, bpm)];
+    let mut sorted: Vec<&AdofaiAction> = actions.iter().collect();
+    sorted.sort_by_key(|it| it.floor);
+    for action in sorted {
+        if action.event_type != "SetSpeed" {
+            continue;
+        }
+        let mult = number(&action.data, "bpmMultiplier")
+            .filter(|it| it.is_finite() && *it > 0.0)
+            .unwrap_or(1.0);
+        let speed_type = text(&action.data, "speedType").unwrap_or_default();
+        let new_bpm = match speed_type {
+            // `bpmMultiplier` is an editor artifact for BPM-type events (it
+            // can be 1e-7); the target BPM itself is what matters.
+            "Bpm" | "BPM" => number(&action.data, "beatsPerMinute")
+                .filter(|it| it.is_finite() && *it > 0.0)
+                .map(|it| it * speed),
+            _ => number(&action.data, "beatsPerMinute")
+                .filter(|it| it.is_finite() && *it > 0.0)
+                .map(|it| it * mult * speed)
+                .or_else(|| {
+                    number(&action.data, "speed")
+                        .filter(|it| it.is_finite() && *it > 0.0)
+                        .map(|it| bpm * it)
+                })
+                .or_else(|| Some(bpm * mult)),
+        };
+        if let Some(new_bpm) = new_bpm {
+            bpm = new_bpm.clamp(1.0, 100_000.0);
+            if action.floor <= floor_count {
+                let tile = floor_to_tile.get(action.floor).copied().unwrap_or(floor_count);
+                changes.push((tile, bpm));
+            }
+        }
+    }
+    // Last change at a floor wins.
+    changes.sort_by_key(|it| it.0);
+    changes.dedup_by_key(|it| it.0);
+    changes.into_iter().map(|(beat, bpm)| (beat as f64, bpm)).collect()
+}
+
+pub fn convert(source: &str, fallback_name: &str) -> Result<Converted> {
+    let source = source.trim_start_matches('\u{feff}');
+    let chart: AdofaiChart = serde_json::from_str(source).context("invalid ADOFAI JSON")?;
+    let raw_angles = angles(&chart);
+    if raw_angles.is_empty() {
+        bail!("ADOFAI chart has no angleData/pathData floors");
+    }
+    let mut tile_angles = Vec::new();
+    let mut floor_to_tile = vec![0usize; raw_angles.len() + 1];
+    let mut tile = 0usize;
+    for (floor, angle) in raw_angles.iter().enumerate() {
+        floor_to_tile[floor] = tile;
+        if *angle != 999.0 {
+            tile_angles.push(*angle);
+            tile += 1;
+        }
+    }
+    floor_to_tile[raw_angles.len()] = tile;
+    if tile_angles.is_empty() {
+        bail!("ADOFAI chart has no playable tiles");
+    }
+    let centers = floor_centers(&tile_angles);
+    let beat_count = centers.len();
+    let bpms = bpm_timeline(&chart.settings, &chart.action, &floor_to_tile, beat_count);
+
+    let song = file_component(&chart.settings.song_filename)
+        .or_else(|| file_component(&chart.settings.song));
+    let background = file_component(&chart.settings.preview_image);
+    let title = song
+        .as_deref()
+        .and_then(|it| Path::new(it).file_stem())
+        .and_then(|it| it.to_str())
+        .filter(|it| !it.is_empty())
+        .unwrap_or(fallback_name)
+        .to_owned();
+
+    let diff = difficulty_value(&chart.settings.difficulty);
+    let mut info = ChartInfo {
+        name: title.clone(),
+        difficulty: diff,
+        level: if chart.settings.level_desc.trim().is_empty() {
+            format!("ADOFAI Lv.{diff:.0}")
+        } else {
+            chart.settings.level_desc.clone()
+        },
+        charter: if chart.settings.author.trim().is_empty() {
+            "ADOFAI".to_owned()
+        } else {
+            chart.settings.author.clone()
+        },
+        composer: chart.settings.artist.clone(),
+        illustrator: chart.settings.artist.clone(),
+        chart: "chart.json".to_owned(),
+        format: Some(ChartFormat::Rpe),
+        music: song.clone().unwrap_or_else(|| "song.mp3".to_owned()),
+        illustration: background.clone().unwrap_or_else(|| "background.png".to_owned()),
+        preview_start: 0.0,
+        preview_end: (chart.settings.song_length > 0.0).then_some(chart.settings.song_length as f32),
+        offset: if chart.settings.offset.is_finite() { chart.settings.offset as f32 / 1000.0 } else { 0.0 },
+        tags: vec!["ADOFAI".to_owned()],
+        ..Default::default()
+    };
+    // Keep metadata consistent even when the caller writes info.yml directly.
+    info.name = title;
+
+    let notes: Vec<Value> = centers
+        .iter()
+        .enumerate()
+        .map(|(i, &(x, y))| {
+            json!({
+                "type": 1,
+                "above": 1,
+                "startTime": [i, 0, 1],
+                "endTime": [i, 0, 1],
+                "positionX": x * 675.0,
+                "yOffset": y * 450.0,
+                "alpha": 255,
+                "hitsound": null,
+                "size": 1.0,
+                "speed": 1.0,
+                "isFake": 0,
+                "visibleTime": 9999.0,
+                "tint": null,
+                "tintHitEffects": null,
+                "judgeArea": null
+            })
+        })
+        .collect();
+
+    let bpm_list: Vec<Value> = bpms
+        .into_iter()
+        .map(|(beat, bpm)| {
+            json!({
+                "bpm": bpm,
+                "startTime": [beat as u64, 0, 1]
+            })
+        })
+        .collect();
+
+    let chart_json = serde_json::to_string_pretty(&json!({
+        "META": {
+            "offset": 0,
+            "RPEVersion": 170
+        },
+        "BPMList": bpm_list,
+        "judgeLineList": [{
+            "Name": "ADOFAI",
+            "Texture": "line.png",
+            "father": null,
+            "rotateWithFather": false,
+            "eventLayers": [{}],
+            "extended": null,
+            "notes": notes,
+            "isCover": 0,
+            "zOrder": 0,
+            "attachUI": null,
+            "posControl": [],
+            "sizeControl": [],
+            "alphaControl": [],
+            "yControl": [],
+            "bpmfactor": 1.0,
+            "anchor": null
+        }]
+    }))?;
+
+    Ok(Converted {
+        chart_json,
+        info,
+        song,
+        background,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE: &str = r#"{
+        "settings": {
+            "song": "song.mp3",
+            "artist": "Artist",
+            "author": "Charter",
+            "bpm": 120,
+            "speedMultiplier": 1.0,
+            "previewImage": "bg.png",
+            "songLength": 42.0,
+            "difficulty": "Hard"
+        },
+        "angleData": [0, 90, 180, 270, 0, 90, 180, 270],
+        "actions": [
+            {"floor": 3, "eventType": "SetSpeed", "speedType": "Multiplier", "bpmMultiplier": 2.0}
+        ]
+    }"#;
+
+    #[test]
+    fn converts_floors_and_bpm_changes() {
+        let out = convert(SAMPLE, "fallback").unwrap();
+        assert_eq!(out.info.name, "song");
+        assert_eq!(out.info.music, "song.mp3");
+        assert_eq!(out.info.illustration, "bg.png");
+        assert_eq!(out.song.as_deref(), Some("song.mp3"));
+
+        let value: Value = serde_json::from_str(&out.chart_json).unwrap();
+        let notes = value["judgeLineList"][0]["notes"].as_array().unwrap();
+        assert_eq!(notes.len(), 8);
+        for note in notes {
+            assert!(note["positionX"].as_f64().unwrap().is_finite());
+            assert!(note["yOffset"].as_f64().unwrap().is_finite());
+        }
+        let bpm = value["BPMList"].as_array().unwrap();
+        assert_eq!(bpm.len(), 2);
+        assert_eq!(bpm[0]["bpm"].as_f64(), Some(120.0));
+        assert_eq!(bpm[1]["bpm"].as_f64(), Some(240.0));
+        assert_eq!(bpm[1]["startTime"][0].as_u64(), Some(3));
+    }
+
+    #[test]
+    fn decodes_path_data() {
+        let source = r#"{
+            "settings": {"song": "x.mp3"},
+            "pathData": "RD"
+        }"#;
+        let out = convert(source, "x").unwrap();
+        let value: Value = serde_json::from_str(&out.chart_json).unwrap();
+        assert_eq!(value["judgeLineList"][0]["notes"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn handles_midspins_and_numeric_difficulty() {
+        let source = r#"{
+            "settings": {"songFilename": "Remember Me.ogg", "difficulty": 1, "bpm": 131},
+            "angleData": [0, 0, 90, 180, 999, 0, 0, 0, 90, 180, 999, 0, 135, 999, 0, 135, 999, 0, 90, 180, 999, 0],
+            "actions": [
+                {"floor": 1, "eventType": "SetSpeed", "speedType": "Bpm", "beatsPerMinute": 32.75, "bpmMultiplier": 1e-7},
+                {"floor": 2, "eventType": "SetSpeed", "speedType": "Multiplier", "bpmMultiplier": 4}
+            ]
+        }"#;
+        let out = convert(source, "fallback").unwrap();
+        assert_eq!(out.info.music, "Remember Me.ogg");
+        let value: Value = serde_json::from_str(&out.chart_json).unwrap();
+        assert_eq!(value["judgeLineList"][0]["notes"].as_array().unwrap().len(), 17);
+        assert_eq!(value["BPMList"].as_array().unwrap().len(), 3);
+    }
+}

@@ -4,6 +4,7 @@ prpr_l10n::tl_file!("common" ttl crate::);
 #[cfg(closed)]
 mod inner;
 
+mod adofai;
 mod anim;
 mod bgshot;
 mod tips;
@@ -228,14 +229,12 @@ fn poll_dropped_files() -> Vec<String> {
 /// 导入拖入的谱面压缩包（zip）到自定义谱面目录，并刷新内存列表。
 async fn import_dropped_chart(path: String) {
     let err_ctx = || format!("导入谱面失败: {path}");
-    let file = match std::fs::File::open(&path) {
-        Ok(f) => f,
-        Err(err) => {
-            show_error(anyhow::Error::new(err).context(err_ctx()));
-            return;
-        }
-    };
-    match scene::import_chart(file).await {
+    let path_buf = std::path::PathBuf::from(&path);
+    if !path_buf.exists() {
+        show_error(anyhow::Error::msg(err_ctx()));
+        return;
+    }
+    match scene::import_chart_path(&path_buf).await {
         Ok((chart, warnings)) => {
             eprintln!("[drop-debug] import ok: {}", chart.info.name);
             {

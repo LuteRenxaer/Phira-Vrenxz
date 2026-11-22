@@ -467,9 +467,181 @@ async fn lint_chart(fs: &mut dyn FileSystem, info: &ChartInfo) -> Result<ParseWa
     prpr::parse::lint(&source).await
 }
 
+fn find_named_file(dir: &Path, name: &str) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = find_named_file(&path, name) {
+                return Some(found);
+            }
+        } else if path.file_name().is_some_and(|it| it == name) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn has_audio_file(dir: &Path) -> bool {
+    std::fs::read_dir(dir).ok().is_some_and(|entries| {
+        entries.flatten().any(|entry| {
+            let path = entry.path();
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|it| it.to_str())
+                    .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "mp3" | "ogg" | "wav" | "flac" | "aac"))
+        })
+    })
+}
+
+/// A bare ADOFAI file may not carry its audio.  Keep the chart playable by
+/// adding a short silent track instead of failing to open the chart later.
+fn write_silent_wav(path: &Path) -> Result<()> {
+    const RATE: u32 = 8000;
+    const SAMPLES: u32 = 1600; // 0.2 s, mono 16-bit
+    let data_len = SAMPLES * 2;
+    let mut out = Vec::with_capacity(44 + data_len as usize);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&1u16.to_le_bytes()); // mono
+    out.extend_from_slice(&RATE.to_le_bytes());
+    out.extend_from_slice(&(RATE * 2).to_le_bytes());
+    out.extend_from_slice(&2u16.to_le_bytes());
+    out.extend_from_slice(&16u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    out.resize(out.len() + data_len as usize, 0);
+    std::fs::write(path, out)?;
+    Ok(())
+}
+
+fn find_adofai(dir: &Path) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = find_adofai(&path) {
+                return Some(found);
+            }
+        } else if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("adofai")) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn looks_like_adofai(path: &Path) -> bool {
+    if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("adofai")) {
+        return true;
+    }
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let source = source.trim_start_matches('\u{feff}');
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(source) else {
+        return false;
+    };
+    value.get("settings").is_some() && (value.get("angleData").is_some() || value.get("pathData").is_some())
+}
+
+async fn import_adofai_from(
+    root: &Path,
+    adofai_path: &Path,
+    local_path: String,
+    source_root: &Path,
+) -> Result<(LocalChart, ParseWarnings)> {
+    let source = std::fs::read_to_string(adofai_path)
+        .with_context(|| format!("cannot read ADOFAI chart {}", adofai_path.display()))?;
+    let fallback = adofai_path.file_stem().and_then(|it| it.to_str()).unwrap_or("ADOFAI");
+    let converted = crate::adofai::convert(&source, fallback)?;
+
+    std::fs::write(root.join("chart.json"), &converted.chart_json)?;
+
+    // A bare .adofai file is normally next to its audio/background.  For a
+    // zip import these already live in `root`, so skip copying in that case.
+    let mut info = converted.info;
+    for (field, name) in [("music", converted.song.as_deref()), ("illustration", converted.background.as_deref())] {
+        let Some(name) = name else { continue };
+        let dst = root.join(name);
+        let src = source_root
+            .join(name)
+            .exists()
+            .then(|| source_root.join(name))
+            .or_else(|| adofai_path.parent().map(|it| it.join(name)).filter(|it| it.exists()))
+            .or_else(|| find_named_file(root, name));
+        if let Some(src) = src {
+            if src != dst {
+                if let Some(parent) = dst.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(&src, &dst).with_context(|| format!("cannot copy ADOFAI asset {name}"))?;
+            }
+        }
+        if dst.is_file() {
+            match field {
+                "music" => info.music = name.to_owned(),
+                _ => info.illustration = name.to_owned(),
+            }
+        }
+    }
+    if !has_audio_file(root) {
+        write_silent_wav(&root.join("silence.wav"))?;
+        info.music = "silence.wav".to_owned();
+    }
+
+    std::fs::write(root.join("info.yml"), serde_yaml::to_string(&info)?)?;
+    Ok((
+        LocalChart {
+            info: info.into(),
+            local_path,
+            record: None,
+            mods: Mods::default(),
+            hp: HpMode::Off,
+            played_unlock: false,
+        },
+        ParseWarnings::default(),
+    ))
+}
+
+async fn import_adofai_path(path: &Path, source_root: &Path) -> Result<(LocalChart, ParseWarnings)> {
+    let (root, id) = gen_custom_dir()?;
+    let result = import_adofai_from(&root, path, format!("custom/{id}"), source_root).await;
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&root);
+    }
+    result
+}
+
+/// Import a chart from a filesystem path.  Supports the normal Phira zip /
+/// `.pez` archives as well as a bare ADOFAI `.adofai` JSON file (or a folder
+/// containing one plus its audio/background).
+pub async fn import_chart_path(path: &Path) -> Result<(LocalChart, ParseWarnings)> {
+    if path.is_dir() {
+        if let Some(adofai) = find_adofai(path) {
+            return import_adofai_path(&adofai, path).await;
+        }
+        bail!("folder does not contain an .adofai chart");
+    }
+    if looks_like_adofai(path) {
+        return import_adofai_path(path, path.parent().unwrap_or_else(|| Path::new("."))).await;
+    }
+    let file = File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
+    import_chart(file).await
+}
+
 pub async fn import_chart_to(dir: &Path, local_path: String, file: File) -> Result<(LocalChart, ParseWarnings)> {
-    let dir = prpr::dir::Dir::new(dir)?;
+    let root = dir.to_path_buf();
+    let dir = prpr::dir::Dir::new(&root)?;
     unzip_into(BufReader::new(file), &dir, true)?;
+    if !root.join("info.yml").exists() && !root.join("info.txt").exists() && !root.join("info.csv").exists() {
+        if let Some(adofai_path) = find_adofai(&root) {
+            return import_adofai_from(&root, &adofai_path, local_path, &root).await;
+        }
+    }
     let mut fs = fs_from_path(&local_path)?;
     let mut info = fs::load_info(fs.as_mut()).await.with_context(|| itl!("info-fail"))?;
     fs::fix_info(fs.as_mut(), &mut info).await.with_context(|| itl!("invalid-chart"))?;

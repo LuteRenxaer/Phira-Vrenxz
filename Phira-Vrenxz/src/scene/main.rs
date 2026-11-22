@@ -64,7 +64,7 @@ use crate::{
     icons::Icons,
     page::{ExportInfo, HomePage, LibraryPage, NextPage, Page, PhigrosLibraryPage, ResPackItem, SharedState, SettingsPage, ExtensionPage, ResPackPage, MessagePage, EventPage, FavoritesPage},
     save_data,
-    scene::{confirm_dialog, import_chart_to, parse_warnings_to_string, TEX_BACKGROUND, TEX_ICON_BACK, TEX_ICON_PROCEED},
+    scene::{confirm_dialog, import_chart_path, import_chart_to, parse_warnings_to_string, TEX_BACKGROUND, TEX_ICON_BACK, TEX_ICON_PROCEED},
 };
 use prpr::scene::{CrashScene, CrashCode};
 use anyhow::{anyhow, Context, Result};
@@ -1214,6 +1214,17 @@ impl Scene for MainScene {
                     return_file(new_id.to_owned(), file);
                 }
                 "_import" => {
+                    // A bare ADOFAI chart is JSON, not a zip.  Route anything
+                    // that is not a readable archive through the path importer.
+                    let is_zip = File::open(&file)
+                        .ok()
+                        .and_then(|f| zip::ZipArchive::new(f).ok())
+                        .is_some();
+                    if !is_zip {
+                        self.import_task = Some(Task::new(async move {
+                            import_chart_path(&PathBuf::from(file)).await
+                        }));
+                    } else {
                     let export_info = (|| -> Result<Option<(ExportInfo, usize)>> {
                         let file = File::open(&file)?;
                         let mut archive = zip::ZipArchive::new(file)?;
@@ -1251,6 +1262,7 @@ impl Scene for MainScene {
                             confirm_dialog(itl!("batch-import"), itl!("batch-import-confirm", "count" => count), self.batch_import_confirm.clone());
                         }
                     };
+                    }
                 }
                 "_import_font" => {
                     let result: Result<(String, String)> = (|| {
