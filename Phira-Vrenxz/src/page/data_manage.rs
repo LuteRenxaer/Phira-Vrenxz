@@ -78,7 +78,7 @@ pub struct DataManagePage {
     device_btns: Vec<DRectButton>,
     send: Option<lan::SendSession>,
     receive: Option<lan::ReceiveSession>,
-    pair_target: Option<SocketAddr>,
+    pair_target: Option<Vec<SocketAddr>>,
     restart_dialog_shown: bool,
     send_done: bool,
     overwrite: bool,
@@ -794,7 +794,7 @@ impl Page for DataManagePage {
                 for (i, btn) in self.device_btns.iter_mut().enumerate() {
                     if btn.touch(touch, t) {
                         if let Some(device) = devices.get(i) {
-                            self.pair_target = Some(device.addr);
+                            self.pair_target = Some(device.candidates.clone());
                             request_input(
                                 PAIR_INPUT_ID,
                                 InputBox::new().title(tl!("pair-code-title")).prompt(tl!("pair-code-prompt")),
@@ -877,6 +877,10 @@ impl Page for DataManagePage {
                     show_message(err).error();
                 }
                 receive_done = receive.phase == RecvPhase::Done;
+                // 配对失败会回到 Discovering；停在进度页会看不到设备列表，直接退回选择页。
+                if receive.phase == RecvPhase::Discovering && self.step == Step::ReceiveProgress {
+                    self.step = Step::Receiving;
+                }
             }
         }
         if receive_done && !self.restart_dialog_shown {

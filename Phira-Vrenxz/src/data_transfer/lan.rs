@@ -6,23 +6,26 @@ use super::{apply_imported_data, prepare_import, run_import, Conflict, Progress}
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     fs::{self, File},
     io::{BufRead, BufReader, BufWriter, Read, Write},
-    net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket},
+    net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 /// 局域网数据包发现的 UDP 广播端口（与联机房间的 27015 区分开）。
 pub const DISCOVERY_PORT: u16 = 27100;
-const DISCOVER_ADDR: &str = "255.255.255.255:27100";
 const DISCOVER_INTERVAL: Duration = Duration::from_secs(2);
-const POLL_INTERVAL: Duration = Duration::from_millis(120);
+const TARGET_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
+const DEVICE_EMIT_INTERVAL: Duration = Duration::from_millis(500);
+const DEVICE_TTL: Duration = Duration::from_secs(8);
+const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 /// 绑定发现端口。多开时端口会被别的实例占住，普通 bind 会直接失败，
 /// 于是发送端收不到发现广播、接收端永远停在「搜索中」；这里带地址/端口复用重试。
@@ -48,11 +51,26 @@ fn bind_discovery_socket(port: u16) -> Option<UdpSocket> {
 #[serde(tag = "type")]
 enum Msg {
     Discover,
-    Offer { name: String, port: u16 },
-    Pair { code: String, name: String },
-    Paired { size: u64 },
-    Error { error: String },
-    Start { size: u64 },
+    Offer {
+        name: String,
+        port: u16,
+        /// 发送端所有可用的 IPv4 地址。旧版本没有这个字段，接收端会退回广播源 IP。
+        #[serde(default)]
+        addrs: Vec<String>,
+    },
+    Pair {
+        code: String,
+        name: String,
+    },
+    Paired {
+        size: u64,
+    },
+    Error {
+        error: String,
+    },
+    Start {
+        size: u64,
+    },
 }
 
 fn write_msg(stream: &mut impl Write, msg: &Msg) -> Result<()> {
@@ -79,6 +97,95 @@ pub fn device_name() -> String {
         .unwrap_or_else(|| "Phira-Vrenxz".to_owned())
 }
 
+/// 发送端可告诉接收端的本机 IPv4 地址。排除回环、未启用和隧道网卡，
+/// 避免对方拿到 VPN / 虚拟机网卡的地址后连不上。
+fn local_ipv4_addrs() -> Vec<Ipv4Addr> {
+    #[cfg(windows)]
+    {
+        let mut out = Vec::new();
+        if let Ok(adapters) = ipconfig::get_adapters() {
+            for adapter in adapters {
+                if adapter.oper_status() != ipconfig::OperStatus::IfOperStatusUp {
+                    continue;
+                }
+                if matches!(
+                    adapter.if_type(),
+                    ipconfig::IfType::SoftwareLoopback | ipconfig::IfType::Tunnel
+                ) {
+                    continue;
+                }
+                for ip in adapter.ip_addresses() {
+                    if let IpAddr::V4(ip) = ip {
+                        if !ip.is_unspecified() && !ip.is_loopback() && !ip.is_link_local() {
+                            out.push(*ip);
+                        }
+                    }
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
+}
+
+/// 由 IPv4 网段和前缀长度算出定向广播地址。
+fn subnet_broadcast(prefix: Ipv4Addr, bits: u32) -> Option<Ipv4Addr> {
+    if bits == 0 || bits >= 31 {
+        return None;
+    }
+    let mask = u32::MAX << (32 - bits);
+    let network = u32::from(prefix);
+    let broadcast = network | !mask;
+    if broadcast == network {
+        None
+    } else {
+        Some(Ipv4Addr::from(broadcast))
+    }
+}
+
+/// 发现广播的目标地址：有限广播 + 本机回环 + 每个网段的定向广播。
+/// 只发 255.255.255.255 时，多网卡 / 有 VPN 的机器很容易把包从错误的网卡发出去。
+fn broadcast_targets() -> Vec<Ipv4Addr> {
+    let mut out = vec![Ipv4Addr::BROADCAST, Ipv4Addr::LOCALHOST];
+
+    #[cfg(windows)]
+    {
+        if let Ok(adapters) = ipconfig::get_adapters() {
+            for adapter in adapters {
+                if adapter.oper_status() != ipconfig::OperStatus::IfOperStatusUp {
+                    continue;
+                }
+                if matches!(
+                    adapter.if_type(),
+                    ipconfig::IfType::SoftwareLoopback | ipconfig::IfType::Tunnel
+                ) {
+                    continue;
+                }
+                for (prefix, bits) in adapter.prefixes() {
+                    if let IpAddr::V4(prefix) = prefix {
+                        if let Some(broadcast) = subnet_broadcast(*prefix, *bits) {
+                            out.push(broadcast);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+fn discovery_addrs(target: Ipv4Addr) -> SocketAddr {
+    SocketAddr::new(IpAddr::V4(target), DISCOVERY_PORT)
+}
+
 fn random_code() -> String {
     format!("{:06}", rand::random::<u32>() % 1_000_000)
 }
@@ -92,6 +199,8 @@ fn temp_path() -> PathBuf {
 pub struct Device {
     pub addr: SocketAddr,
     pub name: String,
+    /// 同一台发送端可能有多张网卡；连接时逐个尝试，避免选中不可达的 VPN 地址。
+    pub candidates: Vec<SocketAddr>,
 }
 
 impl Device {
@@ -130,6 +239,10 @@ impl Sender {
 
         let udp_stop = Arc::clone(&stop);
         let offer_name = name.clone();
+        let offer_addrs = local_ipv4_addrs()
+            .into_iter()
+            .map(|ip| ip.to_string())
+            .collect::<Vec<_>>();
         thread::spawn(move || {
             let Some(socket) = bind_discovery_socket(DISCOVERY_PORT) else {
                 tracing::warn!("failed to bind data transfer discovery port");
@@ -144,6 +257,7 @@ impl Sender {
                     let msg = Msg::Offer {
                         name: offer_name.clone(),
                         port,
+                        addrs: offer_addrs.clone(),
                     };
                     if let Ok(text) = serde_json::to_string(&msg) {
                         let _ = socket.send_to(text.as_bytes(), addr);
@@ -261,7 +375,10 @@ pub enum ReceiverEvent {
 }
 
 enum ReceiverCmd {
-    Pair { addr: SocketAddr, code: String },
+    Pair {
+        addrs: Vec<SocketAddr>,
+        code: String,
+    },
 }
 
 pub struct Receiver {
@@ -286,36 +403,67 @@ impl Receiver {
             let _ = socket.set_broadcast(true);
             let _ = socket.set_read_timeout(Some(POLL_INTERVAL));
             let mut buf = [0u8; 1024];
-            let mut last_broadcast = None::<std::time::Instant>;
+            let mut known = HashMap::<SocketAddr, (String, Vec<SocketAddr>, Instant)>::new();
+            let mut targets = broadcast_targets();
+            let mut next_target_refresh = Instant::now() + TARGET_REFRESH_INTERVAL;
+            let mut next_broadcast = Instant::now();
+            let mut next_emit = Instant::now();
+
             while !udp_stop.load(Ordering::Relaxed) {
-                let now = std::time::Instant::now();
-                if last_broadcast.map(|it| now.duration_since(it) >= DISCOVER_INTERVAL).unwrap_or(true) {
-                    last_broadcast = Some(now);
+                let now = Instant::now();
+                if now >= next_target_refresh {
+                    targets = broadcast_targets();
+                    next_target_refresh = now + TARGET_REFRESH_INTERVAL;
+                }
+                if now >= next_broadcast {
                     let text = serde_json::to_string(&Msg::Discover).unwrap_or_default();
-                    let _ = socket.send_to(text.as_bytes(), DISCOVER_ADDR);
-                }
-                let mut devices = Vec::new();
-                let deadline = std::time::Instant::now() + POLL_INTERVAL;
-                loop {
-                    if std::time::Instant::now() >= deadline || udp_stop.load(Ordering::Relaxed) {
-                        break;
+                    for target in &targets {
+                        let _ = socket.send_to(text.as_bytes(), discovery_addrs(*target));
                     }
-                    let Ok((n, addr)) = socket.recv_from(&mut buf) else {
-                        continue;
-                    };
-                    if let Ok(Msg::Offer { name, port }) = serde_json::from_slice(&buf[..n]) {
-                        let device = Device {
-                            addr: SocketAddr::new(addr.ip(), port),
-                            name,
-                        };
-                        if !devices.iter().any(|it: &Device| it.addr == device.addr) {
-                            devices.push(device);
-                        }
-                    }
+                    next_broadcast = now + DISCOVER_INTERVAL;
                 }
-                if !devices.is_empty() {
+                if now >= next_emit {
+                    // 超过一段时间没有再接收到 Offer 的设备视为离线，避免列表永远停在旧设备上。
+                    known.retain(|_, (_, _, last_seen)| now.duration_since(*last_seen) < DEVICE_TTL);
+                    let mut devices = known
+                        .iter()
+                        .map(|(source, (name, candidates, _))| Device {
+                            // 列表显示用第一个 TCP 地址；source 是 UDP 发现地址，端口不是传输端口。
+                            addr: candidates.first().copied().unwrap_or(*source),
+                            name: name.clone(),
+                            candidates: candidates.clone(),
+                        })
+                        .collect::<Vec<_>>();
+                    devices.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.addr.cmp(&b.addr)));
                     let _ = events.send(ReceiverEvent::Devices(devices));
+                    next_emit = now + DEVICE_EMIT_INTERVAL;
                 }
+
+                let (n, source) = match socket.recv_from(&mut buf) {
+                    Ok((n, addr)) => (n, addr),
+                    Err(err) if matches!(err.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
+                        continue;
+                    }
+                    Err(_) => {
+                        thread::sleep(Duration::from_millis(50));
+                        continue;
+                    }
+                };
+                let Ok(Msg::Offer { name, port, addrs }) = serde_json::from_slice(&buf[..n]) else {
+                    continue;
+                };
+                let primary = SocketAddr::new(source.ip(), port);
+                let mut candidates = vec![primary];
+                for ip in addrs.iter().filter_map(|it| it.parse::<Ipv4Addr>().ok()) {
+                    if ip.is_unspecified() {
+                        continue;
+                    }
+                    let candidate = SocketAddr::new(IpAddr::V4(ip), port);
+                    if !candidates.contains(&candidate) {
+                        candidates.push(candidate);
+                    }
+                }
+                known.insert(source, (name, candidates, Instant::now()));
             }
         });
 
@@ -324,11 +472,11 @@ impl Receiver {
         let events = evt_tx;
         thread::spawn(move || {
             while !tcp_stop.load(Ordering::Relaxed) {
-                let Ok(ReceiverCmd::Pair { addr, code }) = cmd_rx.recv() else {
+                let Ok(ReceiverCmd::Pair { addrs, code }) = cmd_rx.recv() else {
                     break;
                 };
                 let _ = events.send(ReceiverEvent::Devices(Vec::new()));
-                if let Err(err) = pair_and_download(addr, &code, &name, &events) {
+                if let Err(err) = pair_and_download(&addrs, &code, &name, &events) {
                     let _ = events.send(ReceiverEvent::Error(err.to_string()));
                 }
             }
@@ -345,8 +493,13 @@ impl Receiver {
         self.events.try_recv().ok()
     }
 
-    pub fn pair(&self, addr: SocketAddr, code: String) -> Result<()> {
-        self.cmd.send(ReceiverCmd::Pair { addr, code }).map_err(|_| anyhow!("transfer thread stopped"))
+    pub fn pair(&self, addrs: Vec<SocketAddr>, code: String) -> Result<()> {
+        if addrs.is_empty() {
+            bail!("no transfer address");
+        }
+        self.cmd
+            .send(ReceiverCmd::Pair { addrs, code })
+            .map_err(|_| anyhow!("transfer thread stopped"))
     }
 }
 
@@ -357,12 +510,28 @@ impl Drop for Receiver {
 }
 
 fn pair_and_download(
-    addr: SocketAddr,
+    addrs: &[SocketAddr],
     code: &str,
     name: &str,
     events: &mpsc::Sender<ReceiverEvent>,
 ) -> Result<PathBuf> {
-    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(5)).context("failed to connect")?;
+    let mut stream = None;
+    let mut last_error = None;
+    for addr in addrs {
+        match TcpStream::connect_timeout(addr, Duration::from_secs(4)) {
+            Ok(it) => {
+                stream = Some(it);
+                break;
+            }
+            Err(err) => last_error = Some((*addr, err)),
+        }
+    }
+    let mut stream = stream.ok_or_else(|| {
+        let detail = last_error
+            .map(|(addr, err)| format!("{addr}: {err}"))
+            .unwrap_or_else(|| "no address".to_owned());
+        anyhow!("failed to connect ({detail})")
+    })?;
     stream.set_read_timeout(Some(Duration::from_secs(20)))?;
     stream.set_write_timeout(Some(Duration::from_secs(20)))?;
     write_msg(
@@ -380,8 +549,8 @@ fn pair_and_download(
         Msg::Error { error } => bail!("{error}"),
         _ => bail!("unexpected response"),
     }
-    // 等待发送端点击“开始传输”
-    stream.set_read_timeout(None)?;
+    // 等待发送端点击“开始传输”。不能无限等：发送端取消后这里也要能退出并允许重试。
+    stream.set_read_timeout(Some(Duration::from_secs(120)))?;
     let size = match read_msg(&mut reader)? {
         Msg::Start { size } => size,
         Msg::Error { error } => bail!("{error}"),
@@ -559,10 +728,11 @@ impl ReceiveSession {
         })
     }
 
-    pub fn pair(&mut self, addr: SocketAddr, code: String) -> Result<()> {
+    pub fn pair(&mut self, addrs: Vec<SocketAddr>, code: String) -> Result<()> {
         self.error = None;
+        self.receiver.pair(addrs, code)?;
         self.phase = RecvPhase::WaitingStart;
-        self.receiver.pair(addr, code)
+        Ok(())
     }
 
     pub fn update(&mut self) {
@@ -644,5 +814,87 @@ impl ReceiveSession {
 
     pub fn take_error(&mut self) -> Option<String> {
         self.error.take()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subnet_broadcast_math() {
+        assert_eq!(
+            subnet_broadcast(Ipv4Addr::new(192, 168, 1, 0), 24),
+            Some(Ipv4Addr::new(192, 168, 1, 255))
+        );
+        assert_eq!(
+            subnet_broadcast(Ipv4Addr::new(10, 0, 0, 0), 8),
+            Some(Ipv4Addr::new(10, 255, 255, 255))
+        );
+        assert_eq!(subnet_broadcast(Ipv4Addr::new(192, 168, 1, 2), 31), None);
+    }
+
+    #[test]
+    fn local_discovery_pair_and_transfer() {
+        let path = std::env::temp_dir().join(format!("phira-transfer-test-{}.bin", uuid::Uuid::new_v4()));
+        let payload = vec![0x5Au8; 512 * 1024];
+        fs::write(&path, &payload).unwrap();
+        let size = payload.len() as u64;
+        let sender = Sender::start("test-sender".to_owned(), path.clone(), size).unwrap();
+        let receiver = Receiver::start("test-receiver".to_owned()).unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut target = None;
+        while Instant::now() < deadline {
+            while let Some(event) = receiver.try_recv() {
+                if let ReceiverEvent::Devices(devices) = event {
+                    if let Some(device) = devices.into_iter().next() {
+                        target = Some(device);
+                        break;
+                    }
+                }
+            }
+            if target.is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        let target = target.expect("receiver did not discover local sender");
+
+        receiver.pair(target.candidates.clone(), sender.code.clone()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut paired = false;
+        while Instant::now() < deadline {
+            while let Some(event) = receiver.try_recv() {
+                if matches!(event, ReceiverEvent::Paired) {
+                    paired = true;
+                }
+            }
+            if paired {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        assert!(paired, "receiver did not pair");
+
+        sender.begin();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut received = None;
+        while Instant::now() < deadline {
+            while let Some(event) = receiver.try_recv() {
+                if let ReceiverEvent::Received(path) = event {
+                    received = Some(path);
+                }
+            }
+            if received.is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        let received = received.expect("receiver did not finish transfer");
+        let data = fs::read(&received).unwrap();
+        assert_eq!(data, payload);
+        let _ = fs::remove_file(received);
+        let _ = fs::remove_file(path);
     }
 }
