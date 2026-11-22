@@ -358,38 +358,6 @@ impl HomePage {
                 });
             });
         });
-
-        // ==== 插件（图标行下方的小字）====
-        {
-            let plugins: Vec<_> = self.plugins.iter().filter(|p| p.enabled()).collect();
-            let has_disabled = self.plugins.iter().any(|p| !p.enabled());
-            let mut y = row_y + btn + 0.045;
-            if !plugins.is_empty() {
-                ui.text(crate::tr!("[ 插件已加载 ]"))
-                    .pos(x0, y)
-                    .anchor(0., 0.5)
-                    .size(0.24)
-                    .color(semi_white(0.45))
-                    .draw();
-                y += 0.045;
-                for p in &plugins {
-                    ui.text(format!("{} v{}", p.info.name, p.info.version))
-                        .pos(x0, y)
-                        .anchor(0., 0.5)
-                        .size(0.21)
-                        .color(semi_white(0.34))
-                        .draw();
-                    y += 0.038;
-                }
-            } else if has_disabled {
-                ui.text(crate::tr!("[ 插件已全部禁用 ]"))
-                    .pos(x0, y)
-                    .anchor(0., 0.5)
-                    .size(0.22)
-                    .color(semi_white(0.34))
-                    .draw();
-            }
-        }
     }
 }
 
