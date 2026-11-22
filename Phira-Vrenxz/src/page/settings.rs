@@ -2908,7 +2908,7 @@ impl VisualList {
                 None,
                 &mut self.noise_opacity_slider,
                 config.noise_opacity,
-                format!("{:.2}", config.noise_opacity),
+                format!("{:.0}%", config.noise_opacity * 100.0),
             ),
             row_choose(
                 tl!("sx-dynamic-bg"),
