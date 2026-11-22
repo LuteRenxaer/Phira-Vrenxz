@@ -21,7 +21,7 @@ use prpr::{
     task::Task,
     ui::{begin_hit_frame, Dialog, DRectButton, FontArc, Scroll, Slider, TextPainter, Ui, PREFER_REDUCED_MOTION},
 };
-use prpr_l10n::{LanguageIdentifier, LANG_IDENTS, LANG_NAMES};
+use prpr_l10n::{set_prefered_locale, LanguageIdentifier, LANG_IDENTS, LANG_NAMES};
 use reqwest::Url;
 use serde::Deserialize;
 use std::{borrow::Cow, cell::RefCell, fs, io, net::ToSocketAddrs, path::PathBuf, sync::atomic::Ordering};
@@ -1106,6 +1106,51 @@ impl SettingsPage {
             icon,
         }
     }
+    /// Rebuild dropdown option text after switching language, keeping current selections.
+    fn refresh_locale(&mut self) {
+        let c = &mut self.list_chart;
+        c.indicator_delay_mode_btn
+            .set_options(vec![tl!("sx-adofai").to_string(), "phigros".to_string()]);
+        c.indicator_color_mode_btn
+            .set_options(vec![tl!("sx-adofai").to_string(), "phira".to_string()]);
+        c.fps_pos_btn.set_options(vec![
+            tl!("sx-pos-tl").to_string(),
+            tl!("sx-pos-tr").to_string(),
+            tl!("sx-pos-bl").to_string(),
+            tl!("sx-pos-br").to_string(),
+        ]);
+        c.judge_preset_btn.set_options(vec![
+            tl!("sx-builtin").to_string(),
+            "Phigros".to_string(),
+            "Phira".to_string(),
+            tl!("sx-custom").to_string(),
+        ]);
+        c.perf_btn.set_options(vec![
+            tl!("item-perf-off").to_string(),
+            tl!("item-perf-light").to_string(),
+            tl!("item-perf-medium").to_string(),
+            tl!("item-perf-full").to_string(),
+            tl!("item-perf-ultra").to_string(),
+            tl!("item-perf-custom").to_string(),
+        ]);
+        self.list_visual.noise_demo_btn.set_options(vec![
+            tl!("sx-noise-demo-phigros").to_string(),
+            tl!("sx-noise-demo-solid").to_string(),
+        ]);
+        self.list_visual.dynamic_bg_btn.set_options(vec![
+            tl!("sx-off").to_string(),
+            tl!("sx-static-brightness").to_string(),
+            tl!("sx-dynamic-brightness").to_string(),
+        ]);
+        self.list_custom.home_bg_btn.set_options(vec![
+            tl!("item-home-bg-default").to_string(),
+            tl!("item-home-bg-one").to_string(),
+            tl!("item-home-bg-two").to_string(),
+            tl!("item-home-bg-three").to_string(),
+            tl!("item-home-bg-old").to_string(),
+            tl!("item-home-bg-loginbg").to_string(),
+        ]);
+    }
     fn tab_at(&self, p: Vec2) -> Option<SettingListType> {
         let top = 1. / (macroquad::window::screen_width() / macroquad::window::screen_height());
         // 左上角返回键贴图占住的区域归返回键，不算标签
@@ -1300,6 +1345,10 @@ impl Page for SettingsPage {
             _ => false,
         };
         if self.tab != SettingListType::Chart && self.list_chart.update(t)? {
+            changed = true;
+        }
+        if self.list_general.take_language_changed() {
+            self.refresh_locale();
             changed = true;
         }
         self.scroll.update(t);
@@ -1511,6 +1560,7 @@ struct GeneralList {
     tutorial_task: LocalTask<Result<NextScene>>,
     tutorial_scene: Option<NextScene>,
     lan_scene: Option<NextScene>,
+    language_changed: bool,
 }
 impl GeneralList {
     pub fn new(icon_lang: SafeTexture) -> Self {
@@ -1555,6 +1605,7 @@ impl GeneralList {
             tutorial_task: None,
             tutorial_scene: None,
             lan_scene: None,
+            language_changed: false,
         };
         let data = get_data_mut();
         if !data.config.particle {
@@ -1562,6 +1613,9 @@ impl GeneralList {
         }
         let _ = this.update_cache_size();
         this
+    }
+    pub fn take_language_changed(&mut self) -> bool {
+        std::mem::take(&mut self.language_changed)
     }
     pub fn top_touch(&mut self, touch: &Touch, t: f32) -> bool {
         if self.lang_btn.top_touch(touch, t) {
@@ -1767,6 +1821,9 @@ impl GeneralList {
         let data = get_data_mut();
         if self.lang_btn.changed() {
             data.language = Some(LANG_IDENTS[self.lang_btn.selected()].to_string());
+            let locale = data.language.as_ref().and_then(|it| it.parse().ok());
+            set_prefered_locale(locale);
+            self.language_changed = true;
             sync_data();
             return Ok(true);
         }
