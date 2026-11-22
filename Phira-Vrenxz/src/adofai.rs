@@ -2,8 +2,9 @@
 //!
 //! ADOFAI stores a chart as one JSON file: `settings`, `angleData` / `pathData`
 //! and a list of floor actions.  Phira cannot load it directly, so this module
-//! converts the path into a small RPE chart: one invisible judge line with one
-//! tap note per floor, positioned in 2D via `positionX` / `yOffset`.
+//! converts the path into a pure-config RPE chart: one judge line with one
+//! tap note per floor, keeping the rhythm and BPM changes instead of drawing
+//! ADOFAI's 2-D tile path.
 //!
 //! Timing uses ADOFAI's rule that one floor is exactly one beat.  `SetSpeed`
 //! actions at a floor change the BPM from that beat on, which the generated
@@ -325,6 +326,14 @@ pub fn convert(source: &str, fallback_name: &str) -> Result<Converted> {
         bail!("ADOFAI chart has no playable tiles");
     }
     let centers = floor_centers(&tile_angles);
+    // Pure-config chart: only the horizontal component of the ADOFAI path is
+    // kept.  Normalize it on its own so even a mostly-vertical path still
+    // spreads its notes across the single judge line instead of collapsing
+    // into one point.
+    let x_min = centers.iter().map(|&(x, _)| x).fold(f64::INFINITY, f64::min);
+    let x_max = centers.iter().map(|&(x, _)| x).fold(f64::NEG_INFINITY, f64::max);
+    let x_span = x_max - x_min;
+    let note_x = |x: f64| if x_span > 1e-6 { (x - x_min) / x_span * 1.8 - 0.9 } else { 0.0 };
     let bpms = bpm_timeline(&chart.settings, &chart.action, &floor_to_beat, beat);
 
     let song = file_component(&chart.settings.song_filename)
@@ -370,21 +379,24 @@ pub fn convert(source: &str, fallback_name: &str) -> Result<Converted> {
     let notes: Vec<Value> = centers
         .iter()
         .enumerate()
-        .map(|(i, &(x, y))| {
+        .map(|(i, &(x, _y))| {
             let time = beat_triple(tile_beats[i]);
             json!({
                 "type": 1,
                 "above": 1,
                 "startTime": time.clone(),
                 "endTime": time,
-                "positionX": x * 675.0,
-                "yOffset": y * 450.0,
+                // Pure-config chart: one judge line, keep the rhythm and the
+                // horizontal variation, but do not reproduce ADOFAI's 2-D
+                // track as a visual gimmick.
+                "positionX": note_x(x) * 675.0,
+                "yOffset": 0.0,
                 "alpha": 255,
                 "hitsound": null,
                 "size": 1.0,
                 "speed": 1.0,
                 "isFake": 0,
-                "visibleTime": 9999.0,
+                "visibleTime": 2.0,
                 "tint": null,
                 "tintHitEffects": null,
                 "judgeArea": null
@@ -421,7 +433,7 @@ pub fn convert(source: &str, fallback_name: &str) -> Result<Converted> {
             "attachUI": null,
             "posControl": [],
             "sizeControl": [],
-            "alphaControl": [],
+            "alphaControl": [{ "x": 0.0, "easing": 1, "alpha": 1.0 }],
             "yControl": [],
             "bpmfactor": 1.0,
             "anchor": null
