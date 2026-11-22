@@ -124,7 +124,22 @@ fn difficulty_value(value: &Value) -> f32 {
     }
 }
 
-/// ADOFAI's old `pathData` uses one character for each tile direction.
+/// A tile angle is the amount the planet rotates before the next tile:
+/// 180° = one beat.  ADOFAI treats 0° as a full 360° turn.
+fn angle_beats(angle: f64) -> f64 {
+    let angle = if angle <= 0.0 { 360.0 } else { angle };
+    angle / 180.0
+}
+
+fn is_midspin(angle: f64) -> bool {
+    angle == 999.0 || angle == -1.0
+}
+
+fn beat_triple(beat: f64) -> Value {
+    const DEN: u64 = 180;
+    let units = (beat.max(0.0) * DEN as f64).round() as u64;
+    json!([units / DEN, units % DEN, DEN])
+}
 /// `!` (999°) is a midspin and does not count as a separate hit tile.
 fn decode_path_data(source: &str) -> Vec<f64> {
     source
@@ -155,6 +170,10 @@ fn decode_path_data(source: &str) -> Vec<f64> {
                 'C' => 315.0,
                 'M' => 330.0,
                 'A' => 345.0,
+                '5' => 555.0,
+                '6' => 666.0,
+                '7' => 777.0,
+                '8' => 888.0,
                 '!' => 999.0,
                 _ => return None,
             })
@@ -220,8 +239,8 @@ fn fit_centers(mut points: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
 fn bpm_timeline(
     settings: &AdofaiSettings,
     actions: &[AdofaiAction],
-    floor_to_tile: &[usize],
-    floor_count: usize,
+    floor_to_beat: &[f64],
+    end_beat: f64,
 ) -> Vec<(f64, f64)> {
     let base = if settings.bpm.is_finite() && settings.bpm > 0.0 {
         settings.bpm
@@ -234,7 +253,7 @@ fn bpm_timeline(
         1.0
     };
     let mut bpm = base * speed;
-    let mut changes: Vec<(usize, f64)> = vec![(0, bpm)];
+    let mut changes: Vec<(f64, f64)> = vec![(0.0, bpm)];
     let mut sorted: Vec<&AdofaiAction> = actions.iter().collect();
     sorted.sort_by_key(|it| it.floor);
     for action in sorted {
@@ -263,16 +282,23 @@ fn bpm_timeline(
         };
         if let Some(new_bpm) = new_bpm {
             bpm = new_bpm.clamp(1.0, 100_000.0);
-            if action.floor <= floor_count {
-                let tile = floor_to_tile.get(action.floor).copied().unwrap_or(floor_count);
-                changes.push((tile, bpm));
-            }
+            let beat = floor_to_beat.get(action.floor).copied().unwrap_or(end_beat);
+            changes.push((beat, bpm));
         }
     }
-    // Last change at a floor wins.
-    changes.sort_by_key(|it| it.0);
-    changes.dedup_by_key(|it| it.0);
-    changes.into_iter().map(|(beat, bpm)| (beat as f64, bpm)).collect()
+    // Last change at a beat wins.
+    changes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut deduped: Vec<(f64, f64)> = Vec::with_capacity(changes.len());
+    for (beat, bpm) in changes {
+        if let Some(last) = deduped.last_mut() {
+            if (last.0 - beat).abs() < 1e-9 {
+                last.1 = bpm;
+                continue;
+            }
+        }
+        deduped.push((beat, bpm));
+    }
+    deduped
 }
 
 pub fn convert(source: &str, fallback_name: &str) -> Result<Converted> {
@@ -283,22 +309,23 @@ pub fn convert(source: &str, fallback_name: &str) -> Result<Converted> {
         bail!("ADOFAI chart has no angleData/pathData floors");
     }
     let mut tile_angles = Vec::new();
-    let mut floor_to_tile = vec![0usize; raw_angles.len() + 1];
-    let mut tile = 0usize;
+    let mut tile_beats = Vec::new();
+    let mut floor_to_beat = vec![0.0f64; raw_angles.len() + 1];
+    let mut beat = 0.0f64;
     for (floor, angle) in raw_angles.iter().enumerate() {
-        floor_to_tile[floor] = tile;
-        if *angle != 999.0 {
+        floor_to_beat[floor] = beat;
+        if !is_midspin(*angle) {
             tile_angles.push(*angle);
-            tile += 1;
+            tile_beats.push(beat);
+            beat += angle_beats(*angle);
         }
     }
-    floor_to_tile[raw_angles.len()] = tile;
+    floor_to_beat[raw_angles.len()] = beat;
     if tile_angles.is_empty() {
         bail!("ADOFAI chart has no playable tiles");
     }
     let centers = floor_centers(&tile_angles);
-    let beat_count = centers.len();
-    let bpms = bpm_timeline(&chart.settings, &chart.action, &floor_to_tile, beat_count);
+    let bpms = bpm_timeline(&chart.settings, &chart.action, &floor_to_beat, beat);
 
     let song = file_component(&chart.settings.song_filename)
         .or_else(|| file_component(&chart.settings.song));
@@ -344,11 +371,12 @@ pub fn convert(source: &str, fallback_name: &str) -> Result<Converted> {
         .iter()
         .enumerate()
         .map(|(i, &(x, y))| {
+            let time = beat_triple(tile_beats[i]);
             json!({
                 "type": 1,
                 "above": 1,
-                "startTime": [i, 0, 1],
-                "endTime": [i, 0, 1],
+                "startTime": time.clone(),
+                "endTime": time,
                 "positionX": x * 675.0,
                 "yOffset": y * 450.0,
                 "alpha": 255,
@@ -369,7 +397,7 @@ pub fn convert(source: &str, fallback_name: &str) -> Result<Converted> {
         .map(|(beat, bpm)| {
             json!({
                 "bpm": bpm,
-                "startTime": [beat as u64, 0, 1]
+                "startTime": beat_triple(beat)
             })
         })
         .collect();
