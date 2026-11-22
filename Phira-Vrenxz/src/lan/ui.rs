@@ -172,7 +172,7 @@ impl LanPanel {
             ui.fill_path(&panel.rounded(0.02), ui.background());
 
             // 标题
-            ui.text("局域网联机").pos(0.05, 0.05).size(0.7).color(WHITE).draw();
+            ui.text(crate::tr!("局域网联机")).pos(0.05, 0.05).size(0.7).color(WHITE).draw();
             let state = self.manager.lock().map(|m| m.get_state()).unwrap_or(LanState::Disconnected);
             let connected = matches!(state, LanState::Connected { .. });
 
@@ -185,11 +185,11 @@ impl LanPanel {
                 .size(0.55)
                 .color(WHITE)
                 .draw();
-            ui.text("名称").pos(input_rect.x, input_rect.y - 0.03).size(0.4).color(semi_white(0.6)).draw();
+            ui.text(crate::tr!("名称")).pos(input_rect.x, input_rect.y - 0.03).size(0.4).color(semi_white(0.6)).draw();
 
             // 刷新按钮（招募状态下禁用）
             let refresh_rect = Rect::new(0.05, 0.28, w - 0.1, 0.07);
-            self.refresh_btn.render_text(ui, refresh_rect, t, "刷新", 0.55, !connected);
+            self.refresh_btn.render_text(ui, refresh_rect, t, crate::tr!("刷新"), 0.55, !connected);
 
             // 服务器列表
             let list_rect = Rect::new(0.05, 0.4, w - 0.1, h - 0.78);
@@ -200,11 +200,11 @@ impl LanPanel {
                 let mut y = 0.0;
                 for m in &members {
                     let status = if m.is_host {
-                        "房主"
+                        crate::tr!("房主")
                     } else if m.ready {
-                        "✓ 已准备"
+                        crate::tr!("✓ 已准备")
                     } else {
-                        "未准备"
+                        crate::tr!("未准备")
                     };
                     ui.text(format!("{}  {}", m.name, status))
                         .pos(list_rect.x + 0.03, list_rect.y + 0.03 + y)
@@ -214,7 +214,7 @@ impl LanPanel {
                     y += 0.065;
                 }
                 if members.is_empty() {
-                    ui.text("房间已创建，等待玩家加入...")
+                    ui.text(crate::tr!("房间已创建，等待玩家加入..."))
                         .pos(list_rect.center().x, list_rect.center().y)
                         .anchor(0.5, 0.5)
                         .size(0.5)
@@ -224,7 +224,7 @@ impl LanPanel {
             } else {
                 // 未连接：显示服务器搜索列表
                 if self.servers.is_empty() {
-                    ui.text("正在搜索局域网房间...")
+                    ui.text(crate::tr!("正在搜索局域网房间..."))
                         .pos(list_rect.center().x, list_rect.center().y)
                         .anchor(0.5, 0.5)
                         .size(0.5)
@@ -269,7 +269,7 @@ impl LanPanel {
                 LanState::Connected { is_host, .. } => {
                     // 已连接：隐藏招募/加入，显示房间控制
                     // 连接状态指示（标题右侧）
-                    ui.text("已连接")
+                    ui.text(crate::tr!("已连接"))
                         .pos(w - 0.1, 0.06)
                         .anchor(1., 0.)
                         .size(0.4)
@@ -277,19 +277,19 @@ impl LanPanel {
                         .draw();
                     let mut by = h - 0.16;
                     let leave_rect = Rect::new(0.05, by, bw, btn_h);
-                    self.leave_btn.render_text(ui, leave_rect, t, "离开房间", 0.5, true);
+                    self.leave_btn.render_text(ui, leave_rect, t, crate::tr!("离开房间"), 0.5, true);
                     if is_host {
                         let start_rect = Rect::new(0.05 + bw + 0.02, by, bw, btn_h);
-                        self.start_game_btn.render_text(ui, start_rect, t, "开始游戏", 0.5, true);
+                        self.start_game_btn.render_text(ui, start_rect, t, crate::tr!("开始游戏"), 0.5, true);
                     } else {
                         let ready_rect = Rect::new(0.05 + bw + 0.02, by, bw, btn_h);
-                        self.ready_btn.render_text(ui, ready_rect, t, "准备", 0.5, true);
+                        self.ready_btn.render_text(ui, ready_rect, t, crate::tr!("准备"), 0.5, true);
                     }
                     by -= btn_h + 0.02;
                     if is_host {
                         // 等待其他玩家开关（房主）
                         let waiting_rect = Rect::new(0.05, by, w - 0.1, btn_h);
-                        ui.text("等待其他玩家").pos(waiting_rect.x, waiting_rect.center().y).anchor(0.0, 0.5).size(0.5).color(WHITE).draw();
+                        ui.text(crate::tr!("等待其他玩家")).pos(waiting_rect.x, waiting_rect.center().y).anchor(0.0, 0.5).size(0.5).color(WHITE).draw();
                         let switch_rect = Rect::new(waiting_rect.right() - 0.12, waiting_rect.y + 0.015, 0.1, btn_h - 0.03);
                         ui.fill_rect(switch_rect, semi_black(0.4));
                         if self.waiting_switch {
@@ -300,7 +300,7 @@ impl LanPanel {
                     // 发声设备：房主选择让哪个玩家的设备发声
                     let audio_rect = Rect::new(0.05, by, w - 0.1, btn_h);
                     ui.fill_rect(audio_rect, semi_black(0.3));
-                    ui.text("发声设备").pos(audio_rect.x + 0.02, audio_rect.center().y).anchor(0.0, 0.5).size(0.5).color(WHITE).draw();
+                    ui.text(crate::tr!("发声设备")).pos(audio_rect.x + 0.02, audio_rect.center().y).anchor(0.0, 0.5).size(0.5).color(WHITE).draw();
                     // 目标玩家列表（含房主自己）
                     let members = self.manager.lock().map(|m| m.get_members()).unwrap_or_default();
                     let targets: Vec<String> = members.iter().map(|m| m.name.clone()).collect();
@@ -311,9 +311,9 @@ impl LanPanel {
                         self.selected_device = 0;
                     }
                     let dev_text = if self.audio_devices.is_empty() {
-                        "无成员".to_string()
+                        crate::tr!("无成员").to_string()
                     } else {
-                        format!("{} 的设备", self.audio_devices[self.selected_device])
+                        format!("{}{}", self.audio_devices[self.selected_device], crate::tr!("的设备"))
                     };
                     ui.text(&dev_text)
                         .pos(audio_rect.right() - 0.02, audio_rect.center().y)
@@ -326,10 +326,10 @@ impl LanPanel {
                     // 未连接：显示招募/加入
                     let by = h - 0.16;
                     let recruit_rect = Rect::new(0.05, by, bw, btn_h);
-                    self.recruit_btn.render_text(ui, recruit_rect, t, "招募", 0.5, true);
+                    self.recruit_btn.render_text(ui, recruit_rect, t, crate::tr!("招募"), 0.5, true);
                     let join_rect = Rect::new(0.05 + bw + 0.02, by, bw, btn_h);
                     if self.selected_server.is_some() {
-                        self.join_btn.render_text(ui, join_rect, t, "加入房间", 0.5, true);
+                        self.join_btn.render_text(ui, join_rect, t, crate::tr!("加入房间"), 0.5, true);
                     }
                 }
             }
@@ -401,7 +401,7 @@ impl LanPanel {
                             let path = manager.my_chart_path.clone();
                             let _ = manager.start_game(self.waiting_switch, path);
                         }
-                        prpr::scene::show_message("已开始游戏").ok();
+                        prpr::scene::show_message(crate::tr!("已开始游戏")).ok();
                         return true;
                     }
                 } else if self.ready_btn.touch(touch, t) {

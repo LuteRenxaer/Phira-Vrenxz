@@ -84,14 +84,14 @@ impl ExtensionPage {
 
     fn start_download(&mut self, download_type: &str) {
         if self.download_task.is_some() {
-            show_message("已有下载任务进行中").warn();
+            show_message(crate::tr!("已有下载任务进行中")).warn();
             return;
         }
 
         let asset_dir = std::env::current_dir().unwrap_or_default().join("assets");
         let target_dir = asset_dir.join("Level");
         if target_dir.exists() && target_dir.read_dir().map(|d| d.count() > 0).unwrap_or(false) {
-            show_message("你的游戏是完整版，已有 Level 资源，无需下载").warn();
+            show_message(crate::tr!("你的游戏是完整版，已有 Level 资源，无需下载")).warn();
             return;
         }
 
@@ -112,7 +112,7 @@ impl ExtensionPage {
             .await
             .map(|ids| format!("{}", ids.len()))
         }));
-        show_message(&format!("开始下载 {}...", download_type)).ok();
+        show_message(format!("{}{}...", crate::tr!("开始下载 "), download_type)).ok();
     }
 
     fn poll_download(&mut self) {
@@ -123,11 +123,11 @@ impl ExtensionPage {
                         self.current_download_id = Some(id);
                         self.download_task = None;
                         self.download_progress = None;
-                        show_message("扩展包下载完成").ok();
+                        show_message(crate::tr!("扩展包下载完成")).ok();
                         self.refresh_items();
                     }
                     Err(e) => {
-                        show_error(anyhow::anyhow!("下载失败: {}", e));
+                        show_error(anyhow::anyhow!("{}{}", crate::tr!("下载失败: "), e));
                         self.download_task = None;
                         self.download_progress = None;
                         self.current_download_id = None;
@@ -142,7 +142,7 @@ impl ExtensionPage {
     }
 
     fn type_label(_t: ExtensionType) -> &'static str {
-        "关卡"
+        crate::tr!("关卡")
     }
 
     fn format_size(bytes: u64) -> String {
@@ -160,7 +160,7 @@ impl ExtensionPage {
 
 impl Page for ExtensionPage {
     fn label(&self) -> Cow<'static, str> {
-        "扩展包".into()
+        crate::tr!("扩展包").into()
     }
 
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
@@ -192,7 +192,7 @@ impl Page for ExtensionPage {
         if self.refresh_btn.touch(touch, t) {
             button_hit();
             self.refresh_items();
-            show_message("已刷新").ok();
+            show_message(crate::tr!("已刷新")).ok();
             return Ok(true);
         }
         if !self.items.is_empty() {
@@ -202,9 +202,9 @@ impl Page for ExtensionPage {
                 let mut manager = self.manager.lock().unwrap();
                 match manager.toggle(&id) {
                     Ok(enabled) => {
-                        show_message(if enabled { "已启用" } else { "已禁用" }).ok();
+                        show_message(if enabled { crate::tr!("已启用") } else { crate::tr!("已禁用") }).ok();
                     }
-                    Err(e) => show_error(anyhow::anyhow!("操作失败: {}", e)),
+                    Err(e) => show_error(anyhow::anyhow!("{}{}", crate::tr!("操作失败: "), e)),
                 }
                 drop(manager);
                 self.refresh_items();
@@ -217,9 +217,9 @@ impl Page for ExtensionPage {
                 let mut manager = self.manager.lock().unwrap();
                 match manager.uninstall(&id) {
                     Ok(_) => {
-                        show_message(&format!("已卸载: {}", name)).ok();
+                        show_message(format!("{}{}", crate::tr!("已卸载: "), name)).ok();
                     }
-                    Err(e) => show_error(anyhow::anyhow!("卸载失败: {}", e)),
+                    Err(e) => show_error(anyhow::anyhow!("{}{}", crate::tr!("卸载失败: "), e)),
                 }
                 drop(manager);
                 self.refresh_items();
@@ -238,14 +238,14 @@ impl Page for ExtensionPage {
         s.render_fader(ui, |ui| {
             ui.fill_path(&list_r.rounded(0.012), semi_black(0.3));
 
-            ui.text("已安装")
+            ui.text(crate::tr!("已安装"))
                 .pos(list_r.x + 0.04, list_r.y + 0.03)
                 .anchor(0., 0.)
                 .size(0.42)
                 .color(semi_white(0.9))
                 .draw();
 
-            ui.text(&format!("{} 个", self.items.len()))
+            ui.text(format!("{}{}", self.items.len(), crate::tr!(" 个")))
                 .pos(list_r.right() - 0.04, list_r.y + 0.035)
                 .anchor(1., 0.)
                 .size(0.28)
@@ -265,7 +265,7 @@ impl Page for ExtensionPage {
                 let gap = 0.012;
 
                 if self.items.is_empty() {
-                    ui.text("暂无扩展包")
+                    ui.text(crate::tr!("暂无扩展包"))
                         .pos(list_r.w / 2., 0.1)
                         .anchor(0.5, 0.)
                         .size(0.32)
@@ -354,13 +354,13 @@ impl Page for ExtensionPage {
             if self.items.is_empty() {
 
                 let ct = detail_r.center();
-                ui.text("扩展包下载")
+                ui.text(crate::tr!("扩展包下载"))
                     .pos(ct.x, ct.y - 0.18)
                     .anchor(0.5, 0.5)
                     .size(0.55)
                     .color(WHITE)
                     .draw();
-                ui.text("从蓝奏云下载缺失的游戏资源")
+                ui.text(crate::tr!("从蓝奏云下载缺失的游戏资源"))
                     .pos(ct.x, ct.y - 0.1)
                     .anchor(0.5, 0.5)
                     .size(0.3)
@@ -371,7 +371,7 @@ impl Page for ExtensionPage {
                 let has_level = asset_dir.join("Level").exists();
 
                 if has_level {
-                    ui.text("你的游戏是完整版，无需下载")
+                    ui.text(crate::tr!("你的游戏是完整版，无需下载"))
                         .pos(ct.x, ct.y - 0.02)
                         .anchor(0.5, 0.5)
                         .size(0.32)
@@ -401,9 +401,9 @@ impl Page for ExtensionPage {
                     let label = if level_disabled {
                         "Level ✓"
                     } else if downloading_level {
-                        "下载中..."
+                        crate::tr!("下载中...")
                     } else {
-                        "下载 Level"
+                        crate::tr!("下载 Level")
                     };
                     ui.text(label)
                         .pos(level_r.center().x, level_r.center().y)
@@ -417,12 +417,12 @@ impl Page for ExtensionPage {
                     if let Ok(p) = progress.try_lock() {
                         let progress_y = btn_y + btn_h + 0.04;
                         let phase_text = match &p.phase {
-                            DownloadPhase::Listing => "获取文件列表...",
-                            DownloadPhase::ResolvingUrl => "解析直链...",
-                            DownloadPhase::Downloading => "下载中...",
-                            DownloadPhase::Extracting => "解压中...",
-                            DownloadPhase::Done => "完成",
-                            DownloadPhase::Failed(e) => &format!("失败: {}", e),
+                            DownloadPhase::Listing => crate::tr!("获取文件列表..."),
+                            DownloadPhase::ResolvingUrl => crate::tr!("解析直链..."),
+                            DownloadPhase::Downloading => crate::tr!("下载中..."),
+                            DownloadPhase::Extracting => crate::tr!("解压中..."),
+                            DownloadPhase::Done => crate::tr!("完成"),
+                            DownloadPhase::Failed(e) => &format!("{}{}", crate::tr!("失败: "), e),
                         };
                         ui.text(phase_text)
                             .pos(ct.x, progress_y)
@@ -471,7 +471,7 @@ impl Page for ExtensionPage {
                     .color(BLACK)
                     .draw();
 
-                ui.text(&format!("版本 v{}", info.manifest.version))
+                ui.text(format!("{}{}", crate::tr!("版本 v"), info.manifest.version))
                     .pos(type_r.right() + 0.02, type_r.center().y)
                     .anchor(0., 0.5)
                     .size(0.26)
@@ -505,28 +505,28 @@ impl Page for ExtensionPage {
                 };
 
                 if !info.manifest.author.is_empty() {
-                    draw_row(ui, "作者", &info.manifest.author, row);
+                    draw_row(ui, crate::tr!("作者"), &info.manifest.author, row);
                     row += 1;
                 }
                 if !info.manifest.description.is_empty() {
-                    draw_row(ui, "描述", &info.manifest.description, row);
+                    draw_row(ui, crate::tr!("描述"), &info.manifest.description, row);
                     row += 1;
                 }
                 draw_row(
                     ui,
-                    "来源",
-                    if info.is_local { "本地" } else { "蓝奏云" },
+                    crate::tr!("来源"),
+                    if info.is_local { crate::tr!("本地") } else { crate::tr!("蓝奏云") },
                     row,
                 );
                 row += 1;
                 if let Some(size) = info.state.file_size {
-                    draw_row(ui, "大小", &Self::format_size(size), row);
+                    draw_row(ui, crate::tr!("大小"), &Self::format_size(size), row);
                     row += 1;
                 }
                 draw_row(
                     ui,
-                    "状态",
-                    if info.state.enabled { "已启用" } else { "已禁用" },
+                    crate::tr!("状态"),
+                    if info.state.enabled { crate::tr!("已启用") } else { crate::tr!("已禁用") },
                     row,
                 );
 
@@ -545,7 +545,7 @@ impl Page for ExtensionPage {
                             Color::new(0.15, 0.5, 0.25, 0.8)
                         },
                     );
-                    ui.text(if enabled { "禁用" } else { "启用" })
+                    ui.text(if enabled { crate::tr!("禁用") } else { crate::tr!("启用") })
                         .pos(toggle_r.center().x, toggle_r.center().y)
                         .anchor(0.5, 0.5)
                         .size(0.32)
@@ -559,7 +559,7 @@ impl Page for ExtensionPage {
                         &delete_r.rounded(0.012),
                         Color::new(0.55, 0.15, 0.15, 0.8),
                     );
-                    ui.text("卸载")
+                    ui.text(crate::tr!("卸载"))
                         .pos(delete_r.center().x, delete_r.center().y)
                         .anchor(0.5, 0.5)
                         .size(0.32)

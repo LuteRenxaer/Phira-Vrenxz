@@ -365,7 +365,7 @@ impl HomePage {
             let has_disabled = self.plugins.iter().any(|p| !p.enabled());
             let mut y = row_y + btn + 0.045;
             if !plugins.is_empty() {
-                ui.text("[ 插件已加载 ]")
+                ui.text(crate::tr!("[ 插件已加载 ]"))
                     .pos(x0, y)
                     .anchor(0., 0.5)
                     .size(0.24)
@@ -382,7 +382,7 @@ impl HomePage {
                     y += 0.038;
                 }
             } else if has_disabled {
-                ui.text("[ 插件已全部禁用 ]")
+                ui.text(crate::tr!("[ 插件已全部禁用 ]"))
                     .pos(x0, y)
                     .anchor(0., 0.5)
                     .size(0.22)

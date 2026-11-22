@@ -87,7 +87,7 @@ impl WaitingPanel {
         ui.fill_rect(screen_rect, semi_black(0.8));
 
         // 绘制等待文本
-        let wait_text = "正在等待其他玩家";
+        let wait_text = crate::tr!("正在等待其他玩家");
         let wait_text_rect = ui.text(wait_text)
             .pos(screen_rect.center().x, screen_rect.center().y - 0.1)
             .anchor(0.5, 0.5)
@@ -111,7 +111,7 @@ impl WaitingPanel {
         }
 
         // 绘制进度文本
-        let progress_text = format!("{}/{} 玩家已准备", self.ready_count, self.total_count);
+        let progress_text = format!("{}/{} {}", self.ready_count, self.total_count, crate::tr!("玩家已准备"));
         ui.text(&progress_text)
             .pos(screen_rect.center().x, circle_center.y + circle_radius + 0.05)
             .anchor(0.5, 0.0)
@@ -121,7 +121,7 @@ impl WaitingPanel {
 
         // 绘制离开按钮
         let leave_rect = Rect::new(screen_rect.center().x - 0.1, screen_rect.bottom() - 0.15, 0.2, 0.08);
-        self.leave_btn.render_text(ui, leave_rect, t, "离开房间", 0.6, true);
+        self.leave_btn.render_text(ui, leave_rect, t, crate::tr!("离开房间"), 0.6, true);
     }
 
     /// 处理触摸输入
@@ -220,7 +220,7 @@ impl AudioDevicePanel {
         // 绘制标题
         let title_rect = Rect::new(0.0, 0.0, screen_rect.w, 0.1);
         ui.fill_rect(title_rect, semi_black(0.6));
-        ui.text("选择发声设备")
+        ui.text(crate::tr!("选择发声设备"))
             .pos(title_rect.center().x, title_rect.center().y)
             .anchor(0.5, 0.5)
             .size(0.8)
@@ -258,10 +258,10 @@ impl AudioDevicePanel {
         // 绘制按钮
         let button_y = screen_rect.bottom() - 0.1;
         let confirm_rect = Rect::new(screen_rect.center().x - 0.15, button_y, 0.14, 0.08);
-        self.confirm_btn.render_text(ui, confirm_rect, t, "确认", 0.6, true);
+        self.confirm_btn.render_text(ui, confirm_rect, t, crate::tr!("确认"), 0.6, true);
 
         let cancel_rect = Rect::new(screen_rect.center().x + 0.01, button_y, 0.14, 0.08);
-        self.cancel_btn.render_text(ui, cancel_rect, t, "取消", 0.6, true);
+        self.cancel_btn.render_text(ui, cancel_rect, t, crate::tr!("取消"), 0.6, true);
     }
 
     /// 处理触摸输入

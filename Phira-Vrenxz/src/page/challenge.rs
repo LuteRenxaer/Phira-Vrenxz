@@ -143,7 +143,7 @@ impl ChallengePage {
             return;
         }
         if !self.re && self.slots.len() >= 3 {
-            show_message("普通课题最多选择 9 张谱面").warn();
+            show_message(crate::tr!("普通课题最多选择 9 张谱面")).warn();
             return;
         }
         self.slots.push(idx);
@@ -314,9 +314,9 @@ impl ChallengePage {
     fn start_challenge(&mut self) -> bool {
         if (!self.re && self.slots.len() < 3) || (self.re && self.slots.is_empty()) {
             show_message(if self.re {
-                "Re:课题至少选择 1 张谱面"
+                crate::tr!("Re:课题至少选择 1 张谱面")
             } else {
-                "普通课题需要选择 3 张谱面"
+                crate::tr!("普通课题需要选择 3 张谱面")
             })
             .warn();
             return false;
@@ -339,7 +339,7 @@ fn advance_session_ext(me: &mut ChallengePage) -> Result<()> {
             (lock.aborted, lock.completed_rounds, lock.paths.len())
         };
         if aborted {
-            me.result_text = Some("挑战失败：中途退出，整场作废".to_string());
+            me.result_text = Some(crate::tr!("挑战失败：中途退出，整场作废").to_string());
             me.session = None;
             return Ok(());
         }
@@ -350,14 +350,20 @@ fn advance_session_ext(me: &mut ChallengePage) -> Result<()> {
             };
             let (rank, _) = ChallengeConfig::color_rank(sum);
             let name = match rank {
-                0 => "彩",
-                1 => "金",
-                2 => "红",
-                3 => "蓝",
-                4 => "绿",
-                _ => "无",
+                0 => crate::tr!("彩"),
+                1 => crate::tr!("金"),
+                2 => crate::tr!("红"),
+                3 => crate::tr!("蓝"),
+                4 => crate::tr!("绿"),
+                _ => crate::tr!("无"),
             };
-            me.result_text = Some(format!("挑战完成！总分 {}，色档 {}", sum, name));
+            me.result_text = Some(format!(
+                "{} {} / {} {}",
+                crate::tr!("挑战完成！总分"),
+                sum,
+                crate::tr!("色档"),
+                name
+            ));
             me.session = None;
             return Ok(());
         }
@@ -410,7 +416,7 @@ impl Page for ChallengePage {
             }
             if self.re && !(self.judge.0 < self.judge.1 && self.judge.1 < self.judge.2) {
                 self.judge = (40, 75, 140);
-                show_message("判定需满足 Perfect < Good < Bad，已重置为 40/75/140").warn();
+                show_message(crate::tr!("判定需满足 Perfect < Good < Bad，已重置为 40/75/140")).warn();
             }
         }
 
@@ -525,7 +531,7 @@ impl Page for ChallengePage {
         glass_background(ui, t);
 
         // 标题（半透明胶囊托底提升层次）
-        let title = "课题模式";
+        let title = crate::tr!("课题模式");
         let title_w = glass_text_len(title, 0.05);
         glass_capsule(ui, 0., 0.92, title_w, 0.05 * 1.22, 0.12);
         ui.text(title)
@@ -580,7 +586,7 @@ impl Page for ChallengePage {
                 (list_r.w, content_h)
             });
         } else {
-            ui.text("无本地谱面")
+            ui.text(crate::tr!("无本地谱面"))
                 .pos(list_r.center().x, list_r.center().y)
                 .anchor(0.5, 0.5)
                 .no_baseline()
@@ -603,7 +609,7 @@ impl Page for ChallengePage {
                         .max_width(0.9)
                         .color(semi_white(1.))
                         .draw();
-                    let diff = format!("定数 {:.2}", c.info.difficulty);
+                    let diff = format!("{}{:.2}", crate::tr!("定数 "), c.info.difficulty);
                     ui.text(&diff)
                         .pos(r.x + r.h + 0.04, r.y + r.h * 0.58)
                         .size(0.02)
@@ -611,7 +617,7 @@ impl Page for ChallengePage {
                         .draw();
                 }
             } else {
-                let slot_txt = format!("第{}槽", i + 1);
+                let slot_txt = format!("{}{}{}", crate::tr!("第"), i + 1, crate::tr!("槽"));
                 let slot_w = glass_text_len(&slot_txt, 0.03);
                 glass_capsule(ui, r.center().x, r.center().y, slot_w, 0.03 * 1.18, 0.06);
                 ui.text(&slot_txt)
@@ -631,7 +637,7 @@ impl Page for ChallengePage {
         self.re_btn.render_shadow(ui, mode_r, t, |ui, _| {
             glass_button(ui, mode_r, 0.012, mode_base, press);
         });
-        ui.text(if self.re { "Re:课题" } else { "普通课题" })
+        ui.text(if self.re { crate::tr!("Re:课题") } else { crate::tr!("普通课题") })
             .pos(mode_r.center().x, mode_r.center().y)
             .anchor(0.5, 0.5)
             .no_baseline()
@@ -641,7 +647,7 @@ impl Page for ChallengePage {
 
         // 提示（弱胶囊）
         let cap_r = Self::control_rect(0.5);
-        let hint = if self.re { "选曲不限（不可重复）" } else { "至少选 3 张开始" };
+        let hint = if self.re { crate::tr!("选曲不限（不可重复）") } else { crate::tr!("至少选 3 张开始") };
         let hint_w = glass_text_len(hint, 0.022);
         glass_capsule(ui, cap_r.center().x, cap_r.center().y, hint_w, 0.022 * 1.2, 0.045);
         ui.text(hint)
@@ -659,7 +665,7 @@ impl Page for ChallengePage {
         self.hp_btn.render_shadow(ui, hp_r, t, |ui, _| {
             glass_button(ui, hp_r, 0.012, hp_base, press);
         });
-        let hp_txt = if self.hp_on { "HP 血量: 开" } else { "HP 血量: 关" };
+        let hp_txt = if self.hp_on { crate::tr!("HP 血量: 开") } else { crate::tr!("HP 血量: 关") };
         let hp_w = glass_text_len(hp_txt, 0.03);
         glass_capsule(ui, hp_r.center().x, hp_r.center().y, hp_w, 0.03 * 1.18, 0.06);
         ui.text(hp_txt)
@@ -678,7 +684,11 @@ impl Page for ChallengePage {
                 glass_button(ui, val_r, 0.012, Color::new(1., 1., 1., 0.09), press);
             });
             let hp_val = HP_MAX_OPTIONS[self.hp_idx];
-            let val_txt = format!("血量上限 {}", if hp_val.fract() == 0. { format!("{}", hp_val as i32) } else { format!("{}", hp_val) });
+            let val_txt = format!(
+                "{}{}",
+                crate::tr!("血量上限 "),
+                if hp_val.fract() == 0. { format!("{}", hp_val as i32) } else { format!("{}", hp_val) }
+            );
             let val_w = glass_text_len(&val_txt, 0.026);
             glass_capsule(ui, val_r.center().x, val_r.center().y, val_w, 0.026 * 1.18, 0.06);
             ui.text(&val_txt)
@@ -695,8 +705,8 @@ impl Page for ChallengePage {
                 glass_button(ui, cond_r, 0.012, Color::new(1., 1., 1., 0.09), press);
             });
             let cond = match self.hp_lose {
-                HpLoseCondition::BadOrMiss => "Bad/Miss 扣血",
-                HpLoseCondition::NonPerfect => "非Perfect 扣血",
+                HpLoseCondition::BadOrMiss => crate::tr!("Bad/Miss 扣血"),
+                HpLoseCondition::NonPerfect => crate::tr!("非Perfect 扣血"),
             };
             let cond_w = glass_text_len(cond, 0.026);
             glass_capsule(ui, cond_r.center().x, cond_r.center().y, cond_w, 0.026 * 1.18, 0.06);
@@ -743,7 +753,7 @@ impl Page for ChallengePage {
         self.undo_btn.render_shadow(ui, undo_r, t, |ui, _| {
             glass_button(ui, undo_r, 0.012, Color::new(1., 1., 1., 0.09), press);
         });
-        ui.text("撤销")
+        ui.text(crate::tr!("撤销"))
             .pos(undo_r.center().x, undo_r.center().y)
             .anchor(0.5, 0.5)
             .no_baseline()
@@ -756,7 +766,7 @@ impl Page for ChallengePage {
         self.clear_btn.render_shadow(ui, clear_r, t, |ui, _| {
             glass_button(ui, clear_r, 0.012, Color::new(1., 1., 1., 0.09), press);
         });
-        ui.text("清空")
+        ui.text(crate::tr!("清空"))
             .pos(clear_r.center().x, clear_r.center().y)
             .anchor(0.5, 0.5)
             .no_baseline()
@@ -773,7 +783,7 @@ impl Page for ChallengePage {
             ui.fill_path(&glow_r.rounded(0.030), Color::new(start_base.r, start_base.g, start_base.b, 0.08 + 0.12 * press));
             glass_button(ui, start_r, 0.014, start_base, press);
         });
-        ui.text("开始挑战")
+        ui.text(crate::tr!("开始挑战"))
             .pos(start_r.center().x, start_r.center().y)
             .anchor(0.5, 0.5)
             .no_baseline()

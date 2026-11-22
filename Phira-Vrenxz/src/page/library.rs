@@ -387,7 +387,7 @@ impl LibraryPage {
         let mut charts = Vec::with_capacity(selection.len());
         for chart_ref in &selection {
             let Some(path) = chart_ref.find_local_path().ok().flatten() else {
-                show_message("请先下载此谱面，再加入课题").warn();
+                show_message(crate::tr!("请先下载此谱面，再加入课题")).warn();
                 return None;
             };
             let mut item = s
@@ -408,7 +408,7 @@ impl LibraryPage {
                 }
             }
             let Some(item) = item.filter(|it| it.local_path.is_some()) else {
-                show_message("缺少课题谱面，请先下载或导入").warn();
+                show_message(crate::tr!("缺少课题谱面，请先下载或导入")).warn();
                 return None;
             };
             charts.push(item);
@@ -420,7 +420,7 @@ impl LibraryPage {
     fn start_course(&mut self, s: &SharedState) -> Result<()> {
         let len = self.course_selection.as_ref().map(|it| it.len()).unwrap_or(0);
         if len < 3 {
-            show_message("请选择三首曲目后开始游玩").warn();
+            show_message(crate::tr!("请选择三首曲目后开始游玩")).warn();
             return Ok(());
         }
         let Some(charts) = self.take_course_charts(s) else {
@@ -1254,7 +1254,7 @@ mod ohos_export {
 impl Page for LibraryPage {
     fn label(&self) -> Cow<'static, str> {
         if self.course_selection.is_some() {
-            "课题模式".into()
+            crate::tr!("课题模式").into()
         } else {
             tl!("label")
         }
@@ -2344,7 +2344,7 @@ impl Page for LibraryPage {
                 ui,
                 course_rect,
                 t,
-                if self.course_selection.is_some() { "退出" } else { "课题" },
+                if self.course_selection.is_some() { crate::tr!("退出") } else { crate::tr!("课题") },
                 0.32,
                 false,
             );
@@ -2357,7 +2357,7 @@ impl Page for LibraryPage {
                     ui,
                     Rect::new(course_rect.x + course_rect.w + 0.008, course_rect.y, 0.16, course_rect.h),
                     t,
-                    "开始",
+                    crate::tr!("开始"),
                     0.28,
                     false,
                 );
@@ -2372,7 +2372,7 @@ impl Page for LibraryPage {
                     &if self.course_hp_on {
                         format!("HP{}", COURSE_HP_OPTS[self.course_hp_idx] as i32)
                     } else {
-                        "HP关".to_string()
+                        crate::tr!("HP关").to_string()
                     },
                     0.24,
                     false,

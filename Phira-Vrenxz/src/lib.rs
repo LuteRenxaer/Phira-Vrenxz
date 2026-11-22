@@ -12,6 +12,7 @@ mod charts_view;
 mod client;
 mod data;
 pub(crate) mod data_transfer;
+mod extra_l10n;
 mod extension;
 mod icons;
 mod images;

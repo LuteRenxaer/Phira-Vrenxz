@@ -240,7 +240,7 @@ impl Page for PhigrosLibraryPage {
             let r = Rect::new(x(fx), y(fy), x(0.058) - x(0.), y(0.043) - y(0.));
             self.tab_btns[i].inner.set(ui, r);
             draw_parallelogram(r, None, if i == self.tab { WHITE } else { Color::new(0., 0., 0., 0.55) }, false);
-            ui.text(TABS[i]).pos(r.center().x, r.center().y).anchor(0.5, 0.5).size(0.30).color(if i == self.tab { BLACK } else { Color::new(0.90, 0.90, 0.90, 1.) }).draw();
+            ui.text(crate::extra_l10n::tr(TABS[i])).pos(r.center().x, r.center().y).anchor(0.5, 0.5).size(0.30).color(if i == self.tab { BLACK } else { Color::new(0.90, 0.90, 0.90, 1.) }).draw();
         }
         // 列表：80px 行高，选中行 38px
         let list = Rect::new(x(0.106), y(0.240), x(0.406) - x(0.106), y(0.97) - y(0.240));

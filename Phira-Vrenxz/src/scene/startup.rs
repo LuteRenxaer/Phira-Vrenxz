@@ -101,7 +101,7 @@ impl StartupLoadingScene {
             let progress = Arc::new(Mutex::new(ExtractProgress {
                 current: 0,
                 total: ASSET_PACKAGES.len(),
-                message: "准备解压...".to_string(),
+                message: crate::tr!("准备解压...").to_string(),
                 done: false,
             }));
             let progress_clone = progress.clone();
@@ -112,7 +112,7 @@ impl StartupLoadingScene {
                 if result.is_err() {
                     if let Ok(mut p) = progress_clone.lock() {
                         p.done = true;
-                        p.message = "解压时发生错误".to_string();
+                        p.message = crate::tr!("解压时发生错误").to_string();
                     }
                 }
             });
@@ -152,7 +152,7 @@ pub(crate) fn extract_builtin_assets(progress: &Arc<Mutex<ExtractProgress>>) {
         {
             let mut p = progress.lock().unwrap();
             p.current = i;
-            p.message = format!("正在解压{}...", desc);
+            p.message = format!("{}{}...", crate::tr!("正在解压"), crate::extra_l10n::tr(desc));
         }
 
         if !archive_path.exists() {
@@ -179,7 +179,7 @@ pub(crate) fn extract_builtin_assets(progress: &Arc<Mutex<ExtractProgress>>) {
 
     let mut p = progress.lock().unwrap();
     p.done = true;
-    p.message = if all_ok { "解压完成".to_string() } else { "解压部分失败".to_string() };
+    p.message = if all_ok { crate::tr!("解压完成").to_string() } else { crate::tr!("解压部分失败").to_string() };
 }
 
 pub(crate) fn extract_zip_skip_top_dir(
@@ -372,7 +372,7 @@ impl Scene for StartupLoadingScene {
                 let (msg, done, current, total) = if let Ok(p) = progress.lock() {
                     (p.message.clone(), p.done, p.current, p.total)
                 } else {
-                    ("解压错误".to_string(), true, 0, 1)
+                    (crate::tr!("解压错误").to_string(), true, 0, 1)
                 };
                 let msg = if done {
                     "Loading...".to_string()

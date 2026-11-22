@@ -51,5 +51,6 @@ const TIPS: &[&str] = &[
 ];
 
 pub fn random_tip() -> &'static str {
-    TIPS[rand::thread_rng().gen_range(0..TIPS.len())]
+    let tip = TIPS[rand::thread_rng().gen_range(0..TIPS.len())];
+    crate::extra_l10n::tr(tip)
 }

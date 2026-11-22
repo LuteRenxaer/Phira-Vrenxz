@@ -103,7 +103,7 @@ impl ReplayManager {
                 .map(|c| c.local_path.clone())
         });
         let Some(local_path) = local_path else {
-            show_error(anyhow::anyhow!("找不到回放对应谱面，请重新导入"));
+            show_error(anyhow::anyhow!(crate::tr!("找不到回放对应谱面，请重新导入")));
             return;
         };
         prpr::replay::set_pending(item.replay.clone());
@@ -144,7 +144,7 @@ impl ReplayManager {
 
 impl Page for ReplayManager {
     fn label(&self) -> Cow<'static, str> {
-        Cow::Borrowed("回放文件")
+        Cow::Borrowed(crate::tr!("回放文件"))
     }
 
     fn update(&mut self, _s: &mut SharedState) -> Result<()> {
@@ -165,7 +165,7 @@ impl Page for ReplayManager {
                     show_error(anyhow::Error::new(err));
                 } else {
                     self.reload();
-                    show_message("回放已导入").ok();
+                    show_message(crate::tr!("回放已导入")).ok();
                 }
             } else {
                 return_file(id, file);
@@ -233,7 +233,7 @@ impl Page for ReplayManager {
             if self.del_btns.get_mut(*idx).is_some_and(|b| b.touch(touch, t)) {
                 let _ = std::fs::remove_file(&self.items[*idx].path);
                 self.reload();
-                show_message("回放已删除").ok();
+                show_message(crate::tr!("回放已删除")).ok();
                 return Ok(true);
             }
             let _ = row;
@@ -245,7 +245,7 @@ impl Page for ReplayManager {
         let top = ui.top;
         let panel = Rect::new(-0.85, -top + 0.07, 1.7, top * 2. - 0.14);
         ui.fill_rect(panel, Color::new(0.05, 0.07, 0.09, 0.97));
-        ui.text("回放管理")
+        ui.text(crate::tr!("回放管理"))
             .pos(panel.x + 0.02, panel.y + 0.025)
             .size(0.56)
             .color(WHITE)
@@ -253,14 +253,14 @@ impl Page for ReplayManager {
         let sr = Rect::new(panel.right() - 0.48, panel.y + 0.02, 0.45, 0.06);
         ui.fill_rect(sr, Color::new(0.02, 0.025, 0.03, 1.));
         self.search_btn.inner.set(ui, sr);
-        ui.text(if self.query.is_empty() { "搜索" } else { &self.query })
+        ui.text(if self.query.is_empty() { crate::tr!("搜索") } else { &self.query })
             .pos(sr.x + 0.02, sr.center().y)
             .anchor(0., 0.5)
             .size(0.30)
             .color(Color::new(1., 1., 1., 0.7))
             .draw();
-        let multi_label = if self.multi { "删除选中" } else { "多选回放" };
-        let labels = ["导入回放", "刷新列表", "最新录制", multi_label, "全部回放", "本地录制", "导入谱面", "缺少谱面"];
+        let multi_label = if self.multi { crate::tr!("删除选中") } else { crate::tr!("多选回放") };
+        let labels = [crate::tr!("导入回放"), crate::tr!("刷新列表"), crate::tr!("最新录制"), multi_label, crate::tr!("全部回放"), crate::tr!("本地录制"), crate::tr!("导入谱面"), crate::tr!("缺少谱面")];
         let bw = 0.40;
         let gap = 0.015;
         let mut by = panel.y + 0.10;
@@ -280,10 +280,10 @@ impl Page for ReplayManager {
             by += 0.075;
         }
         let visible = self.visible();
-        self.status = format!("{} 个回放", visible.len());
+        self.status = format!("{} {}", visible.len(), crate::tr!("个回放"));
         let mut y = by + 0.02;
         if visible.is_empty() {
-            ui.text("暂无回放，请导入文件或调整搜索条件")
+            ui.text(crate::tr!("暂无回放，请导入文件或调整搜索条件"))
                 .pos(panel.x + 0.03, y + 0.04)
                 .size(0.32)
                 .color(Color::new(1., 1., 1., 0.75))
@@ -313,8 +313,8 @@ impl Page for ReplayManager {
             .draw();
             let p = Rect::new(r.right() - 0.30, r.y + 0.020, 0.12, 0.055);
             let d = Rect::new(r.right() - 0.16, r.y + 0.020, 0.12, 0.055);
-            Self::button(ui, p, "播放", false, &mut self.play_btns[*idx]);
-            Self::button(ui, d, "删除", false, &mut self.del_btns[*idx]);
+            Self::button(ui, p, crate::tr!("播放"), false, &mut self.play_btns[*idx]);
+            Self::button(ui, d, crate::tr!("删除"), false, &mut self.del_btns[*idx]);
             y += 0.105;
         }
         ui.text(&self.status)
@@ -375,7 +375,7 @@ impl ReplayEditPage {
 
 impl Page for ReplayEditPage {
     fn label(&self) -> Cow<'static, str> {
-        Cow::Borrowed("编辑回放")
+        Cow::Borrowed(crate::tr!("编辑回放"))
     }
 
     fn update(&mut self, _s: &mut SharedState) -> Result<()> {
@@ -422,13 +422,13 @@ impl Page for ReplayEditPage {
             self.replay.trim(self.start, self.end);
             self.start = 0.;
             self.end = self.replay.duration;
-            show_message("已裁剪").ok();
+            show_message(crate::tr!("已裁剪")).ok();
             return Ok(true);
         }
         if self.btns[5].touch(touch, t) {
             self.replay.shift(self.offset_ms / 1000.);
             self.offset_ms = 0.;
-            show_message("已偏移").ok();
+            show_message(crate::tr!("已偏移")).ok();
             return Ok(true);
         }
         if self.btns[8].touch(touch, t) {
@@ -439,7 +439,7 @@ impl Page for ReplayEditPage {
                     .find(|c| c.info.name == self.replay.name)
                     .map(|c| c.local_path.clone())
             }) else {
-                show_error(anyhow::anyhow!("找不到对应谱面"));
+                show_error(anyhow::anyhow!(crate::tr!("找不到对应谱面")));
                 return Ok(true);
             };
             let mut preview = self.replay.clone();
@@ -475,7 +475,7 @@ impl Page for ReplayEditPage {
             if let Err(err) = self.replay.save_as(&self.path) {
                 show_error(anyhow::Error::new(err));
             } else {
-                show_message("回放已保存").ok();
+                show_message(crate::tr!("回放已保存")).ok();
                 self.next = Some(NextPage::Pop);
             }
             return Ok(true);
@@ -489,7 +489,7 @@ impl Page for ReplayEditPage {
 
     fn render(&mut self, ui: &mut Ui, _s: &mut SharedState) -> Result<()> {
         let area = super::settings::draw_settings_content_panel(ui);
-        super::settings::draw_settings_subpage_header(ui, "编辑回放");
+        super::settings::draw_settings_subpage_header(ui, crate::tr!("编辑回放"));
         let top = ui.top;
         ui.text(&self.replay.name)
             .pos(area.x, -top + 0.13)
@@ -497,23 +497,23 @@ impl Page for ReplayEditPage {
             .color(Color::new(1., 1., 1., 0.6))
             .draw();
         let mut y = area.y;
-        Self::row(ui, y, "起点（秒）", &format!("{:.3}", self.start), &mut self.btns[0], "设置");
+        Self::row(ui, y, crate::tr!("起点（秒）"), &format!("{:.3}", self.start), &mut self.btns[0], crate::tr!("设置"));
         y += 0.085;
-        Self::row(ui, y, "终点（秒）", &format!("{:.3}", self.end), &mut self.btns[1], "设置");
+        Self::row(ui, y, crate::tr!("终点（秒）"), &format!("{:.3}", self.end), &mut self.btns[1], crate::tr!("设置"));
         y += 0.085;
-        Self::row(ui, y, "时间偏移（ms）", &format!("{:.1}", self.offset_ms), &mut self.btns[2], "设置");
+        Self::row(ui, y, crate::tr!("时间偏移（ms）"), &format!("{:.1}", self.offset_ms), &mut self.btns[2], crate::tr!("设置"));
         y += 0.085;
-        Self::row(ui, y, "流速", &format!("{:.2}", self.speed), &mut self.btns[3], "设置");
+        Self::row(ui, y, crate::tr!("流速"), &format!("{:.2}", self.speed), &mut self.btns[3], crate::tr!("设置"));
         y += 0.10;
-        Self::row(ui, y, "裁剪到起点/终点", "", &mut self.btns[4], "执行");
+        Self::row(ui, y, crate::tr!("裁剪到起点/终点"), "", &mut self.btns[4], crate::tr!("执行"));
         y += 0.085;
-        Self::row(ui, y, "应用时间偏移", "", &mut self.btns[5], "执行");
+        Self::row(ui, y, crate::tr!("应用时间偏移"), "", &mut self.btns[5], crate::tr!("执行"));
         y += 0.10;
-        Self::row(ui, y, "在游戏场景中预览", "", &mut self.btns[8], "预览");
+        Self::row(ui, y, crate::tr!("在游戏场景中预览"), "", &mut self.btns[8], crate::tr!("预览"));
         y += 0.085;
-        Self::row(ui, y, "保存修改", "", &mut self.btns[6], "保存");
+        Self::row(ui, y, crate::tr!("保存修改"), "", &mut self.btns[6], crate::tr!("保存"));
         y += 0.085;
-        Self::row(ui, y, "取消", "", &mut self.btns[7], "返回");
+        Self::row(ui, y, crate::tr!("取消"), "", &mut self.btns[7], crate::tr!("返回"));
         Ok(())
     }
 

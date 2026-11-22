@@ -2149,13 +2149,13 @@ impl SongScene {
                 const HP_TITLE_SIZE: f32 = 0.6;
                 let cur = self.hp;
                 let hp_txt = match cur {
-                    HpMode::Off => "HP 血量: 关",
-                    HpMode::Hp1 => "HP 血量: 1 (非Perfect-1)",
-                    HpMode::Hp20 => "HP 血量: 20 (非Perfect-1)",
-                    HpMode::Hp50 => "HP 血量: 50 (非Perfect-1)",
-                    HpMode::Hp100 => "HP 血量: 100 (Bad/Miss-1)",
-                    HpMode::Hp200 => "HP 血量: 200 (Bad/Miss-1)",
-                    HpMode::Custom => "HP 血量: 自定义",
+                    HpMode::Off => crate::tr!("HP 血量: 关"),
+                    HpMode::Hp1 => crate::tr!("HP 血量: 1 (非Perfect-1)"),
+                    HpMode::Hp20 => crate::tr!("HP 血量: 20 (非Perfect-1)"),
+                    HpMode::Hp50 => crate::tr!("HP 血量: 50 (非Perfect-1)"),
+                    HpMode::Hp100 => crate::tr!("HP 血量: 100 (Bad/Miss-1)"),
+                    HpMode::Hp200 => crate::tr!("HP 血量: 200 (Bad/Miss-1)"),
+                    HpMode::Custom => crate::tr!("HP 血量: 自定义"),
                 };
                 ui.text(hp_txt)
                     .pos(HP_LEFT, ITEM_HEIGHT / 2.)
@@ -2594,11 +2594,11 @@ impl SongScene {
         ui.fill_path(&Rect::new(panel.x, panel.y, panel.w, 0.008).rounded(0.004), semi_white(0.18));
 
         ui.text(if self.render_settings.done {
-            "渲染完成"
+            crate::tr!("渲染完成")
         } else if self.render_settings.rendering {
-            "正在渲染中..."
+            crate::tr!("正在渲染中...")
         } else {
-            "渲染设置"
+            crate::tr!("渲染设置")
         })
             .pos(0., -0.36)
             .anchor(0.5, 0.5)
@@ -2606,7 +2606,7 @@ impl SongScene {
             .size(0.46)
             .color(semi_white(0.95))
             .draw();
-        ui.text("后台渲染，不会外放声音")
+        ui.text(crate::tr!("后台渲染，不会外放声音"))
             .pos(0., -0.315)
             .anchor(0.5, 0.5)
             .no_baseline()
@@ -2627,7 +2627,7 @@ impl SongScene {
                 .color(semi_white(0.95))
                 .draw();
             if let Some(started) = self.render_settings.started {
-                ui.text(format!("已用时 {:.1}s", started.elapsed().as_secs_f32()))
+                ui.text(format!("{} {:.1}s", crate::tr!("已用时"), started.elapsed().as_secs_f32()))
                     .pos(0., 0.21)
                     .anchor(0.5, 0.5)
                     .no_baseline()
@@ -2644,7 +2644,7 @@ impl SongScene {
                     .color(Color::new(0.95, 0.35, 0.35, 1.))
                     .draw();
             } else {
-                ui.text(if self.render_settings.done { "视频已保存" } else { "正在编码视频，请保持此窗口开启" })
+                ui.text(if self.render_settings.done { crate::tr!("视频已保存") } else { crate::tr!("正在编码视频，请保持此窗口开启") })
                     .pos(0., 0.27)
                     .anchor(0.5, 0.5)
                     .no_baseline()
@@ -2655,7 +2655,7 @@ impl SongScene {
             if self.render_settings.done {
                 let close = Rect::new(-0.14, 0.32, 0.28, 0.065);
                 ui.fill_path(&close.rounded(0.012), Color::new(0.86, 0.72, 0.18, 1.));
-                ui.text("关闭")
+                ui.text(crate::tr!("关闭"))
                     .pos(close.center().x, close.center().y)
                     .anchor(0.5, 0.5)
                     .no_baseline()
@@ -2673,43 +2673,43 @@ impl SongScene {
         let left_values = [
             format!("{} × {}", opts.width, opts.height),
             format!("{} fps", opts.fps),
-            if self.render_settings.audio { "音乐 + 打击音".to_owned() } else { "静音视频".to_owned() },
-            format!("{}（CRF {}）", RENDER_QUALITY[self.render_settings.quality.min(2)].1, opts.crf),
-            RENDER_BACKENDS[self.render_settings.backend.min(1)].to_owned(),
-            self.render_settings.aspect_text.clone(),
+            if self.render_settings.audio { crate::tr!("音乐 + 打击音").to_owned() } else { crate::tr!("静音视频").to_owned() },
+            format!("{}（CRF {}）", crate::extra_l10n::tr(RENDER_QUALITY[self.render_settings.quality.min(2)].1), opts.crf),
+            crate::extra_l10n::tr(RENDER_BACKENDS[self.render_settings.backend.min(1)]).to_owned(),
+            if self.render_settings.aspect_text == "自动" { crate::tr!("自动").to_owned() } else { self.render_settings.aspect_text.clone() },
             packs
                 .get(self.render_settings.res_pack)
                 .map(|(name, _)| name.clone())
-                .unwrap_or_else(|| "默认".to_owned()),
+                .unwrap_or_else(|| crate::tr!("默认").to_owned()),
         ];
         let right_values = [
             if self.render_settings.loading {
-                format!("开 · {:.1}s", self.render_settings.loading_secs)
+                format!("{} · {:.1}s", crate::tr!("开"), self.render_settings.loading_secs)
             } else {
-                "关".to_owned()
+                crate::tr!("关").to_owned()
             },
             if self.render_settings.ending {
-                format!("开 · {:.1}s", self.render_settings.ending_secs)
+                format!("{} · {:.1}s", crate::tr!("开"), self.render_settings.ending_secs)
             } else {
-                "关".to_owned()
+                crate::tr!("关").to_owned()
             },
-            if self.render_settings.indicator { "显示".to_owned() } else { "隐藏".to_owned() },
-            if self.render_settings.watermark { "显示".to_owned() } else { "隐藏".to_owned() },
-            RENDER_AUTOPLAY_STYLES[if self.render_settings.autoplay_combo { 1 } else { 0 }].to_owned(),
+            if self.render_settings.indicator { crate::tr!("显示").to_owned() } else { crate::tr!("隐藏").to_owned() },
+            if self.render_settings.watermark { crate::tr!("显示").to_owned() } else { crate::tr!("隐藏").to_owned() },
+            crate::extra_l10n::tr(RENDER_AUTOPLAY_STYLES[if self.render_settings.autoplay_combo { 1 } else { 0 }]).to_owned(),
             if self.render_settings.autoplay_text.trim().is_empty() {
                 "Autoplay".to_owned()
             } else {
                 self.render_settings.autoplay_text.clone()
             },
             if self.render_settings.tip.trim().is_empty() {
-                "随机".to_owned()
+                crate::tr!("随机").to_owned()
             } else {
                 self.render_settings.tip.clone()
             },
         ];
         let labels = [
-            "分辨率", "帧率", "视频音轨", "质量", "渲染后端", "画面比例", "资源包",
-            "加载场景", "结算场景", "判定指示器", "版本水印", "Autoplay 样式", "Autoplay 文本", "提示 tip",
+            crate::tr!("分辨率"), crate::tr!("帧率"), crate::tr!("视频音轨"), crate::tr!("质量"), crate::tr!("渲染后端"), crate::tr!("画面比例"), crate::tr!("资源包"),
+            crate::tr!("加载场景"), crate::tr!("结算场景"), crate::tr!("判定指示器"), crate::tr!("版本水印"), crate::tr!("Autoplay 样式"), crate::tr!("Autoplay 文本"), crate::tr!("提示 tip"),
         ];
         let rows = 7;
         let (rw, rh) = (0.44, 0.062);
@@ -2768,7 +2768,7 @@ impl SongScene {
         let start = Rect::new(-0.34, 0.31, 0.34, 0.07);
         let cancel = Rect::new(0.06, 0.31, 0.26, 0.07);
         ui.fill_path(&start.rounded(0.012), Color::new(0.86, 0.72, 0.18, 1.));
-        ui.text("开始渲染")
+        ui.text(crate::tr!("开始渲染"))
             .pos(start.center().x, start.center().y)
             .anchor(0.5, 0.5)
             .no_baseline()
@@ -2778,7 +2778,7 @@ impl SongScene {
         self.render_settings.start_btn.set(ui, start);
 
         ui.fill_path(&cancel.rounded(0.012), semi_white(0.14));
-        ui.text("取消")
+        ui.text(crate::tr!("取消"))
             .pos(cancel.center().x, cancel.center().y)
             .anchor(0.5, 0.5)
             .no_baseline()
@@ -3390,7 +3390,7 @@ impl Scene for SongScene {
                 }
                 "replay-delete" => {
                     if prpr::replay::delete_latest(&self.info.name) {
-                        show_message("回放已删除").ok();
+                        show_message(crate::tr!("回放已删除")).ok();
                         self.update_menu();
                     }
                 }
