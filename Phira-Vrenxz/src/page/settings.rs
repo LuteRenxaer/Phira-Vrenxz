@@ -799,9 +799,16 @@ struct Row<'a> {
     label: Cow<'a, str>,
     sub: Option<Cow<'a, str>>,
     ctl: Ctl<'a>,
+    group: u8,
+}
+impl<'a> Row<'a> {
+    fn with_group(mut self, group: u8) -> Self {
+        self.group = group;
+        self
+    }
 }
 fn row_switch<'a>(label: impl Into<Cow<'a, str>>, sub: Option<Cow<'a, str>>, btn: &'a mut DRectButton, on: bool) -> Row<'a> {
-    Row { label: label.into(), sub, ctl: Ctl::Switch { btn, on } }
+    Row { label: label.into(), sub, ctl: Ctl::Switch { btn, on }, group: 0 }
 }
 fn row_switch_delete<'a>(
     label: impl Into<Cow<'a, str>>,
@@ -810,19 +817,19 @@ fn row_switch_delete<'a>(
     delete: &'a mut DRectButton,
     on: bool,
 ) -> Row<'a> {
-    Row { label: label.into(), sub, ctl: Ctl::SwitchDelete { switch, delete, on } }
+    Row { label: label.into(), sub, ctl: Ctl::SwitchDelete { switch, delete, on }, group: 0 }
 }
 fn row_value<'a>(label: impl Into<Cow<'a, str>>, sub: Option<Cow<'a, str>>, btn: &'a mut DRectButton, text: impl Into<Cow<'a, str>>) -> Row<'a> {
-    Row { label: label.into(), sub, ctl: Ctl::Value { btn, text: text.into() } }
+    Row { label: label.into(), sub, ctl: Ctl::Value { btn, text: text.into() }, group: 0 }
 }
 fn row_arrow<'a>(label: impl Into<Cow<'a, str>>, sub: Option<Cow<'a, str>>, btn: &'a mut DRectButton) -> Row<'a> {
-    Row { label: label.into(), sub, ctl: Ctl::Arrow { btn } }
+    Row { label: label.into(), sub, ctl: Ctl::Arrow { btn }, group: 0 }
 }
 fn row_choose<'a>(label: impl Into<Cow<'a, str>>, sub: Option<Cow<'a, str>>, btn: &'a mut ChooseButton, w: f32) -> Row<'a> {
-    Row { label: label.into(), sub, ctl: Ctl::Choose { btn, w } }
+    Row { label: label.into(), sub, ctl: Ctl::Choose { btn, w }, group: 0 }
 }
 fn row_slider<'a>(label: impl Into<Cow<'a, str>>, sub: Option<Cow<'a, str>>, slider: &'a mut Slider, value: f32, text: String) -> Row<'a> {
-    Row { label: label.into(), sub, ctl: Ctl::Slider { slider, value, text } }
+    Row { label: label.into(), sub, ctl: Ctl::Slider { slider, value, text }, group: 0 }
 }
 const CTL_TEXT_SIZE: f32 = 0.36;
 fn ctl_width(ui: &mut Ui, ctl: &Ctl) -> f32 {
@@ -1028,7 +1035,7 @@ fn render_account(ui: &mut Ui, r: Rect, t: f32, icon: &SafeTexture, logout: &mut
     let row = Rect::new(r.x, r.bottom() - 0.115, r.w, 0.115);
     ui.fill_rect(Rect::new(row.x, row.bottom() - 0.0014, row.w, 0.0014), semi_white(0.085));
     logout.build(ui, t, row, |ui, _| {
-        ui.text("登出")
+        ui.text(tl!("sx-logout"))
             .pos(row.x, row.center().y)
             .anchor(0., 0.5)
             .size(0.54)
@@ -1055,7 +1062,7 @@ fn render_about_page(ui: &mut Ui, t: f32, r: Rect, links: &mut [DRectButton; 4],
         .size(0.30)
         .color(semi_white(0.55))
         .draw();
-    let items = ["音频问题疑难解答", "观看教程", "开源许可证", "隐私政策"];
+    let items = [tl!("sx-audio-troubleshooting"), tl!("sx-watch-tutorial"), tl!("sx-open-source-licenses"), tl!("sx-privacy-policy")];
     let mut rows: Vec<Row> = Vec::with_capacity(4);
     let mut it = links.iter_mut();
     for name in items {
@@ -1064,7 +1071,7 @@ fn render_about_page(ui: &mut Ui, t: f32, r: Rect, links: &mut [DRectButton; 4],
         }
     }
     render_grid(ui, t, Rect::new(r.x, r.y + head_h, r.w, r.h - head_h - 0.10), scroll, &mut rows, content_h, None);
-    ui.text(format!("PHIRA-VRENXZ  v{}  ·  第三方非官方客户端", crate::APP_VERSION))
+    ui.text(tl!("sx-about-footer", "version" => crate::APP_VERSION))
         .pos(r.x + r.w * 0.5, r.bottom() - 0.02)
         .anchor(0.5, 0.5)
         .size(0.26)
@@ -1193,7 +1200,7 @@ impl Page for SettingsPage {
                     data.me = None;
                     data.tokens = None;
                     save_data()?;
-                    show_message("已退出登录").ok();
+                    show_message(tl!("sx-logged-out")).ok();
                     return Ok(true);
                 }
                 return Ok(false);
@@ -1203,7 +1210,7 @@ impl Page for SettingsPage {
                     if self.link_buttons[i].touch(touch, t) {
                         match i {
                             0 => {
-                                show_message("音频问题：请先确认系统输出设备与游戏内音量").ok();
+                                show_message(tl!("sx-audio-tip")).ok();
                             }
                             1 => {
                                 self.list_general.start_tutorial();
@@ -1212,7 +1219,7 @@ impl Page for SettingsPage {
                                 let _ = open_url("https://github.com/LuteRenxaer/PhirLie");
                             }
                             _ => {
-                                show_message("本客户端不收集任何个人信息").ok();
+                                show_message(tl!("sx-privacy-note")).ok();
                             }
                         }
                         return Ok(true);
@@ -1273,9 +1280,9 @@ impl Page for SettingsPage {
                 match crate::plugin::import_plugin_archive(std::path::Path::new(&file)) {
                     Ok(p) => {
                         self.list_plugin.refresh_plugins();
-                        show_message(format!("已导入插件：{} v{}", p.info.name, p.info.version)).ok();
+                        show_message(tl!("sx-plugin-imported", "name" => p.info.name, "version" => p.info.version).to_string()).ok();
                     }
-                    Err(err) => show_error(err.context("插件导入失败")),
+                    Err(err) => show_error(err.context(tl!("sx-plugin-import-failed"))),
                 }
             } else {
                 return_file(id, file);
@@ -1611,8 +1618,11 @@ impl GeneralList {
             if config.upload_score_enabled {
                 config.upload_score_enabled = false;
             } else {
-                Dialog::plain("上传成绩", "是否打开上传成绩？\n打开后被封后果自负。")
-                    .buttons(vec!["取消".to_string(), "确认开启".to_string()])
+                Dialog::plain(
+                    tl!("sx-upload-title"),
+                    format!("{}\n{}", tl!("sx-upload-body"), tl!("sx-upload-warning")),
+                )
+                    .buttons(vec![tl!("sx-cancel").to_string(), tl!("sx-confirm-enable").to_string()])
                     .listener(move |_dialog, pos| {
                         if pos == 1 {
                             get_data_mut().config.upload_score_enabled = true;
@@ -1833,8 +1843,8 @@ impl GeneralList {
             data.prefer_reduced_motion,
         ));
         v.push(row_switch(
-            "上传成绩",
-            Some("开启后成绩将上传至服务器，被封后果自负".into()),
+            tl!("sx-upload-score"),
+            Some(tl!("sx-upload-score-sub").into()),
             &mut self.upload_score_btn,
             config.upload_score_enabled,
         ));
@@ -1863,16 +1873,16 @@ impl GeneralList {
         v.push(row_switch(tl!("item-chinese-numerals"), Some(tl!("item-chinese-numerals-sub")), &mut self.chinese_numerals_btn, config.chinese_numerals));
         v.push(row_arrow(tl!("item-reset-settings"), Some(tl!("item-reset-settings-sub")), &mut self.reset_settings_btn));
         v.push(row_value(
-            "局域网联机",
-            Some("实验性：同一局域网内建房/加入，支持传谱与准备".into()),
+            tl!("sx-lan"),
+            Some(tl!("sx-lan-sub").into()),
             &mut self.lan_btn,
-            "进入".to_string(),
+            tl!("sx-enter").to_string(),
         ));
         v.push(row_value(
-            "数据传输",
-            Some("导出/导入 .pfd 数据包，或经局域网跨设备传输".into()),
+            tl!("sx-data-transfer"),
+            Some(tl!("sx-data-transfer-sub").into()),
             &mut self.data_btn,
-            "进入".to_string(),
+            tl!("sx-enter").to_string(),
         ));
         v
     }
@@ -2077,20 +2087,20 @@ impl ChartList {
             indicator_enabled_btn: DRectButton::new(),
             indicator_delay_mode_btn: ChooseButton::new()
                 .with_options(vec![
-                    "冰与火".to_string(),
+                    tl!("sx-adofai").to_string(),
                     "phigros".to_string(),
                 ])
                 .with_selected(get_data().config.indicator_delay_phigros as usize),
             indicator_color_mode_btn: ChooseButton::new()
                 .with_options(vec![
-                    "冰与火".to_string(),
+                    tl!("sx-adofai").to_string(),
                     "phira".to_string(),
                 ])
                 .with_selected(get_data().config.indicator_color_phira as usize),
             show_avg_fps_btn: DRectButton::new(),
             show_fps_btn: DRectButton::new(),
             fps_pos_btn: ChooseButton::new()
-                .with_options(vec!["左上".into(), "右上".into(), "左下".into(), "右下".into()])
+                .with_options(vec![tl!("sx-pos-tl").into(), tl!("sx-pos-tr").into(), tl!("sx-pos-bl").into(), tl!("sx-pos-br").into()])
                 .with_selected(get_data().config.fps_position.min(3) as usize),
             fps_limit_slider: Slider::new(0.0..480.0, 10.0),
             dc_pause_btn: DRectButton::new(),
@@ -2117,10 +2127,10 @@ impl ChartList {
             judge_meh_slider: Slider::new(80.0..220.0, 1.0),
             judge_preset_btn: ChooseButton::new()
                 .with_options(vec![
-                    "内置".to_string(),
+                    tl!("sx-builtin").to_string(),
                     "Phigros".to_string(),
                     "Phira".to_string(),
-                    "自定义".to_string(),
+                    tl!("sx-custom").to_string(),
                 ])
                 .with_selected(match get_data().config.judge_preset {
                     prpr::config::JudgePreset::Default => 0,
@@ -2464,46 +2474,46 @@ impl ChartList {
             Some(tl!("item-ap-fc-indicator-sub")),
             &mut self.ap_fc_indicator_btn,
             config.ap_fc_indicator,
-        ));
+        ).with_group(2));
         v.push(row_switch(
             tl!("item-indicator-enabled"),
             Some(tl!("item-indicator-enabled-sub")),
             &mut self.indicator_enabled_btn,
             config.indicator_enabled,
-        ));
+        ).with_group(2));
         v.push(row_choose(
             tl!("item-indicator-delay"),
             Some(tl!("item-indicator-delay-sub")),
             &mut self.indicator_delay_mode_btn,
             0.20,
-        ));
+        ).with_group(2));
         v.push(row_choose(
             tl!("item-indicator-color"),
             Some(tl!("item-indicator-color-sub")),
             &mut self.indicator_color_mode_btn,
             0.20,
-        ));
-        v.push(row_switch(tl!("item-show-fps"), Some(tl!("item-show-fps-sub")), &mut self.show_fps_btn, config.show_fps));
+        ).with_group(2));
+        v.push(row_switch(tl!("item-show-fps"), Some(tl!("item-show-fps-sub")), &mut self.show_fps_btn, config.show_fps).with_group(1));
         v.push(row_choose(
             tl!("item-fps-pos"),
             Some(tl!("item-fps-pos-sub")),
             &mut self.fps_pos_btn,
             0.20,
-        ));
+        ).with_group(1));
         v.push(row_slider(
             tl!("item-fps-limit"),
             Some(tl!("item-fps-limit-sub")),
             &mut self.fps_limit_slider,
             config.fps_limit as f32,
             format!("{}", config.fps_limit),
-        ));
+        ).with_group(1));
         v.push(row_switch(
             tl!("item-show-avg-fps"),
             Some(tl!("item-show-avg-fps-sub")),
             &mut self.show_avg_fps_btn,
             config.show_avg_fps,
-        ));
-        v.push(row_switch(tl!("item-dc-pause"), None, &mut self.dc_pause_btn, config.double_click_to_pause));
+        ).with_group(1));
+        v.push(row_switch(tl!("item-dc-pause"), None, &mut self.dc_pause_btn, config.double_click_to_pause).with_group(1));
         v.push(row_switch(tl!("item-dhint"), Some(tl!("item-dhint-sub")), &mut self.dhint_btn, config.double_hint));
         if config.perf_is_custom() {
             v.push(row_switch(tl!("item-opt"), Some(tl!("item-opt-sub")), &mut self.opt_btn, config.aggressive));
@@ -2513,7 +2523,7 @@ impl ChartList {
             Some(tl!("item-use-keyboard-sub")),
             &mut self.use_keyboard_btn,
             config.use_keyboard,
-        ));
+        ).with_group(1));
         if config.perf_is_custom() {
             v.push(row_switch(tl!("item-particle"), Some(tl!("item-particle-sub")), &mut self.particle_btn, config.particle));
         }
@@ -2530,47 +2540,47 @@ impl ChartList {
             config.interactive,
         ));
         v.push(row_slider(
-            "自定义 HP 上限",
-            Some("谱面 HP 选择“自定义”时使用".into()),
+            tl!("sx-hp-max"),
+            Some(tl!("sx-hp-max-sub").into()),
             &mut self.hp_custom_slider,
             config.hp_custom_max,
             format!("{:.0}", config.hp_custom_max),
-        ));
+        ).with_group(3));
         v.push(row_switch(
-            "自定义 HP 只扣 Bad/Miss",
-            Some("关闭时非 Perfect 都会扣 1".into()),
+            tl!("sx-hp-bad-only"),
+            Some(tl!("sx-hp-bad-only-sub").into()),
             &mut self.hp_custom_bad_btn,
             config.hp_custom_bad_only,
-        ));
+        ).with_group(3));
         v.push(row_switch(
-            "记录本地回放",
-            Some("游玩结束后把触点时间轴保存到 replays/".into()),
+            tl!("sx-record-replay"),
+            Some(tl!("sx-record-replay-sub").into()),
             &mut self.record_replay_btn,
             config.record_replay,
-        ));
+        ).with_group(4));
         v.push(row_switch(
-            "练习自动提速",
-            Some("Exercise 每轮结束自动提高流速".into()),
+            tl!("sx-exercise-auto"),
+            Some(tl!("sx-exercise-auto-sub").into()),
             &mut self.exercise_auto_btn,
             config.exercise_auto_speed,
         ));
         v.push(row_slider(
-            "每轮提速",
-            Some("自动提速每次增加的倍率".into()),
+            tl!("sx-exercise-step"),
+            Some(tl!("sx-exercise-step-sub").into()),
             &mut self.exercise_step_slider,
             config.exercise_speed_step,
             format!("+{:.2}x", config.exercise_speed_step),
         ));
         v.push(row_slider(
-            "自动重试次数",
-            Some("HP 失败后自动从失败点前重开；0 为关闭".into()),
+            tl!("sx-auto-retry"),
+            Some(tl!("sx-auto-retry-sub").into()),
             &mut self.auto_retry_slider,
             config.auto_retry as f32,
-            format!("{} 次", config.auto_retry),
+            tl!("sx-retry-count", "n" => config.auto_retry).to_string(),
         ));
         v.push(row_slider(
-            "重开回退",
-            Some("自动重试时从失败前多少秒开始".into()),
+            tl!("sx-retry-rewind"),
+            Some(tl!("sx-retry-rewind-sub").into()),
             &mut self.retry_rewind_slider,
             config.retry_rewind_sec,
             format!("{:.1} s", config.retry_rewind_sec),
@@ -2590,68 +2600,68 @@ impl ChartList {
             config.full_screen_judge,
         ));
         v.push(row_choose(
-            "判定预设",
-            Some("内置 / Phigros / Phira / 自定义窗口".into()),
+            tl!("sx-judge-preset"),
+            Some(tl!("sx-judge-preset-sub").into()),
             &mut self.judge_preset_btn,
             0.20,
         ));
         v.push(row_slider(
-            "Perfect 判定窗口",
-            Some("自定义 Perfect 判定范围（毫秒）".into()),
+            tl!("sx-judge-perfect"),
+            Some(tl!("sx-judge-perfect-sub").into()),
             &mut self.judge_perfect_slider,
             config.judge_perfect_ms,
             format!("{:.0} ms", config.judge_perfect_ms),
         ));
         v.push(row_slider(
-            "Good 判定窗口",
-            Some("自定义 Good 判定范围（毫秒）".into()),
+            tl!("sx-judge-good"),
+            Some(tl!("sx-judge-good-sub").into()),
             &mut self.judge_good_slider,
             config.judge_good_ms,
             format!("{:.0} ms", config.judge_good_ms),
         ));
         v.push(row_slider(
-            "Bad 判定窗口",
-            Some("自定义 Bad 判定范围（毫秒）".into()),
+            tl!("sx-judge-bad"),
+            Some(tl!("sx-judge-bad-sub").into()),
             &mut self.judge_bad_slider,
             config.judge_bad_ms,
             format!("{:.0} ms", config.judge_bad_ms),
         ));
         v.push(row_slider(
-            "晚按补偿",
-            Some("从 Late 误差中扣除的毫秒数".into()),
+            tl!("sx-judge-late"),
+            Some(tl!("sx-judge-late-sub").into()),
             &mut self.judge_late_slider,
             config.judge_late_leniency_ms,
             format!("{:.0} ms", config.judge_late_leniency_ms),
         ));
         v.push(row_slider(
-            "Perfect+ 阈值",
-            Some("误差不超过该值的 Perfect 计为 Perfect+；0 关闭".into()),
+            tl!("sx-judge-pp"),
+            Some(tl!("sx-judge-pp-sub").into()),
             &mut self.judge_pp_slider,
             config.judge_perfect_plus_ms,
             format!("{:.0} ms", config.judge_perfect_plus_ms),
         ));
         v.push(row_switch(
-            "细致判定",
-            Some("Good 再分为 Great / Ok / Meh 统计".into()),
+            tl!("sx-judge-detailed"),
+            Some(tl!("sx-judge-detailed-sub").into()),
             &mut self.judge_detailed_btn,
             config.judge_detailed,
         ));
         v.push(row_slider(
-            "Great 阈值",
+            tl!("sx-judge-great"),
             None,
             &mut self.judge_great_slider,
             config.judge_great_ms,
             format!("{:.0} ms", config.judge_great_ms),
         ));
         v.push(row_slider(
-            "Ok 阈值",
+            tl!("sx-judge-ok"),
             None,
             &mut self.judge_ok_slider,
             config.judge_ok_ms,
             format!("{:.0} ms", config.judge_ok_ms),
         ));
         v.push(row_slider(
-            "Meh 阈值",
+            tl!("sx-judge-meh"),
             None,
             &mut self.judge_meh_slider,
             config.judge_meh_ms,
@@ -2670,86 +2680,40 @@ impl ChartList {
             config.fnf_judgement,
         ));
         v.push(row_switch(
-            "噪域开关",
-            Some("关闭后谱面噪域既不显示也不拦截触摸".into()),
+            tl!("sx-noise-enabled"),
+            Some(tl!("sx-noise-enabled-sub").into()),
             &mut self.noise_enabled_btn,
             config.noise_enabled,
-        ));
+        ).with_group(3));
         v
     }
-    fn row_group(label: &str) -> u8 {
-        if [
-            "显示帧率",
-            "Show FPS",
-            "顯示幀率",
-            "FPS 位置",
-            "FPS Position",
-            "帧率上限",
-            "FPS Limit",
-            "幀率上限",
-            "显示平均帧率",
-            "Show AVG FPS",
-            "顯示平均幀率",
-            "双击暂停",
-            "Double-Tap to Pause",
-            "雙擊暫停",
-            "使用键盘游玩",
-            "Use Keyboard",
-            "使用鍵盤遊玩",
-        ]
-        .iter()
-        .any(|s| label.contains(s))
-        {
-            1
-        } else if [
-            "AP/FC",
-            "准度指示器",
-            "Accuracy Indicator",
-            "準度指示器",
-            "指示器颜色",
-            "Indicator Color",
-            "指示器顏色",
-        ]
-        .iter()
-        .any(|s| label.contains(s))
-        {
-            2
-        } else if ["自定义 HP", "噪域开关"].iter().any(|s| label.contains(s)) {
-            3
-        } else if label.contains("记录本地回放") {
-            4
-        } else {
-            0
-        }
-    }
-
     pub fn rows(&mut self) -> Vec<Row<'_>> {
         let mut v = self.all_rows();
-        v.retain(|r| Self::row_group(r.label.as_ref()) == 0);
+        v.retain(|r| r.group == 0);
         v
     }
 
     pub fn general_rows(&mut self) -> Vec<Row<'_>> {
         let mut v = self.all_rows();
-        v.retain(|r| Self::row_group(r.label.as_ref()) == 1);
+        v.retain(|r| r.group == 1);
         v
     }
 
     pub fn visual_rows(&mut self) -> Vec<Row<'_>> {
         let mut v = self.all_rows();
-        v.retain(|r| Self::row_group(r.label.as_ref()) == 2);
+        v.retain(|r| r.group == 2);
         v
     }
 
     pub fn custom_rows(&mut self) -> Vec<Row<'_>> {
         let mut v = self.all_rows();
-        v.retain(|r| Self::row_group(r.label.as_ref()) == 3);
+        v.retain(|r| r.group == 3);
         v
     }
 
     pub fn debug_rows(&mut self) -> Vec<Row<'_>> {
         let mut v = self.all_rows();
-        v.retain(|r| Self::row_group(r.label.as_ref()) == 4);
+        v.retain(|r| r.group == 4);
         v
     }
 
@@ -2779,17 +2743,17 @@ impl VisualList {
             noise_color_btn: DRectButton::new(),
             noise_demo_btn: ChooseButton::new()
                 .with_options(vec![
-                    "仿Phigros".to_string(),
-                    "纯色块".to_string(),
+                    tl!("sx-noise-demo-phigros").to_string(),
+                    tl!("sx-noise-demo-solid").to_string(),
                 ])
                 .with_selected((get_data().config.noise_demo.saturating_sub(1)) as usize),
             noise_glitch_btn: DRectButton::new(),
             noise_opacity_slider: Slider::new(0.0..1.0, 0.01),
             dynamic_bg_btn: ChooseButton::new()
                 .with_options(vec![
-                    "关闭".to_string(),
-                    "静态亮度".to_string(),
-                    "动态亮度".to_string(),
+                    tl!("sx-off").to_string(),
+                    tl!("sx-static-brightness").to_string(),
+                    tl!("sx-dynamic-brightness").to_string(),
                 ])
                 .with_selected(get_data().config.dynamic_background.as_u8() as usize),
             show_watermark_btn: DRectButton::new(),
@@ -2865,45 +2829,45 @@ impl VisualList {
         let config = &data.config;
         vec![
             row_value(
-                "噪域颜色",
-                Some("十六进制色值，例如 7A003A".into()),
+                tl!("sx-noise-color"),
+                Some(tl!("sx-noise-color-sub").into()),
                 &mut self.noise_color_btn,
                 config.noise_color.trim().trim_start_matches('#').to_string(),
             ),
             row_choose(
-                "噪域演示",
-                Some("仿Phigros使用噪点纹理；纯色块为低配色块".into()),
+                tl!("sx-noise-demo"),
+                Some(tl!("sx-noise-demo-sub").into()),
                 &mut self.noise_demo_btn,
                 0.22,
             ),
             row_switch(
-                "噪域 Glitch",
-                Some("启用后噪域边缘带故障错位效果".into()),
+                tl!("sx-noise-glitch"),
+                Some(tl!("sx-noise-glitch-sub").into()),
                 &mut self.noise_glitch_btn,
                 config.noise_glitch,
             ),
             row_slider(
-                "噪域透明度",
+                tl!("sx-noise-opacity"),
                 None,
                 &mut self.noise_opacity_slider,
                 config.noise_opacity,
                 format!("{:.2}", config.noise_opacity),
             ),
             row_choose(
-                "动态背景",
-                Some("曲绘代表色流体；动态亮度会跟随音乐能量".into()),
+                tl!("sx-dynamic-bg"),
+                Some(tl!("sx-dynamic-bg-sub").into()),
                 &mut self.dynamic_bg_btn,
                 0.22,
             ),
             row_switch(
-                "版本水印",
-                Some("左上角显示游戏版本信息".into()),
+                tl!("sx-watermark"),
+                Some(tl!("sx-watermark-sub").into()),
                 &mut self.show_watermark_btn,
                 config.show_watermark,
             ),
             row_switch(
-                "难度和谱面名称",
-                Some("结算与游戏内显示难度与谱面名".into()),
+                tl!("sx-chart-info"),
+                Some(tl!("sx-chart-info-sub").into()),
                 &mut self.show_chart_info_btn,
                 config.show_chart_info,
             ),
@@ -2973,7 +2937,7 @@ impl ReplayList {
                 .map(|c| c.local_path.clone())
         });
         let Some(local_path) = local_path else {
-            show_error(anyhow::anyhow!("找不到回放对应谱面，请重新导入"));
+            show_error(anyhow::anyhow!(tl!("sx-replay-chart-missing")));
             return;
         };
         prpr::replay::set_pending(item.replay.clone());
@@ -3027,7 +2991,7 @@ impl ReplayList {
             if self.del_btns[i].touch(touch, t) {
                 let _ = fs::remove_file(&self.items[i].path);
                 self.reload();
-                show_message("回放已删除").ok();
+                show_message(tl!("sx-replay-deleted")).ok();
                 return Ok(Some(true));
             }
         }
@@ -3075,9 +3039,9 @@ impl ReplayList {
                 item.replay.stats().2,
                 item.replay.stats().3
             );
-            v.push(row_value(item.replay.name.clone(), Some(sub.into()), play, "播放"));
-            v.push(row_value(format!("编辑：{}", item.replay.name), None, edit, "编辑"));
-            v.push(row_value(format!("删除：{}", item.replay.name), None, del, tl!("row-delete")));
+            v.push(row_value(item.replay.name.clone(), Some(sub.into()), play, tl!("sx-play")));
+            v.push(row_value(tl!("sx-edit-name", "name" => item.replay.name.clone()).to_string(), None, edit, tl!("sx-edit")));
+            v.push(row_value(tl!("sx-delete-name", "name" => item.replay.name.clone()).to_string(), None, del, tl!("row-delete")));
         }
         v
     }
@@ -3155,7 +3119,7 @@ impl DebugList {
                     }
                 }
             }
-            show_message("回放已清空").ok();
+            show_message(tl!("sx-replay-cleared")).ok();
             return Ok(Some(false));
         }
         if self.replay_export_btn.touch(touch, t) {
@@ -3170,7 +3134,7 @@ impl DebugList {
                     }
                 }
             }
-            show_message("回放已导出到 export/replays").ok();
+            show_message(tl!("sx-replay-exported")).ok();
             return Ok(Some(false));
         }
         if self.replay_manager_btn.touch(touch, t) {
@@ -3193,10 +3157,10 @@ impl DebugList {
         vec![
             row_switch(tl!("item-chart-debug"), Some(tl!("item-chart-debug-sub")), &mut self.chart_debug_btn, config.chart_debug),
             row_switch(tl!("item-touch-debug"), Some(tl!("item-touch-debug-sub")), &mut self.touch_debug_btn, config.touch_debug),
-            row_switch("音符调试", Some("显示当前时间附近音符的线号/ID/时间/类型".into()), &mut self.note_debug_btn, config.note_debug),
+            row_switch(tl!("sx-note-debug"), Some(tl!("sx-note-debug-sub").into()), &mut self.note_debug_btn, config.note_debug),
             row_switch(
-                "Combo 文本调试",
-                Some("在游玩界面显示 Combo 文本调试信息".into()),
+                tl!("sx-combo-debug"),
+                Some(tl!("sx-combo-debug-sub").into()),
                 &mut self.combo_text_debug_btn,
                 config.combo_text_debug,
             ),
@@ -3206,9 +3170,9 @@ impl DebugList {
                 &mut self.crash_btn,
                 tl!("item-crash"),
             ),
-            row_value("打开回放目录", Some("在资源管理器中查看 replays/".into()), &mut self.replay_folder_btn, tl!("settings-open")),
-            row_value("清空回放", Some("删除 replays/ 下全部 JSON 回放".into()), &mut self.replay_clear_btn, "清空"),
-            row_value("导出回放", Some("复制到 export/replays".into()), &mut self.replay_export_btn, "导出"),
+            row_value(tl!("sx-replay-folder"), Some(tl!("sx-replay-folder-sub").into()), &mut self.replay_folder_btn, tl!("settings-open")),
+            row_value(tl!("sx-replay-clear"), Some(tl!("sx-replay-clear-sub").into()), &mut self.replay_clear_btn, tl!("sx-clear")),
+            row_value(tl!("sx-replay-export"), Some(tl!("sx-replay-export-sub").into()), &mut self.replay_export_btn, tl!("sx-export")),
         ]
     }
 }
@@ -3221,7 +3185,7 @@ fn key_setting(key: &str) -> serde_json::Value {
 }
 fn set_key_setting(key: &str, value: serde_json::Value) -> anyhow::Result<()> {
     let p = crate::plugins::installed()?.into_iter().find(|p| p.manifest.id == "phira-vrenxz.keydisplay")
-        .ok_or_else(|| anyhow::anyhow!("按键显示插件未安装"))?;
+        .ok_or_else(|| anyhow::anyhow!(tl!("sx-keydisplay-missing")))?;
     let mut s = p.settings.clone();
     if let Some(obj) = s.as_object_mut() { obj.insert(key.to_string(), value); }
     crate::plugins::change("phira-vrenxz.keydisplay", None, Some(s), false)
@@ -3303,7 +3267,7 @@ impl PluginList {
         if self.refresh_btn.touch(touch, t) {
             self.refresh_plugins();
             let n = self.plugins.len();
-            show_message(format!("已重扫插件目录（{n} 个插件）")).ok();
+            show_message(tl!("sx-plugins-rescanned", "n" => n).to_string()).ok();
             return Ok(Some(false));
         }
         for i in 0..self.delete_btns.len() {
@@ -3311,7 +3275,7 @@ impl PluginList {
                 if let Some(p) = self.plugins.get(i) {
                     let name = p.info.name.clone();
                     match crate::plugin::delete_plugin(p) {
-                        Ok(()) => { show_message(format!("已删除插件：{name}")).ok(); self.refresh_plugins(); }
+                        Ok(()) => { show_message(tl!("sx-plugin-deleted", "name" => name).to_string()).ok(); self.refresh_plugins(); }
                         Err(err) => { show_error(err); }
                     }
                 }
@@ -3334,14 +3298,14 @@ impl PluginList {
     pub fn rows(&mut self) -> Vec<Row<'_>> {
         let mut v = Vec::new();
         v.push(row_value(
-            "导入插件",
-            Some("支持 .zip / .zips / .pvn 插件包，导入后自动刷新".into()),
+            tl!("sx-plugin-import"),
+            Some(tl!("sx-plugin-import-sub").into()),
             &mut self.import_btn,
-            "选择文件",
+            tl!("sx-select-file"),
         ));
         v.push(row_arrow(
-            "重扫插件目录",
-            Some("手动往 plugins\\ 目录放过插件后点这里".into()),
+            tl!("sx-plugin-rescan"),
+            Some(tl!("sx-plugin-rescan-sub").into()),
             &mut self.refresh_btn,
         ));
         {
@@ -3351,7 +3315,7 @@ impl PluginList {
             for ((p, b), del) in plugins.iter().zip(btns.iter_mut()).zip(del_btns.iter_mut()) {
                 let mut sub = format!("v{} by {}", p.info.version, p.info.author);
                 if !p.entry_ok {
-                    sub.push_str(" · 入口异常");
+                    sub.push_str(&tl!("sx-plugin-entry-error"));
                 } else if !p.info.description.is_empty() {
                     sub.push_str(" · ");
                     sub.push_str(&p.info.description);
@@ -3365,7 +3329,7 @@ impl PluginList {
             for ((id, key, val), b) in items.iter().zip(sbtns.iter_mut()) {
                 let pname = plugins.iter().find(|p| p.pro_id.as_deref() == Some(id)).map(|p| p.info.name.as_str()).unwrap_or(id);
                 let shown = match val {
-                    serde_json::Value::Bool(v) => if *v { "开".to_string() } else { "关".to_string() },
+                    serde_json::Value::Bool(v) => if *v { tl!("sx-toggle-on").to_string() } else { tl!("sx-toggle-off").to_string() },
                     serde_json::Value::Number(n) => format!("{:.0}%", n.as_f64().unwrap_or(0.) * 100.),
                     serde_json::Value::String(s) => s.clone(),
                     _ => val.to_string(),
@@ -3374,9 +3338,10 @@ impl PluginList {
             }
             if plugins.is_empty() {
                 v.push(Row {
-                    label: "还没有插件".into(),
-                    sub: Some("点上面的「导入插件」选 .zip / .zips / .pvn 包".into()),
+                    label: tl!("sx-no-plugins").into(),
+                    sub: Some(tl!("sx-no-plugins-sub").into()),
                     ctl: Ctl::None,
+                    group: 0,
                 });
             }
         }
@@ -3553,12 +3518,12 @@ impl CustomList {
                 tl!("font-import"),
             ),
             row_value(
-                "主页动态背景",
+                tl!("sx-home-video"),
                 Some(video_name.into()),
                 &mut self.custom_video_btn,
                 tl!("custom-select").into_owned(),
             ),
-            row_arrow("清除动态背景", None, &mut self.reset_video_btn),
+            row_arrow(tl!("sx-home-video-reset"), None, &mut self.reset_video_btn),
         ]
     }
     pub fn render_top(&mut self, ui: &mut Ui, t: f32) {
@@ -3598,7 +3563,7 @@ impl CustomList {
         if self.reset_video_btn.touch(touch, t) {
             data.home_video_path = None;
             crate::scene::HOME_VIDEO_UPDATED.store(true, Ordering::Relaxed);
-            show_message("已清除主页动态背景").ok();
+            show_message(tl!("sx-home-video-reset-done")).ok();
             return Ok(Some(true));
         }
         if self.reset_bg_btn.touch(touch, t) {
@@ -3767,7 +3732,7 @@ impl CustomList {
                 let data = get_data_mut();
                 data.home_video_path = Some(file);
                 HOME_VIDEO_UPDATED.store(true, Ordering::Relaxed);
-                show_message("主页动态背景已导入").ok();
+                show_message(tl!("sx-home-video-set")).ok();
                 return Ok(true);
             } else if id == "custom_bgm" {
                 let data = get_data_mut();
