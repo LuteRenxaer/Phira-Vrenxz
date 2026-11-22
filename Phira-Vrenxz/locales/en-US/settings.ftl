@@ -358,3 +358,14 @@ custom-not-selected = Not selected
 item-autoplay-text-default = Autoplay
 profile-id = ID: { $id }
 profile-id-none = ID: --
+
+item-indicator-enabled = Accuracy Indicator
+item-indicator-enabled-sub = Show the timing error bar at the bottom center.
+item-indicator-delay = Accuracy Indicator Delay
+item-indicator-delay-sub = A Dance of Fire and Ice: ±220ms; Phigros: ±80ms Perfect / ±160ms Good
+item-indicator-color = Indicator Color
+item-indicator-color-sub = A Dance of Fire and Ice: fixed built-in colors; Phira: use skin YML
+item-fps-pos = FPS Position
+item-fps-pos-sub = Top left / Top right / Bottom left / Bottom right
+item-fps-limit = FPS Limit
+item-fps-limit-sub = 0 = unlimited; 60/120/144 recommended

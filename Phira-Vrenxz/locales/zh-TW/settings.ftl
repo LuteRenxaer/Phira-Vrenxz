@@ -343,3 +343,14 @@ custom-not-selected = 未選擇
 item-autoplay-text-default = 自動遊玩
 profile-id = ID：{ $id }
 profile-id-none = ID：--
+
+item-indicator-enabled = 準度指示器
+item-indicator-enabled-sub = 開啟後顯示底部中央誤差刻度條
+item-indicator-delay = 準度指示器延遲
+item-indicator-delay-sub = 冰與火：±220ms；Phigros：±80ms Perfect / ±160ms Good
+item-indicator-color = 指示器顏色
+item-indicator-color-sub = 冰與火：內建固定色；Phira：取面板 yml
+item-fps-pos = FPS 位置
+item-fps-pos-sub = 左上 / 右上 / 左下 / 右下
+item-fps-limit = 幀率上限
+item-fps-limit-sub = 0 = 不限制；建議 60/120/144

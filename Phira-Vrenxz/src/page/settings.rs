@@ -2466,33 +2466,33 @@ impl ChartList {
             config.ap_fc_indicator,
         ));
         v.push(row_switch(
-            "准度指示器",
-            Some("开启后显示底部中央误差刻度条".into()),
+            tl!("item-indicator-enabled"),
+            Some(tl!("item-indicator-enabled-sub")),
             &mut self.indicator_enabled_btn,
             config.indicator_enabled,
         ));
         v.push(row_choose(
-            "准度指示器延迟",
-            Some("冰与火：±220ms；phigros：±80ms Perfect / ±160ms Good".into()),
+            tl!("item-indicator-delay"),
+            Some(tl!("item-indicator-delay-sub")),
             &mut self.indicator_delay_mode_btn,
             0.20,
         ));
         v.push(row_choose(
-            "指示器颜色",
-            Some("冰与火：内置固定色；phira：取皮肤 yml".into()),
+            tl!("item-indicator-color"),
+            Some(tl!("item-indicator-color-sub")),
             &mut self.indicator_color_mode_btn,
             0.20,
         ));
         v.push(row_switch(tl!("item-show-fps"), Some(tl!("item-show-fps-sub")), &mut self.show_fps_btn, config.show_fps));
         v.push(row_choose(
-            "FPS 位置",
-            Some("左上 / 右上 / 左下 / 右下".into()),
+            tl!("item-fps-pos"),
+            Some(tl!("item-fps-pos-sub")),
             &mut self.fps_pos_btn,
             0.20,
         ));
         v.push(row_slider(
-            "帧率上限",
-            Some("0 = 不限制；建议 60/120/144".into()),
+            tl!("item-fps-limit"),
+            Some(tl!("item-fps-limit-sub")),
             &mut self.fps_limit_slider,
             config.fps_limit as f32,
             format!("{}", config.fps_limit),
@@ -2678,9 +2678,41 @@ impl ChartList {
         v
     }
     fn row_group(label: &str) -> u8 {
-        if ["显示帧率", "FPS 位置", "帧率上限", "显示平均帧率", "双击暂停", "使用键盘游玩"].iter().any(|s| label.contains(s)) {
+        if [
+            "显示帧率",
+            "Show FPS",
+            "顯示幀率",
+            "FPS 位置",
+            "FPS Position",
+            "帧率上限",
+            "FPS Limit",
+            "幀率上限",
+            "显示平均帧率",
+            "Show AVG FPS",
+            "顯示平均幀率",
+            "双击暂停",
+            "Double-Tap to Pause",
+            "雙擊暫停",
+            "使用键盘游玩",
+            "Use Keyboard",
+            "使用鍵盤遊玩",
+        ]
+        .iter()
+        .any(|s| label.contains(s))
+        {
             1
-        } else if ["AP/FC", "准度指示器", "指示器颜色"].iter().any(|s| label.contains(s)) {
+        } else if [
+            "AP/FC",
+            "准度指示器",
+            "Accuracy Indicator",
+            "準度指示器",
+            "指示器颜色",
+            "Indicator Color",
+            "指示器顏色",
+        ]
+        .iter()
+        .any(|s| label.contains(s))
+        {
             2
         } else if ["自定义 HP", "噪域开关"].iter().any(|s| label.contains(s)) {
             3

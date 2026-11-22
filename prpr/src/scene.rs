@@ -1101,7 +1101,6 @@ pub fn request_file(id: impl Into<String>) {
                 let types = NSArray::from_retained_slice(&[
                     ext("zip"),
                     ext("pez"),
-                    ext("adofai"),
                     ext("jpg"),
                     ext("png"),
                     ext("jpeg"),

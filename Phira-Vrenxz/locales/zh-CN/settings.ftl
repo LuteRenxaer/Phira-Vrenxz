@@ -358,3 +358,14 @@ custom-not-selected = 未选择
 item-autoplay-text-default = 自动游玩
 profile-id = ID：{ $id }
 profile-id-none = ID：--
+
+item-indicator-enabled = 准度指示器
+item-indicator-enabled-sub = 开启后显示底部中央误差刻度条
+item-indicator-delay = 准度指示器延迟
+item-indicator-delay-sub = 冰与火：±220ms；Phigros：±80ms Perfect / ±160ms Good
+item-indicator-color = 指示器颜色
+item-indicator-color-sub = 冰与火：内置固定色；Phira：取皮肤 yml
+item-fps-pos = FPS 位置
+item-fps-pos-sub = 左上 / 右上 / 左下 / 右下
+item-fps-limit = 帧率上限
+item-fps-limit-sub = 0 = 不限制；建议 60/120/144

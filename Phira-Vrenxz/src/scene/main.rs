@@ -64,7 +64,7 @@ use crate::{
     icons::Icons,
     page::{ExportInfo, HomePage, LibraryPage, NextPage, Page, PhigrosLibraryPage, ResPackItem, SharedState, SettingsPage, ExtensionPage, ResPackPage, MessagePage, EventPage, FavoritesPage},
     save_data,
-    scene::{confirm_dialog, import_chart_path, import_chart_path_with_mode, import_chart_to, parse_warnings_to_string, TEX_BACKGROUND, TEX_ICON_BACK, TEX_ICON_PROCEED},
+    scene::{confirm_dialog, import_chart_to, parse_warnings_to_string, TEX_BACKGROUND, TEX_ICON_BACK, TEX_ICON_PROCEED},
 };
 use prpr::scene::{CrashScene, CrashCode};
 use anyhow::{anyhow, Context, Result};
@@ -324,13 +324,6 @@ pub struct MainScene {
     batch_import_rx: Option<mpsc::Receiver<ImportChart>>,
     batch_imported_charts: Vec<ImportChart>,
     batch_import_total: usize,
-
-    /// A `.adofai` file waiting for the 4K/5K/6K choice.
-    adofai_pending: Option<String>,
-    adofai_btn_4k: RectButton,
-    adofai_btn_5k: RectButton,
-    adofai_btn_6k: RectButton,
-    adofai_btn_cancel: RectButton,
 }
 
 enum ImportChart {
@@ -551,12 +544,6 @@ impl MainScene {
             batch_import_rx: None,
             batch_imported_charts: Vec::new(),
             batch_import_total: 0,
-
-            adofai_pending: None,
-            adofai_btn_4k: RectButton::new(),
-            adofai_btn_5k: RectButton::new(),
-            adofai_btn_6k: RectButton::new(),
-            adofai_btn_cancel: RectButton::new(),
         })
     }
 
@@ -699,27 +686,6 @@ impl Scene for MainScene {
         if self.import_task.is_some() {
             return Ok(true);
         }
-        if self.adofai_pending.is_some() {
-            let mode = if self.adofai_btn_4k.touch(touch) {
-                Some(crate::adofai::KeyMode::K4)
-            } else if self.adofai_btn_5k.touch(touch) {
-                Some(crate::adofai::KeyMode::K5)
-            } else if self.adofai_btn_6k.touch(touch) {
-                Some(crate::adofai::KeyMode::K6)
-            } else {
-                None
-            };
-            if self.adofai_btn_cancel.touch(touch) || (mode.is_some() && self.adofai_pending.is_some()) {
-                let path = self.adofai_pending.take();
-                if let (Some(path), Some(mode)) = (path, mode) {
-                    button_hit();
-                    self.import_task = Some(Task::new(async move {
-                        import_chart_path_with_mode(&PathBuf::from(path), mode).await
-                    }));
-                }
-            }
-            return Ok(true);
-        }
 
         if get_data().config.mp_enabled && self.pages.len() == 1 {
             if self.mp_btn.touch(touch) && !self.mp_moved {
@@ -776,11 +742,6 @@ impl Scene for MainScene {
     }
 
     fn update(&mut self, tm: &mut TimeManager) -> Result<()> {
-        if self.adofai_pending.is_none() {
-            if let Some(path) = crate::take_pending_adofai() {
-                self.adofai_pending = Some(path);
-            }
-        }
         /// HUD 编辑器请求切页：重建页面栈（根页面保留、不重建，因此不需要异步）。
         /// Vrenxz 的 icons 是 Option<Arc<Icons>>（加载失败时可能为 None），无独立
         /// TabsPage，PageId::Tabs 跳转时用谱面库页面代替。
@@ -1253,20 +1214,6 @@ impl Scene for MainScene {
                     return_file(new_id.to_owned(), file);
                 }
                 "_import" => {
-                    // A bare ADOFAI chart is JSON, not a zip.  Route anything
-                    // that is not a readable archive through the path importer.
-                    let is_zip = File::open(&file)
-                        .ok()
-                        .and_then(|f| zip::ZipArchive::new(f).ok())
-                        .is_some();
-                    let is_adofai = file.to_ascii_lowercase().ends_with(".adofai");
-                    if is_adofai {
-                        self.adofai_pending = Some(file);
-                    } else if !is_zip {
-                        self.import_task = Some(Task::new(async move {
-                            import_chart_path(&PathBuf::from(file)).await
-                        }));
-                    } else {
                     let export_info = (|| -> Result<Option<(ExportInfo, usize)>> {
                         let file = File::open(&file)?;
                         let mut archive = zip::ZipArchive::new(file)?;
@@ -1304,7 +1251,6 @@ impl Scene for MainScene {
                             confirm_dialog(itl!("batch-import"), itl!("batch-import-confirm", "count" => count), self.batch_import_confirm.clone());
                         }
                     };
-                    }
                 }
                 "_import_font" => {
                     let result: Result<(String, String)> = (|| {
@@ -1642,51 +1588,6 @@ impl Scene for MainScene {
             ui.fill_rect(r, (*self.mp_icon, r));
         }
 
-        if self.adofai_pending.is_some() {
-            let full = Rect::new(-1., -ui.top, 2., 2. * ui.top);
-            ui.fill_rect(full, Color::new(0., 0., 0., 0.45));
-            let w = 0.92;
-            let h = 0.52;
-            let panel = Rect::new(-w / 2., -h / 2., w, h);
-            ui.fill_rect(panel, Color::new(0.07, 0.08, 0.10, 0.97));
-            ui.text("ADOFAI 纯配置")
-                .pos(0., panel.y + 0.06)
-                .anchor(0.5, 0.)
-                .size(0.4)
-                .draw();
-            ui.text("选择要转换的键数")
-                .pos(0., panel.y + 0.18)
-                .anchor(0.5, 0.)
-                .size(0.24)
-                .draw();
-            let modes = crate::adofai::KeyMode::ALL;
-            let bw = 0.16;
-            let gap = 0.025;
-            let total = bw * 3. + gap * 2.;
-            let x0 = -total / 2.;
-            for (i, mode) in modes.iter().enumerate() {
-                let r = Rect::new(x0 + i as f32 * (bw + gap), -0.02, bw, 0.12);
-                match i {
-                    0 => self.adofai_btn_4k.set(ui, r),
-                    1 => self.adofai_btn_5k.set(ui, r),
-                    _ => self.adofai_btn_6k.set(ui, r),
-                }
-                ui.fill_rect(r, Color::new(0.16, 0.18, 0.23, 1.));
-                ui.text(mode.label())
-                    .pos(r.x + r.w / 2., r.y + r.h / 2.)
-                    .anchor(0.5, 0.5)
-                     .size(0.3)
-                    .draw();
-            }
-            let cancel = Rect::new(-0.1, -0.2, 0.2, 0.1);
-            self.adofai_btn_cancel.set(ui, cancel);
-            ui.fill_rect(cancel, Color::new(0.11, 0.12, 0.15, 1.));
-            ui.text("取消")
-                .pos(cancel.x + cancel.w / 2., cancel.y + cancel.h / 2.)
-                .anchor(0.5, 0.5)
-                .size(0.22)
-                .draw();
-        }
         if self.import_task.is_some() {
             ui.full_loading(itl!("importing"), s.t);
         }
