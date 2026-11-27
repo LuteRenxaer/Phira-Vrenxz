@@ -468,6 +468,15 @@ impl Chart {
         res.apply_model_of(&Matrix::identity().append_nonuniform_scaling(&Vector::new(if flip_x { -1. } else { 1. }, -1.)), |res| {
             draw_zones_with_touches(res, res.aspect_ratio, &zones, &self.blocked_touches, flip_x);
         });
+        // [噪域] sampleCount > 1 时谱面走 MSAA 离屏目标，`Chart::render` 在 notes 之后
+        // 已经 resolve 过一次；噪域是在那之后画的，这里不再 resolve 就会被贴回屏幕时
+        // 整块丢掉（此前 sampleCount=4 的机器上噪域永远不显示，即"怎么调都看不见"）。
+        if res.config.sample_count > 1 {
+            unsafe { macroquad::window::get_internal_gl() }.flush();
+            if let Some(target) = &res.chart_target {
+                target.blit();
+            }
+        }
     }
 
     fn block_zones(&self, res: &Resource) -> std::cell::Ref<'_, [Zone]> {

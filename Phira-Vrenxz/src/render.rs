@@ -774,6 +774,11 @@ pub async fn run(mut opts: RenderOptions) -> Result<()> {
             config.noise_demo = n;
         }
     }
+    if let Ok(v) = std::env::var("PVR_SAMPLE_COUNT") {
+        if let Ok(n) = v.parse::<u32>() {
+            config.sample_count = n;
+        }
+    }
 
     // Offline render is a separate process that never calls `the_main`, so
     // `get_data()` is not initialized here.  Read the same data.json directly
