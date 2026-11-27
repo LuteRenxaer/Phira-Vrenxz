@@ -4,25 +4,15 @@
 //! 光标、选区、Ctrl+V、密码掩码，不再是游戏内自绘输入，也不会弹任何输入对话框。
 //! 游戏只在它上面按 UI 坐标摆位置、读文本、写文本。
 
-use macroquad::prelude::{screen_height, screen_width, Rect};
+use macroquad::prelude::Rect;
 use std::ffi::c_void;
 
 type Handle = isize;
 
-#[repr(C)]
-struct Rect32 {
-    left: i32,
-    top: i32,
-    right: i32,
-    bottom: i32,
-}
-
 const WS_CHILD: u32 = 0x4000_0000;
 const WS_VISIBLE: u32 = 0x1000_0000;
-const WS_TABSTOP: u32 = 0x0001_0000;
 const ES_AUTOHSCROLL: u32 = 0x0080;
 const ES_PASSWORD: u32 = 0x0020;
-const WS_EX_CLIENTEDGE: u32 = 0x0000_0200;
 
 const WM_SETFONT: u32 = 0x0030;
 const WM_GETTEXTLENGTH: u32 = 0x000E;
@@ -56,7 +46,6 @@ extern "system" {
     fn GetWindowTextW(h: Handle, buf: *mut u16, max: i32) -> i32;
     fn SetWindowTextW(h: Handle, s: *const u16) -> i32;
     fn SendMessageW(h: Handle, msg: u32, w: usize, l: isize) -> isize;
-    fn GetClientRect(h: Handle, r: *mut Rect32) -> i32;
     fn IsWindow(h: Handle) -> i32;
     fn GetWindowLongW(h: Handle, index: i32) -> i32;
     fn SetWindowLongW(h: Handle, index: i32, value: i32) -> i32;
@@ -109,20 +98,20 @@ pub struct Edits {
 }
 
 unsafe fn make_edit(parent: Handle, instance: Handle, password: bool, font: Handle, limit: u32) -> Handle {
-    let mut style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL;
+    let mut style = WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL;
     if password {
         style |= ES_PASSWORD;
     }
     let class = wide("EDIT");
     let h = CreateWindowExW(
-        WS_EX_CLIENTEDGE,
+        0,
         class.as_ptr(),
         std::ptr::null(),
         style,
-        0,
-        0,
-        10,
-        10,
+        -200,
+        -200,
+        1,
+        1,
         parent,
         0,
         instance,
@@ -189,32 +178,10 @@ impl Edits {
         }
     }
 
-    fn to_px(ui_top: f32, r: Rect, scale_x: f32, scale_y: f32) -> (i32, i32, i32, i32) {
-        let sw = screen_width();
-        let sh = screen_height();
-        let x = (r.x + 1.) * 0.5 * sw;
-        let y = (r.y + ui_top) / (2. * ui_top) * sh;
-        let w = r.w * 0.5 * sw;
-        let h = r.h / (2. * ui_top) * sh;
-        (
-            (x * scale_x) as i32,
-            (y * scale_y) as i32,
-            (w * scale_x).max(8.) as i32,
-            (h * scale_y).max(8.) as i32,
-        )
-    }
-
-    /// 按 UI 坐标摆放；show=false 时整组隐藏
-    pub fn layout(&mut self, email: Rect, pwd: Rect, ui_top: f32, show: bool) {
+    /// 原生框只当“键盘输入点”用：界面完全由游戏画，所以它被收成 1px 停在窗口
+    /// 左上角，肉眼看不到；show=false 时整组隐藏并把焦点交回游戏窗口。
+    pub fn layout(&mut self, _email: Rect, _pwd: Rect, _ui_top: f32, show: bool) {
         unsafe {
-            let mut cr = Rect32 { left: 0, top: 0, right: 0, bottom: 0 };
-            if GetClientRect(self.parent, &mut cr) == 0 {
-                return;
-            }
-            let cw = (cr.right - cr.left).max(1) as f32;
-            let ch = (cr.bottom - cr.top).max(1) as f32;
-            let sx = cw / screen_width().max(1.);
-            let sy = ch / screen_height().max(1.);
             if show != self.shown {
                 ShowWindow(self.email, if show { SW_SHOW } else { SW_HIDE });
                 ShowWindow(self.pwd, if show { SW_SHOW } else { SW_HIDE });
@@ -227,10 +194,8 @@ impl Edits {
             if !show {
                 return;
             }
-            let (ex, ey, ew, eh) = Self::to_px(ui_top, email, sx, sy);
-            let (px, py, pw, ph) = Self::to_px(ui_top, pwd, sx, sy);
-            SetWindowPos(self.email, 0, ex, ey, ew, eh, SWP_NOZORDER | SWP_NOACTIVATE);
-            SetWindowPos(self.pwd, 0, px, py, pw, ph, SWP_NOZORDER | SWP_NOACTIVATE);
+            SetWindowPos(self.email, 0, 1, 1, 1, 1, SWP_NOZORDER | SWP_NOACTIVATE);
+            SetWindowPos(self.pwd, 0, 3, 1, 1, 1, SWP_NOZORDER | SWP_NOACTIVATE);
         }
     }
 

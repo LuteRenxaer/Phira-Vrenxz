@@ -922,6 +922,12 @@ impl Login {
                 let mut pwd_text = std::mem::take(&mut self.t_pwd);
                 e.sync(Field::Password, &mut pwd_text);
                 self.t_pwd = pwd_text;
+                // 点中的是哪个游戏内字段，就把键盘焦点交给对应的原生输入点
+                match self.active {
+                    Some(LoginField::Email) => e.focus(Field::Email),
+                    Some(LoginField::Pwd) => e.focus(Field::Password),
+                    _ => {}
+                }
             }
             _ => e.layout(Rect::new(0., 0., 0.01, 0.01), Rect::new(0., 0., 0.01, 0.01), top, false),
         }
