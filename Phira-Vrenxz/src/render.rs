@@ -760,6 +760,20 @@ pub async fn run(mut opts: RenderOptions) -> Result<()> {
     config.autoplay_display_text = opts.autoplay_text.clone();
     config.aspect_ratio = opts.aspect;
     config.res_pack_path = opts.res_pack.clone();
+    // TEMP: 调试用环境变量，验证完删除。
+    if let Ok(v) = std::env::var("PVR_NOISE_OPACITY") {
+        if let Ok(f) = v.parse::<f32>() {
+            config.noise_opacity = f;
+        }
+    }
+    if let Ok(v) = std::env::var("PVR_NOISE_GLITCH") {
+        config.noise_glitch = v == "1";
+    }
+    if let Ok(v) = std::env::var("PVR_NOISE_DEMO") {
+        if let Ok(n) = v.parse::<u8>() {
+            config.noise_demo = n;
+        }
+    }
 
     // Offline render is a separate process that never calls `the_main`, so
     // `get_data()` is not initialized here.  Read the same data.json directly

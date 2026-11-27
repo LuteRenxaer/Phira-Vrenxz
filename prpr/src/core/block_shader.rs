@@ -117,6 +117,15 @@ static SPARK_TEX: Lazy<Texture2D> = Lazy::new(|| tex(include_bytes!("../../../as
 static NOISE_TEX: Lazy<Texture2D> = Lazy::new(|| tex(include_bytes!("../../../assets/textures/FD_Noise_00000.png"), TextureWrap::Mirror));
 static EMPTY_TEX: Lazy<Texture2D> = Lazy::new(|| Texture2D::from_rgba8(1, 1, &[0; 4]));
 
+// TEMP 调试：PVR_BLOCK_DBG=1 时每 30 次调用打印一次噪域绘制状态。
+static BLK_DBG: Lazy<bool> = Lazy::new(|| std::env::var_os("PVR_BLOCK_DBG").is_some());
+static BLK_DBG_N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+fn blk_dbg(args: std::fmt::Arguments) {
+    if *BLK_DBG && BLK_DBG_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 30 == 0 {
+        eprintln!("[blk] {args}");
+    }
+}
+
 // Typed f32 values are essential: this macroquad fork rejects f64 for Float1.
 // Keep these uniforms, rather than folding their values into GLSL, so that the
 // native mediump arithmetic and GPU optimization stay identical to the export.
@@ -391,6 +400,13 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         zones.iter().any(|z| z.active || z.ready) || !touches.is_empty() || FRAME.with(|frame| frame.borrow().touch.visible())
     };
     if !needed {
+        blk_dbg(format_args!(
+            "skip needed=false disabled={disabled} zones={} active={} ready={} touches={}",
+            zones.len(),
+            zones.iter().filter(|z| z.active).count(),
+            zones.iter().filter(|z| z.ready).count(),
+            touches.len()
+        ));
         return;
     }
     let Some(m) = MATERIAL.as_ref() else {
@@ -413,6 +429,15 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
         let mut frame = frame.borrow_mut();
         let (width, height) = (viewport.2.max(1) as usize, viewport.3.max(1) as usize);
         frame.masks.render_displaced(width, height, aspect, zones, time);
+        blk_dbg(format_args!(
+            "disabled={disabled} viewport={viewport:?} scene={width}x{height} masks={}x{} zones={} active={} ready={} touchvis={}",
+            frame.masks.width,
+            frame.masks.height,
+            zones.len(),
+            zones.iter().filter(|z| z.active).count(),
+            zones.iter().filter(|z| z.ready).count(),
+            frame.touch.visible()
+        ));
         if !disabled {
             frame.touch.update_fingers(touches, time);
         }
@@ -556,7 +581,7 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
             m.set_uniform(&format!("_TouchPos[{i}]"), *uv * vec2(width as f32 / height as f32, 1.));
         }
         m.set_uniform("_TouchPosShine", (0.63 + 0.37 * ((time * 43.).sin() * 0.5 + 0.5)) * 2.);
-        apply_noise_style(&m, &res.config);
+        apply_noise_style(&m, &res.config, disabled);
         gl_use_material(m);
         // Keep one quad: subdividing it changes vertex interpolation at point
         // sample boundaries, moving a few spark/noise texels between frames.
@@ -566,18 +591,31 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
     });
 }
 
-fn apply_noise_style(m: &Material, config: &Config) {
-    let (r, g, b) = config.noise_color_rgb();
-    // 100% 就是官方观感；0~100% 走原公式，超过 100% 的部分放大颜色亮度（alpha 始终
-    // 不超过 1，否则预乘混合 One+OneMinusSrcAlpha 会把整块噪域压成纯黑）。
+fn apply_noise_style(m: &Material, config: &Config, disabled: bool) {
+    let (cr, cg, cb) = config.noise_color_rgb();
+    // 100% 严格等于官方观感（边 0.8 / 雾 0.667 / 光 0.8 / 雾强度 0.667）。
+    // 100% 以上只抬“亮度”不抬 alpha：alpha 一旦超过 1，预乘混合
+    // One+OneMinusSrcAlpha 会把背景整个扣掉，噪域反而压成黑块。
+    //   · 雾的颜色系数 0.7 一路抬到 1.0（约 143% 到顶），纯红也能真正变亮
+    //   · 再往上把颜色往白混，300% 时混 40%
     let opacity = config.noise_opacity.clamp(0., 3.);
-    let a = opacity.min(1.);
-    let boost = 1. + (opacity - 1.).max(0.);
-    let (r, g, b) = ((r * boost).min(1.), (g * boost).min(1.), (b * boost).min(1.));
-    let edge = [r, g, b, a];
-    let fill = [r * 0.7, g * 0.7, b * 0.7, 0.667 * a];
-    let glow = [r, g, b, 0.8 * a];
-    let tint = [r, g, b, a];
+    let lift = opacity.min(1.43) / 1.0; // 1.0 -> 官方 0.7 系数，1.43 -> 1.0
+    let fill_k = 0.7 * lift.min(1.43);
+    let white = ((opacity - 1.43) / 1.57).clamp(0., 1.) * 0.4;
+    let wr = cr + (1. - cr) * white;
+    let wg = cg + (1. - cg) * white;
+    let wb = cb + (1. - cb) * white;
+    let edge = [wr, wg, wb, 0.8];
+    let fill = [(cr * fill_k).min(1.), (cg * fill_k).min(1.), (cb * fill_k).min(1.), 0.667];
+    let glow = [wr, wg, wb, 0.8];
+    let tint = [wr, wg, wb, 0.8];
+    // 未激活的 Disabled 层是纯叠加混合（One+One），抬透明度只会更亮，安全。
+    m.set_uniform("uDisabledFillOpacity", (0.4 * opacity.min(2.5)).min(1.));
+    m.set_uniform(
+        "uDisabledFillColor",
+        [0.497 + (1. - 0.497) * white, 0.13766898, 0.13766898, 1.],
+    );
+    let _ = disabled;
     match (config.noise_flat_mode(), config.noise_glitch, config.noise_demo) {
         (true, _, _) => {
             // pure color-block demo: shader branch is bypassed in draw_layer_at.
@@ -588,10 +626,10 @@ fn apply_noise_style(m: &Material, config: &Config) {
             m.set_uniform("_FillColor", fill);
             m.set_uniform("_GlowColor", glow);
             m.set_uniform("_NoiseTint", tint);
-            m.set_uniform("_EdgeOpacity", 0.8 * a);
-            m.set_uniform("_FillStrength", 0.667 * a);
-            m.set_uniform("_FillOpacity", 0.667 * a);
-            m.set_uniform("_GlowIntensity", 0.8 * a);
+            m.set_uniform("_EdgeOpacity", 0.8);
+            m.set_uniform("_FillStrength", 0.667);
+            m.set_uniform("_FillOpacity", 0.667);
+            m.set_uniform("_GlowIntensity", 0.8);
             m.set_uniform("_DisplaceStrength", 0.5);
             m.set_uniform("_NoiseDisplaceStrength", 3.2);
             m.set_uniform("_NoiseEvoSpeed", 1.2);
@@ -603,10 +641,10 @@ fn apply_noise_style(m: &Material, config: &Config) {
             m.set_uniform("_FillColor", fill);
             m.set_uniform("_GlowColor", glow);
             m.set_uniform("_NoiseTint", tint);
-            m.set_uniform("_EdgeOpacity", 0.8 * a);
-            m.set_uniform("_FillStrength", 0.667 * a);
-            m.set_uniform("_FillOpacity", 0.667 * a);
-            m.set_uniform("_GlowIntensity", 0.8 * a);
+            m.set_uniform("_EdgeOpacity", 0.8);
+            m.set_uniform("_FillStrength", 0.667);
+            m.set_uniform("_FillOpacity", 0.667);
+            m.set_uniform("_GlowIntensity", 0.8);
             m.set_uniform("_DisplaceStrength", 0.15);
             m.set_uniform("_NoiseDisplaceStrength", 1.);
             m.set_uniform("_NoiseEvoSpeed", 0.03);
