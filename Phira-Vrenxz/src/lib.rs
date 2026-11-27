@@ -34,6 +34,8 @@ mod resource;
 mod score_upload;
 mod scene;
 mod splash_ui;
+#[cfg(target_os = "windows")]
+pub mod native_edit;
 mod crash_extra;
 mod tabs;
 mod tags;

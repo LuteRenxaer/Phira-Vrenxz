@@ -147,6 +147,13 @@ pub struct Login {
     btn_hykb_name_confirm: DRectButton,
     #[cfg(feature = "hykb")]
     t_hykb_name: String,
+
+    /// Windows 上账号/密码字段交给原生 EDIT 控件（系统输入法、光标、粘贴、密码掩码）
+    #[cfg(target_os = "windows")]
+    native: Option<crate::native_edit::Edits>,
+    /// 上一帧渲染算出的两个字段矩形（UI 坐标），供原生框定位
+    #[cfg(target_os = "windows")]
+    native_rects: Option<(Rect, Rect)>,
 }
 
 enum NextAction {
@@ -237,6 +244,10 @@ impl Login {
             btn_hykb_name_confirm: DRectButton::new().with_radius(0.012).with_elevation(0.004),
             #[cfg(feature = "hykb")]
             t_hykb_name: String::new(),
+            #[cfg(target_os = "windows")]
+            native: None,
+            #[cfg(target_os = "windows")]
+            native_rects: None,
         }
     }
 
@@ -880,7 +891,40 @@ impl Login {
         }
         #[cfg(feature = "hykb")]
         self.update_hykb(t)?;
+        #[cfg(target_os = "windows")]
+        self.update_native_edits();
         Ok(())
+    }
+
+    /// 把账号/密码字段切给系统原生输入框：面板完全展开时显示并双向同步文本，
+    /// 其余时刻（进场动画、请求中、注册页）隐藏，避免遮挡。
+    #[cfg(target_os = "windows")]
+    fn update_native_edits(&mut self) {
+        use crate::native_edit::Field;
+        let top = screen_height() / screen_width();
+        let rects = self.native_rects;
+        let show = self.show && self.task.is_none() && rects.is_some();
+        if show && self.native.is_none() {
+            let parent = crate::MAIN_HWND.load(Ordering::Relaxed);
+            if let Some(mut e) = crate::native_edit::Edits::create(parent) {
+                e.reset(Field::Email, &self.t_email);
+                e.reset(Field::Password, &self.t_pwd);
+                self.native = Some(e);
+            }
+        }
+        let Some(e) = self.native.as_mut() else { return };
+        match rects {
+            Some((email, pwd)) if show => {
+                e.layout(email, pwd, top, true);
+                let mut email_text = std::mem::take(&mut self.t_email);
+                e.sync(Field::Email, &mut email_text);
+                self.t_email = email_text;
+                let mut pwd_text = std::mem::take(&mut self.t_pwd);
+                e.sync(Field::Password, &mut pwd_text);
+                self.t_pwd = pwd_text;
+            }
+            _ => e.layout(Rect::new(0., 0., 0.01, 0.01), Rect::new(0., 0., 0.01, 0.01), top, false),
+        }
     }
 
     /// Drive the HYKB login phases: the initial verify task, the register/claim
@@ -960,6 +1004,10 @@ impl Login {
 
     pub fn render(&mut self, ui: &mut Ui, t: f32) {
         self.fader.reset();
+        #[cfg(target_os = "windows")]
+        {
+            self.native_rects = None;
+        }
         if self.show || self.fader.transiting() {
             let p = if self.show { 1. } else { -self.fader.progress(t) };
             ui.fill_rect(ui.screen_rect(), semi_black(p * 0.7));
@@ -1050,8 +1098,17 @@ impl Login {
                         let pad = 0.037;
                         let mut r = Rect::new(wr.x + pad, r.bottom() + 0.06, wr.w - pad * 2., 0.1);
                         self.input_email.render_input(ui, r, t, &d_email, tl!("email"), 0.62);
+                        #[cfg(target_os = "windows")]
+                        let email_rect = r;
                         r.y += r.h + 0.04;
                         self.input_pwd.render_input(ui, r, t, &d_pwd, tl!("password"), 0.62);
+                        #[cfg(target_os = "windows")]
+                        {
+                            // 只在停在登录页、且不在切换动画中时记录，避免注册页里把框摆到屏幕外
+                            if !self.in_reg && self.start_time.is_nan() {
+                                self.native_rects = Some((email_rect, r));
+                            }
+                        }
 
                         let r = ui
                             .text(tl!("forget-password"))
