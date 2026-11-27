@@ -1047,7 +1047,7 @@ impl RoomPage {
         );
         #[cfg(target_os = "windows")]
         if self.chat_focus {
-            crate::native_edit::edit("mp_chat", ctx.chat_text, true, false);
+            crate::native_edit::edit("mp_chat", ctx.chat_text, true, false, false);
             let sel = crate::native_edit::selection("mp_chat");
             crate::native_edit::draw_caret_and_selection(
                 ui,
@@ -1603,7 +1603,7 @@ impl RoomPage {
             );
             #[cfg(target_os = "windows")]
             if self.chat_focus {
-                crate::native_edit::edit("mp_chat", ctx.chat_text, true, false);
+                crate::native_edit::edit("mp_chat", ctx.chat_text, true, false, false);
                 let sel = crate::native_edit::selection("mp_chat");
                 crate::native_edit::draw_caret_and_selection(
                     ui,

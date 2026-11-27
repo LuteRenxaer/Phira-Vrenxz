@@ -268,31 +268,6 @@ pub fn draw_parallelogram(rect: Rect, texture: Option<(Texture2D, Rect)>, color:
     draw_parallelogram_ex(rect, texture, color, color, shadow);
 }
 
-/// 只画平行四边形的一段水平切片（用于"标题条"那种同斜率的条带）
-pub fn draw_parallelogram_band(rect: Rect, y0: f32, y1: f32, color: Color) {
-    let l = rect.h * PARALLELOGRAM_SLOPE;
-    let t0 = ((y0 - rect.y) / rect.h).clamp(0., 1.);
-    let t1 = ((y1 - rect.y) / rect.h).clamp(0., 1.);
-    let d0 = l * t0;
-    let d1 = l * t1;
-    let p = [
-        Point::new(rect.x + l - d0, y0),
-        Point::new(rect.right() - d0, y0),
-        Point::new(rect.right() - d1, y1),
-        Point::new(rect.x + l - d1, y1),
-    ];
-    let gl = unsafe { get_internal_gl() }.quad_gl;
-    gl.texture(None);
-    gl.draw_mode(DrawMode::Triangles);
-    let v = [
-        Vertex::new(p[0].x, p[0].y, 0., 0., 0., color),
-        Vertex::new(p[1].x, p[1].y, 0., 0., 0., color),
-        Vertex::new(p[2].x, p[2].y, 0., 0., 0., color),
-        Vertex::new(p[3].x, p[3].y, 0., 0., 0., color),
-    ];
-    gl.geometry(&v, &[0, 2, 3, 0, 1, 3]);
-}
-
 /// 水平方向渐变（左色 → 右色）的平行四边形，用于让封面条带右缘柔和地融进结算条底色。
 pub fn draw_parallelogram_lr(rect: Rect, texture: Option<(Texture2D, Rect)>, left: Color, right: Color, shadow: bool) {
     let l = rect.h * PARALLELOGRAM_SLOPE;

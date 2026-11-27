@@ -639,7 +639,7 @@ impl SetupScene {
                 "setup_pwd" => &mut self.t_pwd,
                 _ => continue,
             };
-            ne::edit(id, text, focus, masked);
+            ne::edit(id, text, focus, masked, false);
         }
         self.native_visible = visible;
         ne::end_frame();

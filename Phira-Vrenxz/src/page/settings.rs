@@ -197,7 +197,100 @@ pub struct SettingsPage {
     /// 切页方向：+1 向右滑入、-1 向左滑入
     tab_anim_dir: f32,
     icon: SafeTexture,
+    /// 内联文本编辑条的「确定 / 取消」
+    edit_ok_btn: DRectButton,
+    edit_cancel_btn: DRectButton,
 }
+// ---- 设置页内联文本编辑（不再弹输入弹窗）----
+/// 正在编辑的 (字段 id, 当前文本)。提交时走 prpr::scene::return_input，
+/// 由各列表原有的 take_input 分支写回配置，逻辑与弹窗版完全一致。
+static TEXT_EDIT: Lazy<std::sync::Mutex<Option<(String, String)>>> =
+    Lazy::new(|| std::sync::Mutex::new(None));
+
+fn text_edit_open(id: &str, value: &str) {
+    if let Ok(mut g) = TEXT_EDIT.lock() {
+        *g = Some((id.to_string(), value.to_string()));
+    }
+}
+fn text_edit_state() -> Option<(String, String)> {
+    TEXT_EDIT.lock().ok().and_then(|g| g.clone())
+}
+fn text_edit_store(text: String) {
+    if let Ok(mut g) = TEXT_EDIT.lock() {
+        if let Some(v) = g.as_mut() {
+            v.1 = text;
+        }
+    }
+}
+fn text_edit_take() -> Option<(String, String)> {
+    TEXT_EDIT.lock().ok().and_then(|mut g| g.take())
+}
+/// 编辑条左侧的字段名，与行标签保持一致
+fn text_edit_label(id: &str) -> Cow<'static, str> {
+    match id {
+        "mp_addr" => tl!("item-mp-addr"),
+        "anys_gateway" => tl!("item-anys-gateway"),
+        "watermark" => tl!("custom-watermark"),
+        "custom_combo_text" => tl!("custom-combo-text"),
+        "autoplay-text" => tl!("custom-autoplay-text"),
+        "custom_crash_title" => tl!("custom-crash-title"),
+        "custom_crash_code" => tl!("custom-crash-code"),
+        "custom_crash_reason" => tl!("custom-crash-reason"),
+        _ => Cow::Owned(id.to_string()),
+    }
+}
+/// 内联编辑条：贴在内容区底部，不盖背景、不调暗屏幕
+fn render_text_edit_bar(ui: &mut Ui, t: f32, area: Rect, ok: &mut DRectButton, cancel: &mut DRectButton) {
+    let Some((id, text)) = text_edit_state() else { return };
+    let bh = 0.135;
+    let r = Rect::new(area.x, area.bottom() - bh, area.w, bh);
+    ui.fill_rect(r, Color::new(0., 0., 0., 0.55));
+    ui.fill_rect(Rect::new(r.x, r.y, r.w, 0.0016), semi_white(0.16));
+    // 左：字段名
+    ui.text(text_edit_label(&id))
+        .pos(r.x + 0.02, r.center().y)
+        .anchor(0., 0.5)
+        .size(0.30)
+        .max_width(0.24)
+        .color(semi_white(0.72))
+        .draw();
+    // 右：确定 / 取消
+    let bw = 0.135;
+    let by = r.y + 0.022;
+    let bh2 = bh - 0.044;
+    let ok_r = Rect::new(r.right() - 0.02 - bw, by, bw, bh2);
+    let cancel_r = Rect::new(ok_r.x - 0.012 - bw, by, bw, bh2);
+    let ok_txt = tl!("sx-apply");
+    let cancel_txt = tl!("sx-cancel");
+    ok.build(ui, t, ok_r, |ui, _| {
+        crate::popup::chip(ui, ok_r, &ok_txt, 0.30);
+    });
+    cancel.build(ui, t, cancel_r, |ui, _| {
+        crate::popup::chip(ui, cancel_r, &cancel_txt, 0.30);
+    });
+    // 中间：输入框
+    let fld = Rect::new(r.x + 0.28, r.y + 0.026, (cancel_r.x - 0.014) - (r.x + 0.28), bh - 0.052);
+    ui.fill_rect(fld, Color::new(0.06, 0.07, 0.10, 0.92));
+    ui.fill_rect(Rect::new(fld.x, fld.y, fld.w, 0.0014), semi_white(0.28));
+    let text_x = fld.x + 0.016;
+    #[cfg(target_os = "windows")]
+    let sel = crate::native_edit::selection("settings_edit");
+    #[cfg(not(target_os = "windows"))]
+    let sel: Option<(usize, usize)> = None;
+    ui.scissor(fld, |ui| {
+        ui.text(&text)
+            .pos(text_x, fld.center().y)
+            .anchor(0., 0.5)
+            .size(0.34)
+            .color(WHITE)
+            .draw();
+        #[cfg(target_os = "windows")]
+        crate::native_edit::draw_caret_and_selection(ui, fld, &text, false, sel, 0.34, t);
+        #[cfg(not(target_os = "windows"))]
+        let _ = sel;
+    });
+}
+
 /// 屏幕横向比例 → UI 坐标
 #[inline]
 fn fx(v: f32) -> f32 {
@@ -1138,6 +1231,8 @@ impl SettingsPage {
             tab_anim_start: f32::NEG_INFINITY,
             tab_anim_dir: 1.,
             icon,
+            edit_ok_btn: DRectButton::new(),
+            edit_cancel_btn: DRectButton::new(),
         }
     }
     /// Rebuild dropdown option text after switching language, keeping current selections.
@@ -1376,6 +1471,21 @@ impl Page for SettingsPage {
             }
             return Ok(true);
         }
+        // 内联编辑条：编辑期间其它点击一律吃掉，避免误触后面的行/标签
+        if text_edit_state().is_some() {
+            let tt = s.t;
+            if self.edit_ok_btn.touch(touch, tt) {
+                if let Some((id, text)) = text_edit_take() {
+                    return_input(id, text);
+                }
+                return Ok(true);
+            }
+            if self.edit_cancel_btn.touch(touch, tt) {
+                text_edit_take();
+                return Ok(true);
+            }
+            return Ok(true);
+        }
         // 调色板是模态层：打开时优先吃掉所有输入，避免点到后面的标签/按钮。
         if self.tab == SettingListType::Visual && self.list_visual.palette.is_open() {
             self.list_visual.palette.touch(touch);
@@ -1502,6 +1612,23 @@ impl Page for SettingsPage {
     }
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         let t = s.t;
+        // 内联编辑条：每帧同步系统输入点，回车提交 / Esc 取消
+        #[cfg(target_os = "windows")]
+        if let Some((id, mut text)) = text_edit_take() {
+            crate::native_edit::begin_frame();
+            crate::native_edit::edit("settings_edit", &mut text, true, false, false);
+            let enter = crate::native_edit::enter_pressed();
+            let esc = crate::native_edit::escape_pressed();
+            crate::native_edit::end_frame();
+            if enter {
+                // 交给各列表原有的 take_input 分支写回配置
+                return_input(id, text);
+            } else if !esc {
+                if let Ok(mut g) = TEXT_EDIT.lock() {
+                    *g = Some((id, text));
+                }
+            }
+        }
         // 插件导入：文件选择器回来后在设置页统一处理（导入 + 刷新列表 + 提示）
         if let Some((id, file)) = take_file() {
             if id == "_import_plugin" {
@@ -1666,6 +1793,7 @@ impl Page for SettingsPage {
             if self.tab != SettingListType::Chart {
                 self.list_chart.render_top(ui, t);
             }
+            render_text_edit_bar(ui, t, area, &mut self.edit_ok_btn, &mut self.edit_cancel_btn);
             draw_settings_back(ui, 0.);
             Ok::<(), anyhow::Error>(())
         })?;
@@ -1907,7 +2035,7 @@ impl GeneralList {
             return Ok(Some(true));
         }
         if self.mp_addr_btn.touch(touch, t) {
-            request_input("mp_addr", InputBox::new().default_text(&config.mp_address));
+            text_edit_open("mp_addr", &config.mp_address);
             return Ok(Some(true));
         }
         #[cfg(not(target_env = "ohos"))]
@@ -1929,7 +2057,7 @@ impl GeneralList {
             return Ok(Some(true));
         }
         if self.anys_gateway_btn.touch(touch, t) {
-            request_input("anys_gateway", InputBox::new().default_text(&data.anys_gateway));
+            text_edit_open("anys_gateway", &data.anys_gateway);
             return Ok(Some(true));
         }
         if self.fxaa_btn.touch(touch, t) {
@@ -3851,30 +3979,30 @@ impl CustomList {
             return Ok(Some(true));
         }
         if self.watermark_btn.touch(touch, t) {
-            request_input("watermark", InputBox::new().default_text(&data.config.custom_watermark));
+            text_edit_open("watermark", &data.config.custom_watermark);
             return Ok(Some(true));
         }
         if self.combo_text_btn.touch(touch, t) {
-            request_input("custom_combo_text", InputBox::new().default_text(&data.config.custom_combo_text));
+            text_edit_open("custom_combo_text", &data.config.custom_combo_text);
             return Ok(Some(true));
         }
         if self.autoplay_text_btn.touch(touch, t) {
-            request_input("autoplay-text", InputBox::new().default_text(&data.config.autoplay_display_text));
+            text_edit_open("autoplay-text", &data.config.autoplay_display_text);
             return Ok(Some(true));
         }
         if self.custom_crash_title_btn.touch(touch, t) {
             let current = config.custom_crash_title.clone();
-            request_input("custom_crash_title", InputBox::new().default_text(&current));
+            text_edit_open("custom_crash_title", &current);
             return Ok(Some(true));
         }
         if self.custom_crash_code_btn.touch(touch, t) {
             let current = config.custom_crash_code.to_string();
-            request_input("custom_crash_code", InputBox::new().default_text(&current));
+            text_edit_open("custom_crash_code", &current);
             return Ok(Some(true));
         }
         if self.custom_crash_reason_btn.touch(touch, t) {
             let current = config.custom_crash_reason.clone();
-            request_input("custom_crash_reason", InputBox::new().default_text(&current));
+            text_edit_open("custom_crash_reason", &current);
             return Ok(Some(true));
         }
         if self.custom_crash_btn.touch(touch, t) {

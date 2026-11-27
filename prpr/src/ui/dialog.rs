@@ -3,7 +3,7 @@ prpr_l10n::tl_file!("dialog");
 use super::{DRectButton, RectButton, Scroll, Ui, PREFER_REDUCED_MOTION};
 use crate::{
     core::BOLD_FONT,
-    ext::{draw_parallelogram, draw_parallelogram_band, semi_white, PARALLELOGRAM_SLOPE},
+    ext::{draw_parallelogram, draw_parallelogram_ex, semi_white, PARALLELOGRAM_SLOPE},
     scene::show_message,
 };
 use anyhow::Error;
@@ -182,22 +182,21 @@ impl Dialog {
         ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 0.62 * ease));
 
         let mh = ui.top * 2. * HEIGHT_RATIO;
-        let pad = 0.045;
-        let bh = 0.085;
+        let pad = 0.03;
+        let bh = 0.09;
         let s = 0.02;
-        let header_h = 0.16;
 
         if self.h.is_none() {
             self.h = Some(
                 (ui.text(&self.message)
-                    .size(0.46)
+                    .size(0.5)
                     .max_width(2. * WIDTH_RADIO - pad * 3.)
                     .multiline()
                     .measure()
                     .h
-                    + header_h
+                    + ui.text(&self.title).size(0.95).no_baseline().measure().h
                     + bh
-                    + 0.16)
+                    + 0.28)
                     .min(mh),
             );
         }
@@ -208,71 +207,80 @@ impl Dialog {
         let wr = Rect::new(-ww / 2., -wh / 2., ww, wh);
         self.window_rect = Some(ui.rect_to_global(Rect::new(-WIDTH_RADIO, -h / 2., 2. * WIDTH_RADIO, h)));
 
-        // 主体：深灰面板 + 顶部近黑标题条（同一斜率的平行四边形）
-        draw_parallelogram(wr, None, Color::new(0.185, 0.185, 0.20, 0.97 * ease), true);
-        draw_parallelogram_band(wr, wr.y, wr.y + header_h, Color::new(0.05, 0.05, 0.06, 0.98 * ease));
+        draw_parallelogram_ex(
+            wr,
+            None,
+            Color::new(0., 0., 0., 0.62 * ease),
+            Color::new(0., 0., 0., 0.62 * ease),
+            true,
+        );
+
+        draw_parallelogram(wr, None, Color::new(1., 1., 1., 0.09 * ease), false);
 
         let l = wr.h * PARALLELOGRAM_SLOPE;
+        ui.fill_rect(Rect::new(wr.x + l, wr.y, wr.w - l, 0.004), Color::new(1., 1., 1., 0.12 * ease));
+
         let content_x = wr.x + l + pad;
-        // 斜边收缩：给定 y 处面板的实际右边界（已扣 pad）
-        let right_at = |y: f32| wr.right() - l * ((y - wr.y) / wr.h).clamp(0., 1.) - pad;
         let content_w = wr.w - l - pad * 2.;
 
-        // 标题
-        ui.text(&self.title)
-            .pos(content_x + 0.01, wr.y + header_h / 2.)
-            .anchor(0., 0.5)
-            .size(0.62)
+        let tr = ui
+            .text(&self.title)
+            .pos(content_x, wr.y + pad)
+            .anchor(0., 0.)
+            .size(0.95)
             .max_width(content_w)
             .no_baseline()
             .color(WHITE)
             .draw_using(&BOLD_FONT);
 
-        // 正文区
-        let body_top = wr.y + header_h + 0.035;
-        let scroll_h = (wr.bottom() - bh - s - body_top - 0.03).max(0.05);
+        let scroll_top = wr.y + pad + tr.h + s * 2.;
+        let scroll_h = wr.bottom() - bh - s - scroll_top;
         ui.scope(|ui| {
             ui.dx(content_x);
-            ui.dy(body_top);
-            self.scroll.size(((right_at(body_top) - content_x).max(0.1), scroll_h));
+            ui.dy(scroll_top);
+            self.scroll.size((content_w - pad, scroll_h));
             self.scroll.render(ui, |ui| {
                 let r = ui
                     .text(&self.message)
                     .pos(0., 0.)
-                    .size(0.46)
-                    .max_width((right_at(body_top) - content_x).max(0.1))
+                    .size(0.5)
+                    .max_width(content_w - pad)
                     .multiline()
-                    .color(semi_white(0.9))
+                    .color(semi_white(0.85))
                     .draw();
                 self.text_btn.set(ui, r);
                 (r.w, r.h + 0.04)
             });
         });
 
-        // 按钮：右下角纯文字（不再画条纹块）
-        let mut rx = right_at(wr.bottom() - bh / 2. - s);
-        let by = wr.bottom() - bh / 2. - s;
-        for (text, btn) in self.buttons.iter().zip(self.rect_buttons.iter_mut()).rev() {
-            let tr = ui
-                .text(text)
-                .pos(rx, by)
-                .anchor(1., 0.5)
-                .no_baseline()
-                .size(0.46)
-                .max_width(0.4)
-                .color(WHITE)
-                .measure_using(&BOLD_FONT);
-            btn.inner.set(ui, Rect::new(rx - tr.w - 0.03, by - 0.05, tr.w + 0.06, 0.1));
-            let warm = if btn.inner.touching() { WHITE } else { semi_white(0.92) };
+        let n = self.buttons.len();
+        let area_x = wr.x + pad;
+        let area_w = wr.w - l - pad * 2.;
+        let bw = (area_w - pad * (n as f32 - 1.)) / n as f32;
+        let mut r = Rect::new(area_x, wr.bottom() - bh - s, bw, bh);
+        for (text, btn) in self.buttons.iter().zip(self.rect_buttons.iter_mut()) {
+            btn.inner.set(ui, r);
+            let pressed = btn.inner.touching();
+            let v = if pressed { 0.30 } else { 0.16 };
+            let bg = Color::new(v, v, v + 0.05, 0.9 * ease);
+            draw_parallelogram(r, None, bg, true);
+            let ss = 0.05;
+            draw_parallelogram(
+                Rect::new(r.x + r.w * (1. - ss), r.y, r.w * ss, r.h),
+                None,
+                Color::new(1., 1., 1., 0.9 * ease),
+                false,
+            );
+            let ct = r.center();
             ui.text(text)
-                .pos(rx, by)
-                .anchor(1., 0.5)
+                .pos(ct.x, ct.y)
+                .anchor(0.5, 0.5)
                 .no_baseline()
-                .size(0.46)
-                .max_width(0.4)
-                .color(warm)
-                .draw_using(&BOLD_FONT);
-            rx -= tr.w + 0.09;
+                .size(0.5)
+                .color(WHITE)
+                .max_width(r.w)
+                .draw();
+            r.x += bw + pad;
         }
     }
 }
