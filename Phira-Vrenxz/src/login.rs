@@ -403,6 +403,11 @@ impl Login {
         self.task.is_some()
     }
 
+    /// 登录面板当前是否可见（用于被设置页内嵌时感知关闭/登录成功）。
+    pub fn is_open(&self) -> bool {
+        self.show
+    }
+
     #[cfg(feature = "hykb")]
     fn is_active(&self) -> bool {
         self.show
@@ -843,6 +848,7 @@ impl Login {
                                 UserManager::request(user.id);
                                 get_data_mut().me = Some(user);
                                 save_data()?;
+                                Client::sync_current_account();
                             }
                             self.t_pwd.clear();
                             show_message(tl!("action-success", "action" => *action)).ok();
@@ -905,6 +911,7 @@ impl Login {
                         UserManager::request(user.id);
                         get_data_mut().me = Some(*user);
                         save_data()?;
+                        Client::sync_current_account();
                         show_message(tl!("action-success", "action" => "hykb-login")).ok();
                         self.dismiss(t);
                     }

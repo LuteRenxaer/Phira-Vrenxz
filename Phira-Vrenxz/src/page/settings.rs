@@ -179,6 +179,18 @@ pub struct SettingsPage {
     scroll: Scroll,
     save_time: f32,
     logout_btn: DRectButton,
+    /// 账号页「切换账号」入口行
+    switch_btn: DRectButton,
+    /// 切换账号弹窗
+    account_overlay: bool,
+    account_rows: Vec<DRectButton>,
+    account_del_btns: Vec<DRectButton>,
+    account_add_btn: DRectButton,
+    account_cancel_btn: DRectButton,
+    switch_task: Option<Task<Result<()>>>,
+    /// 内嵌的登录面板（「登录其他账号」用）
+    login: Option<crate::login::Login>,
+    login_open: bool,
     link_buttons: [DRectButton; 4],
     /// 切页动画起点（NEG_INFINITY = 未在动画中）
     tab_anim_start: f32,
@@ -967,7 +979,7 @@ fn render_scroll_hint(ui: &mut Ui, area: Rect, scroll: &Scroll, content_h: f32) 
     }
 }
 /// 账号页
-fn render_account(ui: &mut Ui, r: Rect, t: f32, icon: &SafeTexture, logout: &mut DRectButton) {
+fn render_account(ui: &mut Ui, r: Rect, t: f32, icon: &SafeTexture, logout: &mut DRectButton, switch: &mut DRectButton) {
     let me = get_data().me.clone();
     let av = Rect::new(r.x + 0.01, r.y + 0.03, 0.21, 0.21);
     match &me {
@@ -1031,6 +1043,19 @@ fn render_account(ui: &mut Ui, r: Rect, t: f32, icon: &SafeTexture, logout: &mut
         .multiline()
         .color(semi_white(0.72))
         .draw();
+    // 切换账号行（在登出行上方）
+    let srow = Rect::new(r.x, r.bottom() - 0.235, r.w, 0.115);
+    ui.fill_rect(Rect::new(srow.x, srow.bottom() - 0.0014, srow.w, 0.0014), semi_white(0.085));
+    switch.build(ui, t, srow, |ui, _| {
+        ui.text(tl!("sx-account-switch"))
+            .pos(srow.x, srow.center().y)
+            .anchor(0., 0.5)
+            .size(0.54)
+            .color(WHITE)
+            .draw();
+    });
+    let cr2 = Rect::new(srow.right() - 0.058, srow.center().y - SIZE_CTL_H * 0.5, 0.058, SIZE_CTL_H);
+    arrow_shape(ui, cr2);
     // 登出行
     let row = Rect::new(r.x, r.bottom() - 0.115, r.w, 0.115);
     ui.fill_rect(Rect::new(row.x, row.bottom() - 0.0014, row.w, 0.0014), semi_white(0.085));
@@ -1095,6 +1120,15 @@ impl SettingsPage {
             scroll: Scroll::new(),
             save_time: f32::INFINITY,
             logout_btn: DRectButton::new(),
+            switch_btn: DRectButton::new(),
+            account_overlay: false,
+            account_rows: Vec::new(),
+            account_del_btns: Vec::new(),
+            account_add_btn: DRectButton::new(),
+            account_cancel_btn: DRectButton::new(),
+            switch_task: None,
+            login: None,
+            login_open: false,
             link_buttons: [
                 DRectButton::new(),
                 DRectButton::new(),
@@ -1179,6 +1213,101 @@ impl SettingsPage {
         SETTING_TABS.get(i.min(SETTING_TABS.len() - 1)).map(|(t, _)| *t)
     }
 }
+impl SettingsPage {
+    /// 切换账号弹窗：列出登录过的账号，点一行直接切换；底部可登录其他账号。
+    fn render_account_overlay(&mut self, ui: &mut Ui, t: f32) {
+        let accounts = get_data().saved_accounts.clone();
+        let cur = get_data().me.as_ref().map(|it| it.id);
+        ui.fill_rect(ui.screen_rect(), semi_black(0.62));
+        let row_h = 0.105;
+        let shown = accounts.len().clamp(1, 5) as f32;
+        let h = 0.115 + row_h * shown + 0.105 + 0.09 + 0.05;
+        let w = 0.86f32;
+        let r = Rect::new(-w * 0.5, -h * 0.5, w, h);
+        ui.fill_path(&r.rounded(0.02), Color::new(0.10, 0.12, 0.17, 0.97));
+        ui.text(tl!("sx-account-switch"))
+            .pos(r.x + 0.045, r.y + 0.042)
+            .anchor(0., 0.)
+            .size(0.62)
+            .color(WHITE)
+            .draw();
+        if self.account_rows.len() != accounts.len() {
+            self.account_rows = accounts.iter().map(|_| DRectButton::new()).collect();
+            self.account_del_btns = accounts.iter().map(|_| DRectButton::new()).collect();
+        }
+        let mut y = r.y + 0.115;
+        for (i, acc) in accounts.iter().take(5).enumerate() {
+            let row = Rect::new(r.x + 0.03, y, r.w - 0.06, row_h);
+            let is_cur = cur == Some(acc.id);
+            let name = if acc.name.is_empty() { format!("#{}", acc.id) } else { acc.name.clone() };
+            let initial = acc.name.chars().next().map(|c| c.to_string()).unwrap_or_else(|| "?".to_string());
+            let info = format!("ID {}   RKS {:.2}", acc.id, acc.rks);
+            let cur_tag = if is_cur { tl!("sx-account-current").into_owned() } else { String::new() };
+            self.account_rows[i].build(ui, t, row, |ui, _| {
+                let d = row.h * 0.62;
+                let cr = Rect::new(row.x + 0.012, row.center().y - d * 0.5, d, d);
+                ui.fill_path(&cr.rounded(d * 0.5), if is_cur { semi_white(0.9) } else { semi_white(0.18) });
+                ui.text(&initial)
+                    .pos(cr.center().x, cr.center().y)
+                    .anchor(0.5, 0.5)
+                    .size(d * 0.8)
+                    .color(if is_cur { semi_black(0.9) } else { WHITE })
+                    .draw();
+                ui.text(&name)
+                    .pos(row.x + 0.012 + 0.09, row.center().y - 0.014)
+                    .anchor(0., 0.5)
+                    .size(0.5)
+                    .max_width(row.w - 0.24)
+                    .color(WHITE)
+                    .draw();
+                ui.text(&info)
+                    .pos(row.x + 0.012 + 0.09, row.center().y + 0.028)
+                    .anchor(0., 0.5)
+                    .size(0.3)
+                    .color(semi_white(0.55))
+                    .draw();
+                if !cur_tag.is_empty() {
+                    ui.text(&cur_tag)
+                        .pos(row.right() - 0.02, row.center().y)
+                        .anchor(1., 0.5)
+                        .size(0.34)
+                        .color(semi_white(0.6))
+                        .draw();
+                }
+            });
+            if !is_cur {
+                let del = Rect::new(row.right() - 0.078, row.center().y - 0.027, 0.054, 0.054);
+                self.account_del_btns[i].build(ui, t, del, |ui, _| {
+                    ui.text("×")
+                        .pos(del.center().x, del.center().y)
+                        .anchor(0.5, 0.5)
+                        .size(0.5)
+                        .color(semi_white(0.45))
+                        .draw();
+                });
+            }
+            y += row_h;
+        }
+        let add = Rect::new(r.x + 0.03, y + 0.02, r.w - 0.06, 0.105);
+        self.account_add_btn.build(ui, t, add, |ui, _| {
+            ui.text(tl!("sx-account-add"))
+                .pos(add.x, add.center().y)
+                .anchor(0., 0.5)
+                .size(0.5)
+                .color(semi_white(0.9))
+                .draw();
+        });
+        let cancel = Rect::new(r.x + 0.03, add.bottom() + 0.02, r.w - 0.06, 0.09);
+        self.account_cancel_btn.build(ui, t, cancel, |ui, _| {
+            ui.text(tl!("sx-cancel"))
+                .pos(cancel.center().x, cancel.center().y)
+                .anchor(0.5, 0.5)
+                .size(0.46)
+                .color(semi_white(0.7))
+                .draw();
+        });
+    }
+}
 impl Page for SettingsPage {
     fn label(&self) -> Cow<'static, str> {
         "".into()
@@ -1198,6 +1327,46 @@ impl Page for SettingsPage {
         false
     }
     fn touch(&mut self, touch: &Touch, s: &mut SharedState) -> Result<bool> {
+        // 内嵌登录面板 / 切换账号弹窗都是模态层，先把输入全吃掉
+        if self.login_open {
+            if let Some(login) = &mut self.login {
+                login.touch(touch, s.t);
+            }
+            return Ok(true);
+        }
+        if self.account_overlay {
+            let tt = s.t;
+            if self.account_cancel_btn.touch(touch, tt) {
+                self.account_overlay = false;
+                return Ok(true);
+            }
+            if self.account_add_btn.touch(touch, tt) {
+                self.account_overlay = false;
+                let login = self.login.get_or_insert_with(crate::login::Login::new_bare);
+                login.enter(tt);
+                self.login_open = true;
+                return Ok(true);
+            }
+            let cur = get_data().me.as_ref().map(|it| it.id);
+            let ids: Vec<i32> = get_data().saved_accounts.iter().map(|it| it.id).collect();
+            for (i, id) in ids.iter().enumerate() {
+                if cur == Some(*id) {
+                    continue;
+                }
+                if i < self.account_del_btns.len() && self.account_del_btns[i].touch(touch, tt) {
+                    crate::client::Client::forget_account(*id);
+                    return Ok(true);
+                }
+                if i < self.account_rows.len() && self.account_rows[i].touch(touch, tt) {
+                    let id = *id;
+                    self.switch_task = Some(Task::new(async move { crate::client::Client::switch_to(id).await }));
+                    self.account_overlay = false;
+                    show_message(tl!("sx-account-switching")).ok();
+                    return Ok(true);
+                }
+            }
+            return Ok(true);
+        }
         // 调色板是模态层：打开时优先吃掉所有输入，避免点到后面的标签/按钮。
         if self.tab == SettingListType::Visual && self.list_visual.palette.is_open() {
             self.list_visual.palette.touch(touch);
@@ -1240,6 +1409,11 @@ impl Page for SettingsPage {
         }
         match self.tab {
             SettingListType::Account => {
+                if self.switch_btn.touch(touch, t) {
+                    crate::client::Client::sync_current_account();
+                    self.account_overlay = true;
+                    return Ok(true);
+                }
                 if self.logout_btn.touch(touch, t) && get_data().me.is_some() {
                     let data = get_data_mut();
                     data.me = None;
@@ -1352,6 +1526,24 @@ impl Page for SettingsPage {
             changed = true;
         }
         self.scroll.update(t);
+        if let Some(task) = &mut self.switch_task {
+            if let Some(res) = task.take() {
+                self.switch_task = None;
+                match res {
+                    Ok(()) => {
+                        show_message(tl!("sx-account-switched")).ok();
+                    }
+                    Err(err) => show_error(err.context(tl!("sx-account-switch-failed"))),
+                }
+            }
+        }
+        if let Some(login) = &mut self.login {
+            login.update(t)?;
+            if self.login_open && !login.is_open() && !login.busy() {
+                self.login_open = false;
+                crate::client::Client::sync_current_account();
+            }
+        }
         if changed {
             self.save_time = t;
         }
@@ -1399,7 +1591,7 @@ impl Page for SettingsPage {
                 ui.alpha(0.15 + 0.85 * ap, |ui| {
                     match self.tab {
                         SettingListType::Account => {
-                            render_account(ui, area, t, &self.icon, &mut self.logout_btn);
+                            render_account(ui, area, t, &self.icon, &mut self.logout_btn, &mut self.switch_btn);
                         }
                         SettingListType::About => {
                             render_about_page(ui, t, area, &mut self.link_buttons, &mut self.scroll, &mut self.content_h);
@@ -1466,6 +1658,13 @@ impl Page for SettingsPage {
             draw_settings_back(ui, 0.);
             Ok::<(), anyhow::Error>(())
         })?;
+        // 模态层：切换账号弹窗 / 内嵌登录面板，画在最上层
+        if self.account_overlay {
+            self.render_account_overlay(ui, s.t);
+        }
+        if let Some(login) = &mut self.login {
+            login.render(ui, s.t);
+        }
         Ok(())
     }
     /// 教学谱面等 Overlay 场景失败退出时（NextScene::PopWithResult），

@@ -3,7 +3,7 @@ mod model;
 pub use model::*;
 use tracing::debug;
 
-use crate::{get_data, get_data_mut, save_data};
+use crate::{data::SavedAccount, get_data, get_data_mut, save_data};
 use anyhow::{anyhow, bail, Context, Result};
 use arc_swap::ArcSwap;
 use once_cell::sync::Lazy;
@@ -455,6 +455,64 @@ impl Client {
         .await?;
         Self::store_login(resp.id, resp.token, resp.refresh_token).await?;
         Ok(())
+    }
+
+    /// 把「当前 me + tokens」写进已保存账号列表（切换账号用），已存在则刷新名称/token。
+    pub fn sync_current_account() {
+        let data = get_data_mut();
+        let (Some(me), Some((token, refresh_token))) = (data.me.clone(), data.tokens.clone()) else {
+            return;
+        };
+        let acc = SavedAccount {
+            id: me.id,
+            name: me.name.clone(),
+            rks: me.rks,
+            token,
+            refresh_token,
+        };
+        match data.saved_accounts.iter_mut().find(|it| it.id == acc.id) {
+            Some(it) => *it = acc,
+            None => data.saved_accounts.push(acc),
+        }
+        if let Err(err) = save_data() {
+            tracing::warn!(?err, "sync_current_account: save failed");
+        }
+    }
+
+    /// 切换到已保存的账号：换 token → 拉一次 /me 校验新身份 → 落盘。
+    pub async fn switch_to(id: i32) -> Result<()> {
+        let (token, refresh_token) = get_data()
+            .saved_accounts
+            .iter()
+            .find(|it| it.id == id)
+            .map(|it| (it.token.clone(), it.refresh_token.clone()))
+            .ok_or_else(|| anyhow!("account not found: {id}"))?;
+        set_access_token(&token).await?;
+        {
+            let data = get_data_mut();
+            data.tokens = Some((token, refresh_token));
+        }
+        let me = Self::get_me_unchecked().await?;
+        UserManager::request(me.id);
+        {
+            let data = get_data_mut();
+            data.me = Some(me.clone());
+            if let Some(acc) = data.saved_accounts.iter_mut().find(|it| it.id == me.id) {
+                acc.name = me.name.clone();
+                acc.rks = me.rks;
+            }
+        }
+        save_data()?;
+        Ok(())
+    }
+
+    /// 从已保存账号列表里移除（不动当前登录态）。
+    pub fn forget_account(id: i32) {
+        let data = get_data_mut();
+        data.saved_accounts.retain(|it| it.id != id);
+        if let Err(err) = save_data() {
+            tracing::warn!(?err, "forget_account: save failed");
+        }
     }
 
     /// 获取本地服务器当前登录用户信息：GET {UPLOAD_BASE}/me（Bearer）。

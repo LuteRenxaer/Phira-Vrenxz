@@ -112,6 +112,29 @@ fn default_true() -> bool {
     true
 }
 
+/// 登录过的账号快照，用于「切换账号」（只存 token，不存密码）
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SavedAccount {
+    pub id: i32,
+    pub name: String,
+    pub rks: f32,
+    pub token: String,
+    pub refresh_token: String,
+}
+
+impl Default for SavedAccount {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            name: String::new(),
+            rks: 0.,
+            token: String::new(),
+            refresh_token: String::new(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 pub struct Data {
@@ -123,6 +146,8 @@ pub struct Data {
     pub language: Option<String>,
     pub theme: usize,
     pub tokens: Option<(String, String)>,
+    /// 登录过的账号列表（切换账号用）
+    pub saved_accounts: Vec<SavedAccount>,
     pub respacks: Vec<String>,
     pub respack_id: usize,
     pub accept_invalid_cert: bool,
@@ -202,6 +227,7 @@ impl Default for Data {
             language: None,
             theme: 0,
             tokens: None,
+            saved_accounts: Vec::new(),
             respacks: Vec::new(),
             respack_id: 0,
             accept_invalid_cert: false,
