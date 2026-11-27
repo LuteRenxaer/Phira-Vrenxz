@@ -352,3 +352,4 @@ sx-account-current = Obecne
 sx-account-switching = Przełączanie konta…
 sx-account-switched = Konto przełączone
 sx-account-switch-failed = Nie udało się przełączyć konta
+sx-account-hint = Dotknij konta, aby przełączyć, × usuwa z listy

@@ -345,3 +345,4 @@ sx-account-current = Текущий
 sx-account-switching = Переключение аккаунта…
 sx-account-switched = Аккаунт переключён
 sx-account-switch-failed = Не удалось переключить аккаунт
+sx-account-hint = Нажмите на аккаунт для переключения, × удалит из списка

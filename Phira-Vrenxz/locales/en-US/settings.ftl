@@ -496,3 +496,4 @@ sx-account-current = Current
 sx-account-switching = Switching account…
 sx-account-switched = Account switched
 sx-account-switch-failed = Failed to switch account
+sx-account-hint = Tap an account to switch, × removes it from the list

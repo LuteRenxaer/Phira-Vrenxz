@@ -408,6 +408,11 @@ impl Login {
         self.show
     }
 
+    /// 面板是否处于显示中或正在进出场动画。
+    pub fn is_active(&self) -> bool {
+        self.show || self.fader.transiting()
+    }
+
     #[cfg(feature = "hykb")]
     fn is_active(&self) -> bool {
         self.show

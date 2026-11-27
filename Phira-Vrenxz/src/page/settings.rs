@@ -1214,54 +1214,57 @@ impl SettingsPage {
     }
 }
 impl SettingsPage {
-    /// 切换账号弹窗：列出登录过的账号，点一行直接切换；底部可登录其他账号。
+    /// 切换账号弹窗：列出登录过的账号（头像 + 昵称 + ID/RKS），点一行直接切换。
     fn render_account_overlay(&mut self, ui: &mut Ui, t: f32) {
         let accounts = get_data().saved_accounts.clone();
         let cur = get_data().me.as_ref().map(|it| it.id);
+        let icon = self.icon.clone();
         ui.fill_rect(ui.screen_rect(), semi_black(0.62));
-        let row_h = 0.105;
-        let shown = accounts.len().clamp(1, 5) as f32;
-        let h = 0.115 + row_h * shown + 0.105 + 0.09 + 0.05;
-        let w = 0.86f32;
+        let row_h = 0.125;
+        let shown = accounts.len().clamp(1, 4) as f32;
+        let h = 0.20 + row_h * shown + 0.105 + 0.09 + 0.045;
+        let w = 0.90f32;
         let r = Rect::new(-w * 0.5, -h * 0.5, w, h);
         ui.fill_path(&r.rounded(0.02), Color::new(0.10, 0.12, 0.17, 0.97));
         ui.text(tl!("sx-account-switch"))
-            .pos(r.x + 0.045, r.y + 0.042)
+            .pos(r.x + 0.045, r.y + 0.038)
             .anchor(0., 0.)
-            .size(0.62)
-            .color(WHITE)
+            .size(0.66)
+            .draw_using(&prpr::core::BOLD_FONT);
+        ui.text(tl!("sx-account-hint"))
+            .pos(r.x + 0.045, r.y + 0.105)
+            .anchor(0., 0.)
+            .size(0.32)
+            .color(semi_white(0.5))
             .draw();
         if self.account_rows.len() != accounts.len() {
             self.account_rows = accounts.iter().map(|_| DRectButton::new()).collect();
             self.account_del_btns = accounts.iter().map(|_| DRectButton::new()).collect();
         }
-        let mut y = r.y + 0.115;
-        for (i, acc) in accounts.iter().take(5).enumerate() {
+        let mut y = r.y + 0.155;
+        for (i, acc) in accounts.iter().take(4).enumerate() {
             let row = Rect::new(r.x + 0.03, y, r.w - 0.06, row_h);
             let is_cur = cur == Some(acc.id);
             let name = if acc.name.is_empty() { format!("#{}", acc.id) } else { acc.name.clone() };
-            let initial = acc.name.chars().next().map(|c| c.to_string()).unwrap_or_else(|| "?".to_string());
-            let info = format!("ID {}   RKS {:.2}", acc.id, acc.rks);
+            let info = format!("ID {}    RKS {:.2}", acc.id, acc.rks);
             let cur_tag = if is_cur { tl!("sx-account-current").into_owned() } else { String::new() };
+            let avatar_id = acc.id;
+            let icon_for_row = icon.clone();
+            // 当前账号行也做成按钮（点了没反应），保证行的视觉一致
             self.account_rows[i].build(ui, t, row, |ui, _| {
-                let d = row.h * 0.62;
-                let cr = Rect::new(row.x + 0.012, row.center().y - d * 0.5, d, d);
-                ui.fill_path(&cr.rounded(d * 0.5), if is_cur { semi_white(0.9) } else { semi_white(0.18) });
-                ui.text(&initial)
-                    .pos(cr.center().x, cr.center().y)
-                    .anchor(0.5, 0.5)
-                    .size(d * 0.8)
-                    .color(if is_cur { semi_black(0.9) } else { WHITE })
-                    .draw();
+                let d = row.h * 0.70;
+                let cx = row.x + 0.012 + d * 0.5;
+                ui.avatar(cx, row.center().y, d * 0.5, t, crate::client::UserManager::opt_avatar(avatar_id, &icon_for_row));
+                let tx = row.x + 0.012 + d + 0.028;
                 ui.text(&name)
-                    .pos(row.x + 0.012 + 0.09, row.center().y - 0.014)
+                    .pos(tx, row.center().y - 0.016)
                     .anchor(0., 0.5)
                     .size(0.5)
-                    .max_width(row.w - 0.24)
+                    .max_width(row.w - 0.26 - d)
                     .color(WHITE)
                     .draw();
                 ui.text(&info)
-                    .pos(row.x + 0.012 + 0.09, row.center().y + 0.028)
+                    .pos(tx, row.center().y + 0.030)
                     .anchor(0., 0.5)
                     .size(0.3)
                     .color(semi_white(0.55))
@@ -1276,7 +1279,7 @@ impl SettingsPage {
                 }
             });
             if !is_cur {
-                let del = Rect::new(row.right() - 0.078, row.center().y - 0.027, 0.054, 0.054);
+                let del = Rect::new(row.right() - 0.082, row.center().y - 0.028, 0.056, 0.056);
                 self.account_del_btns[i].build(ui, t, del, |ui, _| {
                     ui.text("×")
                         .pos(del.center().x, del.center().y)
@@ -1288,7 +1291,8 @@ impl SettingsPage {
             }
             y += row_h;
         }
-        let add = Rect::new(r.x + 0.03, y + 0.02, r.w - 0.06, 0.105);
+        let add = Rect::new(r.x + 0.03, y + 0.018, r.w - 0.06, 0.105);
+        ui.fill_rect(Rect::new(add.x, add.y - 0.008, add.w, 0.0012), semi_white(0.10));
         self.account_add_btn.build(ui, t, add, |ui, _| {
             ui.text(tl!("sx-account-add"))
                 .pos(add.x, add.center().y)
@@ -1296,8 +1300,14 @@ impl SettingsPage {
                 .size(0.5)
                 .color(semi_white(0.9))
                 .draw();
+            ui.text("+")
+                .pos(add.right() - 0.02, add.center().y)
+                .anchor(1., 0.5)
+                .size(0.5)
+                .color(semi_white(0.6))
+                .draw();
         });
-        let cancel = Rect::new(r.x + 0.03, add.bottom() + 0.02, r.w - 0.06, 0.09);
+        let cancel = Rect::new(r.x + 0.03, add.bottom() + 0.018, r.w - 0.06, 0.09);
         self.account_cancel_btn.build(ui, t, cancel, |ui, _| {
             ui.text(tl!("sx-cancel"))
                 .pos(cancel.center().x, cancel.center().y)
@@ -1341,7 +1351,6 @@ impl Page for SettingsPage {
                 return Ok(true);
             }
             if self.account_add_btn.touch(touch, tt) {
-                self.account_overlay = false;
                 let login = self.login.get_or_insert_with(crate::login::Login::new_bare);
                 login.enter(tt);
                 self.login_open = true;
@@ -1539,9 +1548,11 @@ impl Page for SettingsPage {
         }
         if let Some(login) = &mut self.login {
             login.update(t)?;
-            if self.login_open && !login.is_open() && !login.busy() {
+            // 进场动画走完前 is_open 还是 false，不能据此提前收掉；只有真正退场后才回到账号列表
+            if self.login_open && !login.is_open() && !login.is_active() && !login.busy() {
                 self.login_open = false;
                 crate::client::Client::sync_current_account();
+                self.account_overlay = true;
             }
         }
         if changed {
@@ -1659,7 +1670,7 @@ impl Page for SettingsPage {
             Ok::<(), anyhow::Error>(())
         })?;
         // 模态层：切换账号弹窗 / 内嵌登录面板，画在最上层
-        if self.account_overlay {
+        if self.account_overlay && !self.login_open {
             self.render_account_overlay(ui, s.t);
         }
         if let Some(login) = &mut self.login {

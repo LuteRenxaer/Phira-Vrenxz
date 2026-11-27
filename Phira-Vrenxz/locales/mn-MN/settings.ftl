@@ -318,3 +318,4 @@ sx-account-current = Одоогийн
 sx-account-switching = Бүртгэл солигдож байна…
 sx-account-switched = Бүртгэл солигдлоо
 sx-account-switch-failed = Бүртгэл солих амжилтгүй
+sx-account-hint = Бүртгэл дээр дарж солино, × жагсаалтаас хасна

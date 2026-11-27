@@ -345,3 +345,4 @@ sx-account-current = ปัจจุบัน
 sx-account-switching = กำลังสลับบัญชี…
 sx-account-switched = สลับบัญชีแล้ว
 sx-account-switch-failed = สลับบัญชีไม่สำเร็จ
+sx-account-hint = แตะบัญชีเพื่อสลับ × ลบออกจากรายการ

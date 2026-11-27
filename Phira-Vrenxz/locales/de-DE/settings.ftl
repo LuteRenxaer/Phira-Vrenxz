@@ -344,3 +344,4 @@ sx-account-current = Aktuell
 sx-account-switching = Konto wird gewechselt…
 sx-account-switched = Konto gewechselt
 sx-account-switch-failed = Kontowechsel fehlgeschlagen
+sx-account-hint = Konto antippen zum Wechseln, × entfernt es

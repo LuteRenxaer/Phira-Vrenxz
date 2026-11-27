@@ -351,3 +351,4 @@ sx-account-current = Saat ini
 sx-account-switching = Mengganti akun…
 sx-account-switched = Akun diganti
 sx-account-switch-failed = Gagal mengganti akun
+sx-account-hint = Ketuk akun untuk berganti, × menghapus dari daftar

@@ -352,3 +352,4 @@ sx-account-current = Hiện tại
 sx-account-switching = Đang đổi tài khoản…
 sx-account-switched = Đã đổi tài khoản
 sx-account-switch-failed = Đổi tài khoản thất bại
+sx-account-hint = Nhấn vào tài khoản để đổi, × xoá khỏi danh sách

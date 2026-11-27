@@ -344,3 +344,4 @@ sx-account-current = 當下
 sx-account-switching = 正切換帳號…
 sx-account-switched = 已切換帳號
 sx-account-switch-failed = 切換帳號未成
+sx-account-hint = 點帳號即換，× 自列中除之

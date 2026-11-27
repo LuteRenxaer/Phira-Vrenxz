@@ -352,3 +352,4 @@ sx-account-current = Geçerli
 sx-account-switching = Hesap değiştiriliyor…
 sx-account-switched = Hesap değiştirildi
 sx-account-switch-failed = Hesap değiştirilemedi
+sx-account-hint = Değiştirmek için hesaba dokunun, × listeden kaldırır

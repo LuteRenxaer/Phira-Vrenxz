@@ -496,3 +496,4 @@ sx-account-current = 当前
 sx-account-switching = 正在切换账号…
 sx-account-switched = 已切换账号
 sx-account-switch-failed = 切换账号失败
+sx-account-hint = 点账号直接切换，× 从列表移除

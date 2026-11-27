@@ -352,3 +352,4 @@ sx-account-current = Actuel
 sx-account-switching = Changement de compte…
 sx-account-switched = Compte changé
 sx-account-switch-failed = Échec du changement de compte
+sx-account-hint = Touchez un compte pour changer, × le retire de la liste
