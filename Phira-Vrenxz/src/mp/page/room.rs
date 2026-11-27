@@ -881,12 +881,15 @@ impl RoomPage {
             left.w,
             left.h,
             0.,
-            fade(PANEL_TOP_C, a),
-            fade(PANEL_BOTTOM_C, a),
+            fade(Color::new(0.17, 0.18, 0.21, 1.), a),
+            fade(Color::new(0.10, 0.11, 0.14, 1.), a),
         );
         if let Some(illu) = &self.illu {
             let ia = illu.alpha(t);
             if ia > 0.02 {
+                // 曲绘只做模糊底：铺模糊版（没有就退回缩略图），再压一层暗纱保证白字可读
+                let blur = illu.blurred.lock().unwrap().clone();
+                let tex = blur.as_ref().unwrap_or(&illu.texture.0);
                 cover_quad(
                     [
                         Vec2::new(left.x, left.y),
@@ -894,11 +897,21 @@ impl RoomPage {
                         Vec2::new(left.x, left.bottom()),
                         Vec2::new(left.right(), left.bottom()),
                     ],
-                    &illu.texture.1,
+                    tex,
                     ia * a,
                 );
-                // 顶部一段白纱，压在曲绘上让谱名读得清
-                let band = (left.h * 0.32).min(0.32);
+                theme::slant_panel_grad(
+                    ui,
+                    left.x,
+                    left.y,
+                    left.w,
+                    left.h,
+                    0.,
+                    fade(Color::new(0., 0., 0., 0.34 * ia), a),
+                    fade(Color::new(0., 0., 0., 0.52 * ia), a),
+                );
+                // 顶部再压一道暗角，谱名坐在上面也读得清
+                let band = (left.h * 0.30).min(0.30);
                 theme::slant_panel_grad(
                     ui,
                     left.x,
@@ -906,12 +919,15 @@ impl RoomPage {
                     left.w,
                     band,
                     0.,
-                    fade(semi_white(0.82 * ia), a),
-                    fade(Color::new(1., 1., 1., 0.), a),
+                    fade(Color::new(0., 0., 0., 0.42 * ia), a),
+                    fade(Color::new(0., 0., 0., 0.), a),
                 );
             }
         }
         let pad = 0.032;
+        let on = WHITE;
+        let on_dim = semi_white(0.74);
+        let on_id = semi_white(0.58);
         let (state_text, chart_name) = chart_parts(ctx.room, ctx.view);
         let name = match &chart_name {
             Some(n) if !n.is_empty() => n.clone(),
@@ -922,7 +938,7 @@ impl RoomPage {
             left.x + pad,
             left.y + 0.055,
             FS_SECTION,
-            ON_PANEL,
+            on,
             &name,
             left.w - pad * 2.,
         );
@@ -932,7 +948,7 @@ impl RoomPage {
                 left.right() - pad,
                 left.y + 0.052,
                 FS_SMALL,
-                ON_PANEL_ID,
+                on_id,
                 &self.chart_badge,
                 left.w * 0.42,
             );
@@ -942,7 +958,7 @@ impl RoomPage {
             left.x + pad,
             left.y + 0.098,
             FS_SMALL,
-            ON_PANEL_DIM,
+            on_dim,
             &state_text,
             left.w - pad * 2.,
         );
@@ -962,7 +978,7 @@ impl RoomPage {
         if score > 0 {
             if let Some(icons) = crate::scene::TEX_RANK_ICONS.with(|it| it.borrow().clone()) {
                 let r = Rect::new(left.x + pad, left.bottom() - 0.125, 0.08, 0.08);
-                ui.fill_path(&r.rounded(R_ROW), Color::new(0., 0., 0., 0.18));
+                ui.fill_path(&r.rounded(R_ROW), Color::new(0., 0., 0., 0.28));
                 let idx = icon_index(score as u32, full_combo);
                 ui.fill_rect(r, (*icons[idx], r, ScaleType::Fit));
             }
@@ -972,7 +988,7 @@ impl RoomPage {
             left.x + pad + 0.1,
             left.bottom() - 0.068,
             FS_BODY,
-            ON_PANEL,
+            on,
             &format!("{score:07}"),
             left.w - pad * 2. - 0.11,
         );
@@ -981,7 +997,7 @@ impl RoomPage {
             left.x + pad + 0.1,
             left.bottom() - 0.098,
             FS_SMALL,
-            ON_PANEL_DIM,
+            on_dim,
             &format!("{:.2}%", accuracy * 100.),
             left.w - pad * 2. - 0.11,
         );
