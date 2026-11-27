@@ -44,7 +44,8 @@ pub(super) fn draw(aspect: f32, zones: &[Zone], disabled: bool, color: Color, op
         }
         gl_use_default_material();
         for &(p, o) in &cached.layers[usize::from(disabled)] {
-            let fill = Color::new(color.r, color.g, color.b, o * if disabled { 0.12 } else { 0.4 } * opacity);
+            // 透明度上限 3.0：alpha 仍然封顶 1，避免超过 1 后预乘/叠加混合出错。
+            let fill = Color::new(color.r, color.g, color.b, (o * if disabled { 0.12 } else { 0.4 } * opacity).min(1.));
             draw_triangle(p[0], p[1], p[2], fill);
             draw_triangle(p[0], p[2], p[3], fill);
         }

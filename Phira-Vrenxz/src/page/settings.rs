@@ -2805,7 +2805,7 @@ impl VisualList {
                 ])
                 .with_selected((get_data().config.noise_demo.saturating_sub(1)) as usize),
             noise_glitch_btn: DRectButton::new(),
-            noise_opacity_slider: Slider::new(0.0..1.0, 0.01),
+            noise_opacity_slider: Slider::new(0.0..3.0, 0.01),
             dynamic_bg_btn: ChooseButton::new()
                 .with_options(vec![
                     tl!("sx-off").to_string(),

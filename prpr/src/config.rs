@@ -361,7 +361,7 @@ pub struct Config {
     /// 噪域 glitch 效果开关
     #[serde(default)]
     pub noise_glitch: bool,
-    /// 噪域透明度（0.0~1.0）
+    /// 噪域透明度（0.0~3.0，1.0 为官方观感，超出按线性叠加更亮）
     #[serde(default = "default_noise_opacity")]
     pub noise_opacity: f32,
 

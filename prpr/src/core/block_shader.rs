@@ -568,11 +568,16 @@ pub(crate) fn draw_layer_at(res: &mut Resource, aspect: f32, zones: &[Zone], tim
 
 fn apply_noise_style(m: &Material, config: &Config) {
     let (r, g, b) = config.noise_color_rgb();
-    let opacity = config.noise_opacity.clamp(0., 1.);
-    let edge = [r, g, b, opacity];
-    let fill = [r * 0.7, g * 0.7, b * 0.7, opacity * 0.667];
-    let glow = [r, g, b, opacity * 0.8];
-    let tint = [r, g, b, opacity];
+    // 100% 就是官方观感；0~100% 走原公式，超过 100% 的部分放大颜色亮度（alpha 始终
+    // 不超过 1，否则预乘混合 One+OneMinusSrcAlpha 会把整块噪域压成纯黑）。
+    let opacity = config.noise_opacity.clamp(0., 3.);
+    let a = opacity.min(1.);
+    let boost = 1. + (opacity - 1.).max(0.);
+    let (r, g, b) = ((r * boost).min(1.), (g * boost).min(1.), (b * boost).min(1.));
+    let edge = [r, g, b, a];
+    let fill = [r * 0.7, g * 0.7, b * 0.7, 0.667 * a];
+    let glow = [r, g, b, 0.8 * a];
+    let tint = [r, g, b, a];
     match (config.noise_flat_mode(), config.noise_glitch, config.noise_demo) {
         (true, _, _) => {
             // pure color-block demo: shader branch is bypassed in draw_layer_at.
@@ -583,10 +588,10 @@ fn apply_noise_style(m: &Material, config: &Config) {
             m.set_uniform("_FillColor", fill);
             m.set_uniform("_GlowColor", glow);
             m.set_uniform("_NoiseTint", tint);
-            m.set_uniform("_EdgeOpacity", 0.8 * opacity);
-            m.set_uniform("_FillStrength", 0.667);
-            m.set_uniform("_FillOpacity", 0.667 * opacity);
-            m.set_uniform("_GlowIntensity", 0.8 * opacity);
+            m.set_uniform("_EdgeOpacity", 0.8 * a);
+            m.set_uniform("_FillStrength", 0.667 * a);
+            m.set_uniform("_FillOpacity", 0.667 * a);
+            m.set_uniform("_GlowIntensity", 0.8 * a);
             m.set_uniform("_DisplaceStrength", 0.5);
             m.set_uniform("_NoiseDisplaceStrength", 3.2);
             m.set_uniform("_NoiseEvoSpeed", 1.2);
@@ -598,10 +603,10 @@ fn apply_noise_style(m: &Material, config: &Config) {
             m.set_uniform("_FillColor", fill);
             m.set_uniform("_GlowColor", glow);
             m.set_uniform("_NoiseTint", tint);
-            m.set_uniform("_EdgeOpacity", 0.8 * opacity);
-            m.set_uniform("_FillStrength", 0.667);
-            m.set_uniform("_FillOpacity", 0.667 * opacity);
-            m.set_uniform("_GlowIntensity", 0.8 * opacity);
+            m.set_uniform("_EdgeOpacity", 0.8 * a);
+            m.set_uniform("_FillStrength", 0.667 * a);
+            m.set_uniform("_FillOpacity", 0.667 * a);
+            m.set_uniform("_GlowIntensity", 0.8 * a);
             m.set_uniform("_DisplaceStrength", 0.15);
             m.set_uniform("_NoiseDisplaceStrength", 1.);
             m.set_uniform("_NoiseEvoSpeed", 0.03);
