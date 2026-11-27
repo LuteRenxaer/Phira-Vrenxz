@@ -278,8 +278,8 @@ pub fn draw_parallelogram_band(rect: Rect, y0: f32, y1: f32, color: Color) {
     let p = [
         Point::new(rect.x + l - d0, y0),
         Point::new(rect.right() - d0, y0),
-        Point::new(rect.right() - l - d1, y1),
-        Point::new(rect.x - d1, y1),
+        Point::new(rect.right() - d1, y1),
+        Point::new(rect.x + l - d1, y1),
     ];
     let gl = unsafe { get_internal_gl() }.quad_gl;
     gl.texture(None);

@@ -214,6 +214,8 @@ impl Dialog {
 
         let l = wr.h * PARALLELOGRAM_SLOPE;
         let content_x = wr.x + l + pad;
+        // 斜边收缩：给定 y 处面板的实际右边界（已扣 pad）
+        let right_at = |y: f32| wr.right() - l * ((y - wr.y) / wr.h).clamp(0., 1.) - pad;
         let content_w = wr.w - l - pad * 2.;
 
         // 标题
@@ -232,13 +234,13 @@ impl Dialog {
         ui.scope(|ui| {
             ui.dx(content_x);
             ui.dy(body_top);
-            self.scroll.size((content_w - pad, scroll_h));
+            self.scroll.size(((right_at(body_top) - content_x).max(0.1), scroll_h));
             self.scroll.render(ui, |ui| {
                 let r = ui
                     .text(&self.message)
                     .pos(0., 0.)
                     .size(0.46)
-                    .max_width(content_w - pad)
+                    .max_width((right_at(body_top) - content_x).max(0.1))
                     .multiline()
                     .color(semi_white(0.9))
                     .draw();
@@ -248,7 +250,7 @@ impl Dialog {
         });
 
         // 按钮：右下角纯文字（不再画条纹块）
-        let mut rx = wr.right() - l - pad;
+        let mut rx = right_at(wr.bottom() - bh / 2. - s);
         let by = wr.bottom() - bh / 2. - s;
         for (text, btn) in self.buttons.iter().zip(self.rect_buttons.iter_mut()).rev() {
             let tr = ui

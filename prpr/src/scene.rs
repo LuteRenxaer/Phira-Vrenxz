@@ -757,6 +757,8 @@ impl InputDialog {
         let pad = 0.045;
         let cx = wr.x + l + pad;
         let cw = wr.w - l - pad * 2.;
+        // 斜边右下收缩：给定 y 处面板右边界（已扣 pad）
+        let right_at = |y: f32| wr.right() - l * ((y - wr.y) / wr.h).clamp(0., 1.) - pad;
 
         ui.text(&self.title)
             .pos(cx + 0.01, wr.y + header_h / 2.)
@@ -769,19 +771,22 @@ impl InputDialog {
 
         let mut y = wr.y + header_h + 0.028;
         if !self.prompt.is_empty() {
+            let right = right_at(y + 0.03);
             let r = ui
                 .text(&self.prompt)
                 .pos(cx, y)
                 .size(0.32)
                 .color(semi_white(0.7 * ease))
-                .max_width(cw)
+                .max_width((right - cx).max(0.05))
                 .multiline()
                 .draw();
             y = r.bottom() + 0.022;
         }
 
         let input_h = if self.multiline { 0.2 } else { 0.078 };
-        let input_r = Rect::new(cx, y, cw, input_h);
+        // 面板是斜的：右侧边界随高度左移，输入区按它所在高度的实际右边界收窄，
+        // 否则会戳出面板的斜边
+        let input_r = Rect::new(cx, y, (right_at(y + input_h) - cx).max(0.05), input_h);
         // 输入区：比面板略亮的凹槽 + 底部一条细线，不再用蓝色描边方块
         ui.fill_rect(input_r, Color::new(0.10, 0.10, 0.12, 0.98 * ease));
         ui.fill_rect(
@@ -899,7 +904,7 @@ impl InputDialog {
         // 右下角纯文字按钮：取消（暗）/ 确定（亮）
         let bh = 0.06;
         let by = wr.bottom() - bh / 2. - 0.02;
-        let mut rx = wr.right() - l - pad;
+        let mut rx = right_at(by);
         let ok_w = ui
             .text(&self.ok_label)
             .size(0.46)
