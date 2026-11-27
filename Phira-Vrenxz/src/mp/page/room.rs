@@ -769,11 +769,32 @@ impl RoomPage {
         let a = ui.alpha;
         let m = 0.03;
 
-        // —— 整屏底色 ——
-        theme::slant_panel_grad(ui, -1., -top, 2., 2. * top, 0., fade(BG_TOP, a), fade(BG_BOTTOM, a));
+        // —— 背景：没选谱面时纯色；选了谱面后铺它的曲绘（用缩略图放大，天然就是模糊的） ——
+        let mut bg_done = false;
+        if let Some(illu) = &self.illu {
+            let ia = illu.alpha(t);
+            if ia > 0.02 && (ctx.view.chart_id.is_some() || ctx.view.local_chart.is_some()) {
+                cover_quad(
+                    [
+                        Vec2::new(-1., -top),
+                        Vec2::new(1., -top),
+                        Vec2::new(-1., top),
+                        Vec2::new(1., top),
+                    ],
+                    &illu.texture.0,
+                    ia * a,
+                );
+                // 压一层暗纱，保证面板上的字读得清
+                ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 0.42 * ia * a));
+                bg_done = true;
+            }
+        }
+        if !bg_done {
+            theme::slant_panel_grad(ui, -1., -top, 2., 2. * top, 0., fade(BG_TOP, a), fade(BG_BOTTOM, a));
+        }
 
         // ---------- 顶部 tab 栏 ----------
-        let bar = Rect::new(-1. + m, top - 0.12, 2. - m * 2., 0.1);
+        let bar = Rect::new(-1. + m, -top + 0.025, 2. - m * 2., 0.1);
         theme::card_flat(ui, bar, fade(STRIP_C, a));
 
         let back_s = (bar.h * 0.8).min(0.072);
@@ -791,7 +812,6 @@ impl RoomPage {
         let title_x = bar.x + back_s + 0.036;
         let chip_sz = FS_TAG;
 
-        // 主动作（开始/准备）放右下角，其余动作都收进顶栏
         let main = items
             .iter()
             .find(|it| matches!(it.action, RoomAction::Start | RoomAction::Ready | RoomAction::CancelReady));
@@ -847,11 +867,11 @@ impl RoomPage {
         }
         theme::text_left_bold(ui, title_x, bar.center().y, FS_SECTION, semi_white(1.), &title, title_reserve);
 
-        let content_top = bar.y - 0.03;
-        let content_bottom = -top + m;
+        let content_top = bar.bottom() + 0.03;
+        let content_bottom = top - m;
 
         // ---------- 左边：谱面信息 ----------
-        let left = Rect::new(-1. + m, content_bottom, 0.62, (content_top - content_bottom).max(0.24));
+        let left = Rect::new(-1. + m, content_top, 0.62, (content_bottom - content_top).max(0.24));
         theme::slant_panel_grad(
             ui,
             left.x,
@@ -875,11 +895,12 @@ impl RoomPage {
                     &illu.texture.1,
                     ia * a,
                 );
-                let band = 0.3;
+                // 顶部一段白纱，压在曲绘上让谱名读得清
+                let band = (left.h * 0.32).min(0.32);
                 theme::slant_panel_grad(
                     ui,
                     left.x,
-                    left.y + left.h - band,
+                    left.y,
                     left.w,
                     band,
                     0.,
@@ -892,12 +913,12 @@ impl RoomPage {
         let (state_text, chart_name) = chart_parts(ctx.room, ctx.view);
         let name = match &chart_name {
             Some(n) if !n.is_empty() => n.clone(),
-            _ => state_text.clone(),
+            _ => mtl!("multiplayer").into_owned(),
         };
         theme::text_left_bold(
             ui,
             left.x + pad,
-            left.y + left.h - 0.055,
+            left.y + 0.055,
             FS_SECTION,
             ON_PANEL,
             &name,
@@ -907,7 +928,7 @@ impl RoomPage {
             theme::text_right(
                 ui,
                 left.right() - pad,
-                left.y + left.h - 0.058,
+                left.y + 0.052,
                 FS_SMALL,
                 ON_PANEL_ID,
                 &self.chart_badge,
@@ -917,7 +938,7 @@ impl RoomPage {
         theme::text_left(
             ui,
             left.x + pad,
-            left.y + left.h - 0.098,
+            left.y + 0.098,
             FS_SMALL,
             ON_PANEL_DIM,
             &state_text,
@@ -925,20 +946,20 @@ impl RoomPage {
         );
 
         if let Some(dl) = ctx.download.as_deref_mut() {
-            let dr = Rect::new(left.x + pad, left.y + left.h - 0.21, left.w - pad * 2., 0.085);
+            let dr = Rect::new(left.x + pad, left.y + 0.125, left.w - pad * 2., 0.085);
             theme::card_rect(ui, dr, card());
             dl.render_inline(ui, dr, t);
         } else if ctx.syncing || ctx.busy {
-            let pb = Rect::new(left.x + pad, left.y + left.h - 0.15, left.w * 0.66, 0.007);
+            let pb = Rect::new(left.x + pad, left.y + 0.14, left.w * 0.66, 0.007);
             theme::progress_bar(ui, pb, None, t, accent);
         }
 
-        // 本地最好成绩（评级图 + 分数 + 准确率）
+        // 本地最好成绩（评级图 + 分数 + 准确率），贴在面板底部
         let (score, accuracy, full_combo) = self.chart_record.unwrap_or((0, 0., false));
-        theme::h_line(ui, left.x + pad, left.y + 0.12, left.w - pad * 2.);
+        theme::h_line(ui, left.x + pad, left.bottom() - 0.145, left.w - pad * 2.);
         if score > 0 {
             if let Some(icons) = crate::scene::TEX_RANK_ICONS.with(|it| it.borrow().clone()) {
-                let r = Rect::new(left.x + pad, left.y + 0.035, 0.08, 0.08);
+                let r = Rect::new(left.x + pad, left.bottom() - 0.125, 0.08, 0.08);
                 ui.fill_path(&r.rounded(R_ROW), Color::new(0., 0., 0., 0.18));
                 let idx = icon_index(score as u32, full_combo);
                 ui.fill_rect(r, (*icons[idx], r, ScaleType::Fit));
@@ -947,7 +968,7 @@ impl RoomPage {
         theme::text_left_bold(
             ui,
             left.x + pad + 0.1,
-            left.y + 0.082,
+            left.bottom() - 0.068,
             FS_BODY,
             ON_PANEL,
             &format!("{score:07}"),
@@ -956,7 +977,7 @@ impl RoomPage {
         theme::text_left(
             ui,
             left.x + pad + 0.1,
-            left.y + 0.050,
+            left.bottom() - 0.098,
             FS_SMALL,
             ON_PANEL_DIM,
             &format!("{:.2}%", accuracy * 100.),
@@ -967,12 +988,15 @@ impl RoomPage {
         let mid_x = -1. + m + 0.65;
         let mid_w = 0.6;
         let input_h = 0.115;
-        let input_y = content_bottom;
+        let start_h = 0.135;
+        let bottom_y = content_bottom;
+        let input_y = bottom_y - input_h;
         let log_h = 0.19;
-        let log_y = input_y + input_h + 0.03;
-        let chat_y = log_y + log_h + 0.03;
+        let log_y = input_y - 0.03 - log_h;
+        let chat_y = content_top;
+        let chat_h = (log_y - 0.03 - chat_y).max(0.18);
 
-        let chat = Rect::new(mid_x, chat_y, mid_w, (content_top - chat_y).max(0.18));
+        let chat = Rect::new(mid_x, chat_y, mid_w, chat_h);
         theme::panel_caption(ui, chat.x, chat.y, chat.w, &mtl!("mp-chat-title"));
         let chat_list = Rect::new(chat.x, chat.y + CAPTION_H, chat.w, (chat.h - CAPTION_H).max(0.05));
         let chat_inner = theme::parallelogram(ui, chat_list, 0., fade(CHAT_VEIL, a), fade(CHAT_VEIL, a));
@@ -1004,7 +1028,7 @@ impl RoomPage {
             );
         });
 
-        // 输入行
+        // 输入行（最底部）
         let send_w = 0.115;
         let input = Rect::new(mid_x, input_y, (mid_w - send_w - 0.02).max(0.1), input_h);
         let send = Rect::new(mid_x + mid_w - send_w, input_y, send_w, input_h);
@@ -1022,12 +1046,11 @@ impl RoomPage {
         // ---------- 右边：玩家列表 ----------
         let right_w = 0.6;
         let right_x = 1. - m - right_w;
-        let start_h = 0.135;
         let users = Rect::new(
             right_x,
-            content_bottom + start_h + 0.03,
+            content_top,
             right_w,
-            (content_top - content_bottom - start_h - 0.03).max(0.16),
+            (bottom_y - start_h - 0.03 - content_top).max(0.16),
         );
         theme::panel_caption(
             ui,
@@ -1042,7 +1065,7 @@ impl RoomPage {
 
         // ---------- 右下角：开始 / 准备 ----------
         if let Some(item) = main {
-            let r = Rect::new(right_x, content_bottom, right_w, start_h);
+            let r = Rect::new(right_x, bottom_y - start_h, right_w, start_h);
             let label = item.label.clone();
             if item.disabled {
                 self.actions.get(item.action).invalidate();
@@ -1067,7 +1090,7 @@ impl RoomPage {
             theme::text_left(
                 ui,
                 cr.x + 0.022,
-                cr.y + h * 0.66,
+                cr.y + h * 0.34,
                 FS_SMALL,
                 text(),
                 &mtl!("preview-interrupted-content"),
@@ -1075,13 +1098,14 @@ impl RoomPage {
             );
             let bh = h * 0.32;
             let bw = 0.18f32.min((cr.w - 0.044) / 2.2);
-            let by = cr.y + 0.012;
+            let by = cr.bottom() - bh - 0.012;
             let rr = Rect::new(cr.right() - 0.022 - bw, by, bw, bh);
             let ll = Rect::new(rr.x - 0.02 - bw, by, bw, bh);
             theme::button(ui, &mut self.prompt_later, t, ll, mtl!("preview-not-now"), FS_TAG, secondary(), text());
             theme::button(ui, &mut self.prompt_ready, t, rr, mtl!("preview-ready"), FS_TAG, primary(accent), WHITE);
         }
     }
+
 
     /// 左下角的最好成绩卡：等级图标 + 等级牌 + 谱面 ID + 最好成绩 + 准确率。
     ///
