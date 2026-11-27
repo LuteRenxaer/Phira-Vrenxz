@@ -62,7 +62,7 @@ use crate::{
     dir, get_data, get_data_mut,
     mp::{MpSession, MultiplayerScene, MP_SESSION},
     icons::Icons,
-    page::{ExportInfo, HomePage, LibraryPage, NextPage, Page, PhigrosLibraryPage, ResPackItem, SharedState, SettingsPage, ExtensionPage, ResPackPage, MessagePage, EventPage, FavoritesPage},
+    page::{ExportInfo, HomePage, LibraryPage, NextPage, Page, PhigrosLibraryPage, ResPackItem, SharedState, SettingsPage, ExtensionPage, ResPackPage, MessagePage, EventPage, FavoritesPage, WorkbenchPage},
     save_data,
     scene::{confirm_dialog, import_chart_to, parse_warnings_to_string, TEX_BACKGROUND, TEX_ICON_BACK, TEX_ICON_PROCEED},
 };
@@ -798,6 +798,17 @@ impl Scene for MainScene {
             pages.last_mut().unwrap().enter(state)?;
             Ok(())
         }
+        // 按 F10 打开制谱工作台（RPE 谱面编辑）
+        if is_key_pressed(KeyCode::F10) && self.pages.len() == 1 {
+            match WorkbenchPage::new() {
+                Ok(page) => {
+                    self.pages.push(Box::new(page));
+                    self.state.fader.sub(self.state.t);
+                }
+                Err(e) => eprintln!("[Workbench] open failed: {e:#}"),
+            }
+        }
+
         // 按 F3 打开 Debug 窗口
         if is_key_pressed(KeyCode::F3) {
             // 直接打开独立的 Debug 控制台窗口

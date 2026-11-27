@@ -41,6 +41,10 @@ pub use respack::{ResPackItem, ResPackPage};
 
 mod settings;
 
+// 制谱工作台（RPE 谱面编辑）
+mod workbench;
+pub use workbench::WorkbenchPage;
+
 pub(crate) use settings::render_switch;
 pub use settings::SettingsPage;
 use tokio::sync::Notify;
