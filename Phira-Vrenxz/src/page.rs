@@ -129,6 +129,7 @@ pub fn local_illustration(path: String, def: SafeTexture, full: bool) -> Illustr
         notify: Arc::clone(&notify),
         task: Some(illustration_task(notify, path, full)),
         loaded: Arc::default(),
+        blurred: Arc::default(),
         load_time: f32::NAN,
     }
 }
@@ -236,6 +237,8 @@ pub struct Illustration {
     pub notify: Arc<Notify>,
     pub task: Option<IllustrationTask>,
     pub loaded: Arc<Mutex<Option<(SafeTexture, SafeTexture)>>>,
+    /// 高斯模糊版（160px 宽），用作房间页的模糊背景；没加载好时为 None。
+    pub blurred: Arc<Mutex<Option<SafeTexture>>>,
     pub load_time: f32,
 }
 
@@ -252,6 +255,7 @@ impl Illustration {
                 Ok((file.load_image().await?, None))
             })),
             loaded: Arc::default(),
+            blurred: Arc::default(),
             load_time: f32::NAN,
         }
     }
@@ -266,6 +270,7 @@ impl Illustration {
                 Ok((file.load_thumbnail().await?, None))
             })),
             loaded: Arc::default(),
+            blurred: Arc::default(),
             load_time: f32::NAN,
         }
     }
@@ -276,6 +281,7 @@ impl Illustration {
             notify: Arc::default(),
             task: None,
             loaded: Arc::default(),
+            blurred: Arc::default(),
             load_time: f32::NAN,
         }
     }
@@ -292,6 +298,7 @@ impl Illustration {
                         warn!(?err, "failed to load illustration");
                     }
                     Ok(illu) => {
+                        *self.blurred.lock().unwrap() = Some(Images::blurred(&illu.0).into());
                         self.texture = Images::into_texture(illu);
                     }
                 };

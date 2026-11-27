@@ -20,6 +20,16 @@ impl Images {
         }
     }
 
+    pub const BLUR_WIDTH: u32 = 160;
+    /// 真·高斯模糊：先缩到 160 宽，再做半径 10 的高斯模糊，最后放大铺满全屏就是柔和的模糊背景。
+    pub fn blurred(image: &DynamicImage) -> DynamicImage {
+        let aspect = image.width() as f32 / image.height() as f32;
+        let w = Self::BLUR_WIDTH;
+        let h = ((w as f32 / aspect) as u32).max(1);
+        let small = image.resize_exact(w, h, image::imageops::FilterType::Triangle);
+        DynamicImage::ImageRgba8(image::imageops::blur(&small, 10.))
+    }
+
     pub fn thumbnail(image: &DynamicImage) -> DynamicImage {
         let width = (image.width() as f32 / image.height() as f32 * THUMBNAIL_HEIGHT as f32).ceil() as u32;
         DynamicImage::ImageRgba8(thumbnail(image, width, THUMBNAIL_HEIGHT))

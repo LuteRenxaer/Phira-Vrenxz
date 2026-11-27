@@ -648,6 +648,7 @@ impl SongScene {
                             }
                         })),
                         loaded: Arc::default(),
+                        blurred: Arc::default(),
                         load_time: f32::NAN,
                     }
                 } else {
@@ -667,6 +668,7 @@ impl SongScene {
                         }
                     })),
                     loaded: Arc::default(),
+                    blurred: Arc::default(),
                     load_time: f32::NAN,
                 }
             }

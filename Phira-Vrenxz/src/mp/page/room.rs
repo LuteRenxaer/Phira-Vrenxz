@@ -769,11 +769,13 @@ impl RoomPage {
         let a = ui.alpha;
         let m = 0.03;
 
-        // —— 背景：没选谱面时纯色；选了谱面后铺它的曲绘（用缩略图放大，天然就是模糊的） ——
+        // —— 背景：没选谱面时纯色；选了谱面后铺它曲绘的高斯模糊图 ——
         let mut bg_done = false;
         if let Some(illu) = &self.illu {
             let ia = illu.alpha(t);
             if ia > 0.02 && (ctx.view.chart_id.is_some() || ctx.view.local_chart.is_some()) {
+                let blur = illu.blurred.lock().unwrap().clone();
+                let tex = blur.as_ref().unwrap_or(&illu.texture.0);
                 cover_quad(
                     [
                         Vec2::new(-1., -top),
@@ -781,11 +783,11 @@ impl RoomPage {
                         Vec2::new(-1., top),
                         Vec2::new(1., top),
                     ],
-                    &illu.texture.0,
+                    tex,
                     ia * a,
                 );
                 // 压一层暗纱，保证面板上的字读得清
-                ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 0.42 * ia * a));
+                ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 0.35 * ia * a));
                 bg_done = true;
             }
         }
