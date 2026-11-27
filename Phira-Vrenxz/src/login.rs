@@ -154,6 +154,8 @@ pub struct Login {
     /// 上一帧渲染算出的两个字段矩形（UI 坐标），供原生框定位
     #[cfg(target_os = "windows")]
     native_rects: Option<(Rect, Rect)>,
+    /// 当前字段是否处于"全选"状态（Ctrl+A / 系统框内全选），用于画高亮
+    sel_all: bool,
 }
 
 enum NextAction {
@@ -170,6 +172,15 @@ enum LoginField {
     RegEmail,
     RegName,
     RegPwd,
+}
+
+/// 游戏内字段 → 原生 EDIT 字段（注册页暂不接原生框，按邮箱/密码两类归并）
+#[cfg(target_os = "windows")]
+fn native_field(f: LoginField) -> crate::native_edit::Field {
+    match f {
+        LoginField::Pwd | LoginField::RegPwd => crate::native_edit::Field::Password,
+        _ => crate::native_edit::Field::Email,
+    }
 }
 
 impl Login {
@@ -248,6 +259,7 @@ impl Login {
             native: None,
             #[cfg(target_os = "windows")]
             native_rects: None,
+            sel_all: false,
         }
     }
 
@@ -288,6 +300,7 @@ impl Login {
 
     fn activate_field(&mut self, f: LoginField) {
         self.active = Some(f);
+        self.sel_all = false;
         #[cfg(target_os = "ios")]
         {
             let id = match f {
@@ -327,6 +340,18 @@ impl Login {
 
     fn update_inline_keyboard(&mut self) {
         let Some(f) = self.active else { return };
+        // Ctrl+A 全选：键盘落在游戏窗口时由这里接；落在原生框时由 EDIT 自己处理
+        let ctrl = is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl);
+        if ctrl && is_key_pressed(KeyCode::A) {
+            if !self.field_text(f).is_empty() {
+                self.sel_all = true;
+                #[cfg(target_os = "windows")]
+                if let Some(e) = self.native.as_mut() {
+                    e.select_all(native_field(f));
+                }
+            }
+            return;
+        }
         let mut batch = String::new();
         loop {
             match get_char_pressed() {
@@ -344,6 +369,15 @@ impl Login {
             }
         }
         if !batch.is_empty() {
+            // 全选状态下打字 = 整段替换
+            if self.sel_all {
+                self.field_text_mut(f).clear();
+                self.sel_all = false;
+                #[cfg(target_os = "windows")]
+                if let Some(e) = self.native.as_mut() {
+                    e.reset(native_field(f), "");
+                }
+            }
 
             let text = self.field_text_mut(f);
             for c in batch.chars().rev() {
@@ -351,7 +385,16 @@ impl Login {
             }
         }
         if is_key_pressed(KeyCode::Backspace) {
-            self.field_text_mut(f).pop();
+            if self.sel_all {
+                self.field_text_mut(f).clear();
+                self.sel_all = false;
+                #[cfg(target_os = "windows")]
+                if let Some(e) = self.native.as_mut() {
+                    e.reset(native_field(f), "");
+                }
+            } else {
+                self.field_text_mut(f).pop();
+            }
         }
     }
 
@@ -916,17 +959,37 @@ impl Login {
         match rects {
             Some((email, pwd)) if show => {
                 e.layout(email, pwd, top, true);
+                let old_email = self.t_email.clone();
                 let mut email_text = std::mem::take(&mut self.t_email);
                 e.sync(Field::Email, &mut email_text);
+                let email_changed = email_text != old_email;
                 self.t_email = email_text;
+                let old_pwd = self.t_pwd.clone();
                 let mut pwd_text = std::mem::take(&mut self.t_pwd);
                 e.sync(Field::Password, &mut pwd_text);
+                let pwd_changed = pwd_text != old_pwd;
                 self.t_pwd = pwd_text;
                 // 点中的是哪个游戏内字段，就把键盘焦点交给对应的原生输入点
                 match self.active {
-                    Some(LoginField::Email) => e.focus(Field::Email),
-                    Some(LoginField::Pwd) => e.focus(Field::Password),
-                    _ => {}
+                    Some(LoginField::Email) => {
+                        e.focus(Field::Email);
+                        if email_changed {
+                            self.sel_all = false;
+                        } else if e.selected_all(Field::Email) {
+                            self.sel_all = true;
+                        }
+                    }
+                    Some(LoginField::Pwd) => {
+                        e.focus(Field::Password);
+                        if pwd_changed {
+                            self.sel_all = false;
+                        } else if e.selected_all(Field::Password) {
+                            self.sel_all = true;
+                        }
+                    }
+                    _ => {
+                        self.sel_all = false;
+                    }
                 }
             }
             _ => e.layout(Rect::new(0., 0., 0.01, 0.01), Rect::new(0., 0., 0.01, 0.01), top, false),
@@ -1104,10 +1167,25 @@ impl Login {
                         let pad = 0.037;
                         let mut r = Rect::new(wr.x + pad, r.bottom() + 0.06, wr.w - pad * 2., 0.1);
                         self.input_email.render_input(ui, r, t, &d_email, tl!("email"), 0.62);
+                        // 全选时在文字上盖一层半透明高亮，给出"整段已选中"的反馈
+                        #[cfg(target_os = "windows")]
+                        if self.sel_all && self.active == Some(LoginField::Email) && !self.t_email.is_empty() {
+                            ui.fill_rect(
+                                Rect::new(r.x + 0.012, r.y + 0.024, r.w - 0.024, r.h - 0.048),
+                                Color::new(0.36, 0.60, 1.0, 0.45),
+                            );
+                        }
                         #[cfg(target_os = "windows")]
                         let email_rect = r;
                         r.y += r.h + 0.04;
                         self.input_pwd.render_input(ui, r, t, &d_pwd, tl!("password"), 0.62);
+                        #[cfg(target_os = "windows")]
+                        if self.sel_all && self.active == Some(LoginField::Pwd) && !self.t_pwd.is_empty() {
+                            ui.fill_rect(
+                                Rect::new(r.x + 0.012, r.y + 0.024, r.w - 0.024, r.h - 0.048),
+                                Color::new(0.36, 0.60, 1.0, 0.45),
+                            );
+                        }
                         #[cfg(target_os = "windows")]
                         {
                             // 只在停在登录页、且不在切换动画中时记录，避免注册页里把框摆到屏幕外

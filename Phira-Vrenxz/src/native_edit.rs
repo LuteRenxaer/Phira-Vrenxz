@@ -17,6 +17,8 @@ const ES_PASSWORD: u32 = 0x0020;
 const WM_SETFONT: u32 = 0x0030;
 const WM_GETTEXTLENGTH: u32 = 0x000E;
 const EM_SETLIMITTEXT: u32 = 0x00C5;
+const EM_SETSEL: u32 = 0x00B1;
+const EM_GETSEL: u32 = 0x00B0;
 
 const SW_HIDE: i32 = 0;
 const SW_SHOW: i32 = 5;
@@ -246,6 +248,31 @@ impl Edits {
                 Field::Password => self.cache.1 = text.clone(),
             }
         }
+    }
+
+    /// 选中全部文本（Ctrl+A 时由游戏层转发，保证 EDIT 内部状态一致）
+    pub fn select_all(&mut self, f: Field) {
+        let h = self.handle(f);
+        unsafe {
+            SendMessageW(h, EM_SETSEL, 0, -1);
+        }
+    }
+
+    /// 系统框当前是否整段被选中（用于把"全选"反馈画回游戏界面）
+    pub fn selected_all(&self, f: Field) -> bool {
+        let h = self.handle(f);
+        let mut start: u32 = 0;
+        let mut end: u32 = 0;
+        unsafe {
+            SendMessageW(
+                h,
+                EM_GETSEL,
+                &mut start as *mut u32 as usize,
+                &mut end as *mut u32 as isize,
+            );
+        }
+        let len = Self::get(h).chars().count() as u32;
+        len > 0 && start == 0 && end >= len
     }
 
     /// 重设文本（例如登录成功后清空密码、切换服务器时回填）
