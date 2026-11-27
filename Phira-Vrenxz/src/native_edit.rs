@@ -1,11 +1,15 @@
-//! Windows 原生单行输入框（EDIT 控件），叠在游戏窗口上。
+//! Windows 原生单行输入点（EDIT 控件），挂在游戏主窗口上。
 //!
-//! 目的：登录/注册这类需要真正打字的字段，直接交给系统文本框处理——自带输入法、
-//! 光标、选区、Ctrl+V、密码掩码，不再是游戏内自绘输入，也不会弹任何输入对话框。
-//! 游戏只在它上面按 UI 坐标摆位置、读文本、写文本。
+//! 每个逻辑字段一个稳定 id（"login_email" / "setup_pwd" / "mp_chat" …），首次用到时
+//! 惰性建一个 1px 宽的隐藏 EDIT，之后复用。它只负责键盘：系统输入法、光标、选区、
+//! Ctrl+A/C/V、密码掩码全由系统处理；画面仍然由游戏自己画（原来的深色圆角输入框），
+//! 游戏再用 [`draw_selection`] 把选区和光标画回字段上。
 
 use macroquad::prelude::Rect;
+use prpr::ui::Ui;
+use std::collections::HashMap;
 use std::ffi::c_void;
+use std::sync::Mutex;
 
 type Handle = isize;
 
@@ -24,6 +28,8 @@ const SW_HIDE: i32 = 0;
 const SW_SHOW: i32 = 5;
 const SWP_NOZORDER: u32 = 0x0004;
 const SWP_NOACTIVATE: u32 = 0x0010;
+
+const VK_RETURN: i32 = 0x0D;
 
 #[link(name = "user32")]
 extern "system" {
@@ -45,6 +51,7 @@ extern "system" {
     fn ShowWindow(h: Handle, cmd: i32) -> i32;
     fn SetWindowPos(h: Handle, after: Handle, x: i32, y: i32, w: i32, h: i32, flags: u32) -> i32;
     fn SetFocus(h: Handle);
+    fn GetFocus() -> Handle;
     fn GetWindowTextW(h: Handle, buf: *mut u16, max: i32) -> i32;
     fn SetWindowTextW(h: Handle, s: *const u16) -> i32;
     fn SendMessageW(h: Handle, msg: u32, w: usize, l: isize) -> isize;
@@ -82,59 +89,79 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-/// 区分哪个原生框，便于读取/写入各自文本
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Field {
-    Email,
-    Password,
+fn get_text(h: Handle) -> String {
+    unsafe {
+        let len = SendMessageW(h, WM_GETTEXTLENGTH, 0, 0) as usize;
+        let mut buf: Vec<u16> = vec![0; len + 2];
+        let n = GetWindowTextW(h, buf.as_mut_ptr(), buf.len() as i32);
+        if n <= 0 {
+            return String::new();
+        }
+        String::from_utf16_lossy(&buf[..n as usize])
+    }
 }
 
-/// 一对原生输入框（账号 + 密码），挂在主窗口上
-pub struct Edits {
-    parent: Handle,
-    email: Handle,
-    pwd: Handle,
-    font: Handle,
-    shown: bool,
-    cache: (String, String),
+fn put_text(h: Handle, s: &str) {
+    let w = wide(s);
+    unsafe {
+        SetWindowTextW(h, w.as_ptr());
+    }
 }
 
-unsafe fn make_edit(parent: Handle, instance: Handle, password: bool, font: Handle, limit: u32) -> Handle {
+fn create_edit(parent: Handle, instance: Handle, password: bool, font: Handle) -> Handle {
     let mut style = WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL;
     if password {
         style |= ES_PASSWORD;
     }
     let class = wide("EDIT");
-    let h = CreateWindowExW(
-        0,
-        class.as_ptr(),
-        std::ptr::null(),
-        style,
-        -200,
-        -200,
-        1,
-        1,
-        parent,
-        0,
-        instance,
-        std::ptr::null_mut(),
-    );
+    let h = unsafe {
+        CreateWindowExW(
+            0,
+            class.as_ptr(),
+            std::ptr::null(),
+            style,
+            -200,
+            -200,
+            1,
+            1,
+            parent,
+            0,
+            instance,
+            std::ptr::null_mut(),
+        )
+    };
     if h != 0 {
-        SendMessageW(h, WM_SETFONT, font as usize, 1);
-        SendMessageW(h, EM_SETLIMITTEXT, limit as usize, 0);
+        unsafe {
+            SendMessageW(h, WM_SETFONT, font as usize, 1);
+            SendMessageW(h, EM_SETLIMITTEXT, 512, 0);
+        }
     }
     h
 }
 
-impl Edits {
-    /// 在主窗口上建好两个原生输入框；主窗口句柄无效时返回 None
-    pub fn create(parent: Handle) -> Option<Self> {
+struct Slot {
+    h: Handle,
+    cache: String,
+    shown: bool,
+}
+
+struct Inputs {
+    parent: Handle,
+    font: Handle,
+    slots: HashMap<&'static str, Slot>,
+    used: Vec<&'static str>,
+    focus_req: Option<&'static str>,
+    enter_down: bool,
+}
+
+impl Inputs {
+    fn new(parent: Handle) -> Option<Self> {
         if parent == 0 || unsafe { IsWindow(parent) } == 0 {
             return None;
         }
         unsafe {
             let instance = GetModuleHandleW(std::ptr::null());
-            // 父窗口加 WS_CLIPCHILDREN，避免 GL 每帧重绘把子输入框刷掉
+            // 父窗口加 WS_CLIPCHILDREN，避免 GL 每帧重绘把子窗口刷掉
             const GWL_STYLE: i32 = -16;
             const WS_CLIPCHILDREN: i32 = 0x0200_0000;
             let style = GetWindowLongW(parent, GWL_STYLE);
@@ -143,171 +170,231 @@ impl Edits {
             }
             let face = wide("Segoe UI");
             let font = CreateFontW(
-                -30,
-                0,
-                0,
-                0,
-                400,
-                0,
-                0,
-                0,
-                1, // DEFAULT_CHARSET
-                0,
-                0,
-                0,
-                0,
-                face.as_ptr(),
+                -30, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 0, 0, face.as_ptr(),
             );
-            let email = make_edit(parent, instance, false, font, 128);
-            let pwd = make_edit(parent, instance, true, font, 128);
-            if email == 0 || pwd == 0 {
-                if email != 0 {
-                    DestroyWindow(email);
-                }
-                if pwd != 0 {
-                    DestroyWindow(pwd);
-                }
-                return None;
-            }
             Some(Self {
                 parent,
-                email,
-                pwd,
                 font,
-                shown: false,
-                cache: (String::new(), String::new()),
+                slots: HashMap::new(),
+                used: Vec::new(),
+                focus_req: None,
+                enter_down: false,
             })
         }
     }
 
-    /// 原生框只当“键盘输入点”用：界面完全由游戏画，所以它被收成 1px 停在窗口
-    /// 左上角，肉眼看不到；show=false 时整组隐藏并把焦点交回游戏窗口。
-    pub fn layout(&mut self, _email: Rect, _pwd: Rect, _ui_top: f32, show: bool) {
+    fn slot(&mut self, id: &'static str, masked: bool) -> &mut Slot {
+        if !self.slots.contains_key(id) {
+            let h = create_edit(self.parent, self.instance(), masked, self.font);
+            self.slots.insert(id, Slot { h, cache: String::new(), shown: false });
+        }
+        self.slots.get_mut(id).unwrap()
+    }
+
+    fn instance(&self) -> Handle {
+        unsafe { GetModuleHandleW(std::ptr::null()) }
+    }
+}
+
+impl Drop for Inputs {
+    fn drop(&mut self) {
         unsafe {
-            if show != self.shown {
-                ShowWindow(self.email, if show { SW_SHOW } else { SW_HIDE });
-                ShowWindow(self.pwd, if show { SW_SHOW } else { SW_HIDE });
-                if !show {
-                    // 收起时把焦点交回游戏窗口，否则键盘事件会落到隐藏的输入框里
-                    SetFocus(self.parent);
+            for slot in self.slots.values() {
+                if IsWindow(slot.h) != 0 {
+                    DestroyWindow(slot.h);
                 }
-                self.shown = show;
             }
-            if !show {
-                return;
-            }
-            SetWindowPos(self.email, 0, 1, 1, 1, 1, SWP_NOZORDER | SWP_NOACTIVATE);
-            SetWindowPos(self.pwd, 0, 3, 1, 1, 1, SWP_NOZORDER | SWP_NOACTIVATE);
-        }
-    }
-
-    fn get(h: Handle) -> String {
-        unsafe {
-            let len = SendMessageW(h, WM_GETTEXTLENGTH, 0, 0) as usize;
-            let mut buf: Vec<u16> = vec![0; len + 2];
-            let n = GetWindowTextW(h, buf.as_mut_ptr(), buf.len() as i32);
-            if n <= 0 {
-                return String::new();
-            }
-            String::from_utf16_lossy(&buf[..n as usize])
-        }
-    }
-
-    fn put(h: Handle, s: &str) {
-        let w = wide(s);
-        unsafe {
-            SetWindowTextW(h, w.as_ptr());
-        }
-    }
-
-    fn handle(&self, f: Field) -> Handle {
-        match f {
-            Field::Email => self.email,
-            Field::Password => self.pwd,
-        }
-    }
-
-    /// 双向同步：系统框里改了文本就写回游戏，游戏里清了文本就写进系统框
-    pub fn sync(&mut self, f: Field, text: &mut String) {
-        let h = self.handle(f);
-        let win = Self::get(h);
-        let cached = match f {
-            Field::Email => &self.cache.0,
-            Field::Password => &self.cache.1,
-        };
-        if win != *cached {
-            *text = win.clone();
-            match f {
-                Field::Email => self.cache.0 = win,
-                Field::Password => self.cache.1 = win,
-            }
-        } else if *text != win {
-            Self::put(h, text);
-            match f {
-                Field::Email => self.cache.0 = text.clone(),
-                Field::Password => self.cache.1 = text.clone(),
-            }
-        }
-    }
-
-    /// 选中全部文本（Ctrl+A 时由游戏层转发，保证 EDIT 内部状态一致）
-    pub fn select_all(&mut self, f: Field) {
-        let h = self.handle(f);
-        unsafe {
-            SendMessageW(h, EM_SETSEL, 0, -1);
-        }
-    }
-
-    /// 系统框当前是否整段被选中（用于把"全选"反馈画回游戏界面）
-    pub fn selected_all(&self, f: Field) -> bool {
-        let h = self.handle(f);
-        let mut start: u32 = 0;
-        let mut end: u32 = 0;
-        unsafe {
-            SendMessageW(
-                h,
-                EM_GETSEL,
-                &mut start as *mut u32 as usize,
-                &mut end as *mut u32 as isize,
-            );
-        }
-        let len = Self::get(h).chars().count() as u32;
-        len > 0 && start == 0 && end >= len
-    }
-
-    /// 重设文本（例如登录成功后清空密码、切换服务器时回填）
-    pub fn reset(&mut self, f: Field, text: &str) {
-        Self::put(self.handle(f), text);
-        match f {
-            Field::Email => self.cache.0 = text.to_string(),
-            Field::Password => self.cache.1 = text.to_string(),
-        }
-    }
-
-    pub fn focus(&self, f: Field) {
-        unsafe { SetFocus(self.handle(f)) };
-    }
-
-    pub fn hide(&mut self) {
-        if self.shown {
-            unsafe {
-                ShowWindow(self.email, SW_HIDE);
-                ShowWindow(self.pwd, SW_HIDE);
-            }
-            self.shown = false;
         }
     }
 }
 
-impl Drop for Edits {
-    fn drop(&mut self) {
-        unsafe {
-            if IsWindow(self.email) != 0 {
-                DestroyWindow(self.email);
-            }
-            if IsWindow(self.pwd) != 0 {
-                DestroyWindow(self.pwd);
-            }
+static INPUTS: Mutex<Option<Inputs>> = Mutex::new(None);
+
+/// 一帧开始时调用，清空"本帧用到"的字段列表
+pub fn begin_frame() {
+    if let Ok(mut g) = INPUTS.lock() {
+        if let Some(it) = g.as_mut() {
+            it.used.clear();
+            it.focus_req = None;
         }
     }
+}
+
+/// 同步某个字段：系统框里改了文本就写回游戏，游戏里清了文本就写进系统框。
+/// `focus` 表示这一帧要不要把键盘焦点交给它。返回文本是否被系统侧改过。
+pub fn edit(id: &'static str, text: &mut String, focus: bool, masked: bool) -> bool {
+    let Ok(mut g) = INPUTS.lock() else { return false };
+    if g.is_none() {
+        let parent = crate::MAIN_HWND.load(std::sync::atomic::Ordering::Relaxed);
+        *g = Inputs::new(parent);
+    }
+    let Some(inp) = g.as_mut() else { return false };
+    let slot = inp.slot(id, masked);
+    let win = get_text(slot.h);
+    let changed = win != slot.cache;
+    if changed {
+        *text = win.clone();
+        slot.cache = win;
+    } else if *text != slot.cache {
+        put_text(slot.h, text);
+        slot.cache = text.clone();
+    }
+    if !inp.used.contains(&id) {
+        inp.used.push(id);
+    }
+    if focus {
+        inp.focus_req = Some(id);
+    }
+    changed
+}
+
+/// 一帧结束时调用：用到的字段显示成 1px 隐形输入点，其余隐藏；焦点按请求分配
+pub fn end_frame() {
+    if let Ok(mut g) = INPUTS.lock() {
+        let Some(inp) = g.as_mut() else { return };
+        let used: Vec<&'static str> = inp.used.clone();
+        let parent = inp.parent;
+        for (id, slot) in inp.slots.iter_mut() {
+            let on = used.contains(id);
+            if on != slot.shown {
+                unsafe { ShowWindow(slot.h, if on { SW_SHOW } else { SW_HIDE }) };
+                slot.shown = on;
+            }
+            if on {
+                unsafe {
+                    SetWindowPos(slot.h, 0, 1, 1, 1, 1, SWP_NOZORDER | SWP_NOACTIVATE);
+                }
+            }
+        }
+        match inp.focus_req {
+            Some(id) => {
+                if let Some(slot) = inp.slots.get(id) {
+                    unsafe { SetFocus(slot.h) };
+                }
+            }
+            None => unsafe {
+                // 没有输入目标时把焦点还给游戏窗口，否则键盘事件全被隐藏框吃掉
+                if GetFocus() != parent {
+                    SetFocus(parent);
+                }
+            },
+        }
+    }
+}
+
+/// 某个字段当前的选区（按字符计，非空才算）
+pub fn selection(id: &'static str) -> Option<(usize, usize)> {
+    let g = INPUTS.lock().ok()?;
+    let inp = g.as_ref()?;
+    let slot = inp.slots.get(id)?;
+    let mut start: u32 = 0;
+    let mut end: u32 = 0;
+    unsafe {
+        SendMessageW(
+            slot.h,
+            EM_GETSEL,
+            &mut start as *mut u32 as usize,
+            &mut end as *mut u32 as isize,
+        );
+    }
+    let (s, e) = (start as usize, end as usize);
+    if s >= e {
+        None
+    } else {
+        Some((s, e))
+    }
+}
+
+/// 选中整段（Ctrl+A、双击、切换账号回填后由游戏层调用）
+pub fn select_all(id: &'static str) {
+    if let Ok(g) = INPUTS.lock() {
+        if let Some(slot) = g.as_ref().and_then(|it| it.slots.get(id)) {
+            unsafe { SendMessageW(slot.h, EM_SETSEL, 0, -1) };
+        }
+    }
+}
+
+/// 该字段是否处于全选状态
+pub fn is_all_selected(id: &'static str, len: usize) -> bool {
+    matches!(selection(id), Some((0, e)) if e >= len)
+}
+
+/// 读一次物理回车键的"刚按下"边沿。系统框拿走焦点后 macroquad 收不到 Enter，
+/// 所以这里直接问系统键状态。
+pub fn enter_pressed() -> bool {
+    unsafe {
+        let down = GetAsyncKeyState(VK_RETURN) < 0;
+        let Ok(mut g) = INPUTS.lock() else { return false };
+        let Some(inp) = g.as_mut() else { return false };
+        let edge = down && !inp.enter_down;
+        inp.enter_down = down;
+        edge
+    }
+}
+
+/// 把选区/光标画回游戏自绘的字段上：选区铺半透明蓝，光标是竖线（带闪烁）
+pub fn draw_caret_and_selection(
+    ui: &mut Ui,
+    r: Rect,
+    text: &str,
+    masked: bool,
+    sel: Option<(usize, usize)>,
+    size: f32,
+    t: f32,
+) {
+    let display: Vec<char> = if masked {
+        std::iter::repeat('*').take(text.chars().count()).collect()
+    } else {
+        text.chars().collect()
+    };
+    let n = display.len();
+    let w_of = |ui: &mut Ui, chars: &[char]| -> f32 {
+        if chars.is_empty() {
+            return 0.;
+        }
+        let s: String = chars.iter().collect();
+        ui.text(s)
+            .pos(r.x + 0.03, r.center().y)
+            .anchor(0., 0.5)
+            .no_baseline()
+            .size(size)
+            .max_width(r.w - 0.06)
+            .measure()
+            .w
+    };
+    match sel {
+        Some((s, e)) if s < e && n > 0 => {
+            let s = s.min(n);
+            let e = e.min(n);
+            if s >= e {
+                return;
+            }
+            let x0 = w_of(ui, &display[..s]);
+            let w = w_of(ui, &display[..e]) - x0;
+            ui.fill_rect(
+                Rect::new(r.x + 0.03 + x0, r.y + 0.022, w.max(0.005), r.h - 0.044),
+                macroquad::color::Color::new(0.36, 0.60, 1.0, 0.45),
+            );
+        }
+        _ => {
+            // 光标：只在没有选区时画，闪烁 0.6s 亮 / 0.4s 灭
+            if (t * 2.).fract() > 0.7 {
+                return;
+            }
+            let caret = match sel {
+                Some((s, _)) => s.min(n),
+                None => n,
+            };
+            let x = w_of(ui, &display[..caret]);
+            ui.fill_rect(
+                Rect::new(r.x + 0.03 + x, r.y + 0.024, 0.0035, r.h - 0.048),
+                macroquad::color::WHITE,
+            );
+        }
+    }
+}
+
+#[link(name = "user32")]
+extern "system" {
+    fn GetAsyncKeyState(vk: i32) -> i16;
 }

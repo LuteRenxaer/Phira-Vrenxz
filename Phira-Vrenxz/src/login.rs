@@ -148,14 +148,11 @@ pub struct Login {
     #[cfg(feature = "hykb")]
     t_hykb_name: String,
 
-    /// Windows 上账号/密码字段交给原生 EDIT 控件（系统输入法、光标、粘贴、密码掩码）
+    /// 上一帧实际画出来的输入字段（原生输入点按这份列表决定谁显示/隐藏）
     #[cfg(target_os = "windows")]
-    native: Option<crate::native_edit::Edits>,
-    /// 上一帧渲染算出的两个字段矩形（UI 坐标），供原生框定位
-    #[cfg(target_os = "windows")]
-    native_rects: Option<(Rect, Rect)>,
-    /// 当前字段是否处于"全选"状态（Ctrl+A / 系统框内全选），用于画高亮
-    sel_all: bool,
+    native_visible: Vec<&'static str>,
+    /// 双击同一个字段的判定用（上次点击的字段 + 时间）
+    last_field_click: Option<(LoginField, f32)>,
 }
 
 enum NextAction {
@@ -174,12 +171,15 @@ enum LoginField {
     RegPwd,
 }
 
-/// 游戏内字段 → 原生 EDIT 字段（注册页暂不接原生框，按邮箱/密码两类归并）
+/// 游戏内字段 → 原生输入点的稳定 id（同一字段跨帧复用同一个 EDIT）
 #[cfg(target_os = "windows")]
-fn native_field(f: LoginField) -> crate::native_edit::Field {
+fn native_field(f: LoginField) -> &'static str {
     match f {
-        LoginField::Pwd | LoginField::RegPwd => crate::native_edit::Field::Password,
-        _ => crate::native_edit::Field::Email,
+        LoginField::Email => "login_email",
+        LoginField::Pwd => "login_pwd",
+        LoginField::RegEmail => "login_reg_email",
+        LoginField::RegName => "login_reg_name",
+        LoginField::RegPwd => "login_reg_pwd",
     }
 }
 
@@ -256,10 +256,8 @@ impl Login {
             #[cfg(feature = "hykb")]
             t_hykb_name: String::new(),
             #[cfg(target_os = "windows")]
-            native: None,
-            #[cfg(target_os = "windows")]
-            native_rects: None,
-            sel_all: false,
+            native_visible: Vec::new(),
+            last_field_click: None,
         }
     }
 
@@ -298,9 +296,16 @@ impl Login {
         }
     }
 
-    fn activate_field(&mut self, f: LoginField) {
+    fn activate_field(&mut self, f: LoginField, t: f32) {
         self.active = Some(f);
-        self.sel_all = false;
+        // 双击同一字段 = 全选（单机点一下只是聚焦）
+        let dbl = matches!(self.last_field_click, Some((last, at)) if last == f && t - at < 0.4);
+        self.last_field_click = Some((f, t));
+        #[cfg(target_os = "windows")]
+        if dbl && !self.field_text(f).is_empty() {
+            crate::native_edit::select_all(native_field(f));
+        }
+        let _ = dbl;
         #[cfg(target_os = "ios")]
         {
             let id = match f {
@@ -340,59 +345,41 @@ impl Login {
 
     fn update_inline_keyboard(&mut self) {
         let Some(f) = self.active else { return };
-        // Ctrl+A 全选：键盘落在游戏窗口时由这里接；落在原生框时由 EDIT 自己处理
+        // Ctrl+A：键盘落在游戏窗口时由这里接；落在原生框时由 EDIT 自己处理
+        // （Windows 上文本已经在原生框里，这里不再做本地增删，避免双份输入）
         let ctrl = is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl);
-        if ctrl && is_key_pressed(KeyCode::A) {
-            if !self.field_text(f).is_empty() {
-                self.sel_all = true;
-                #[cfg(target_os = "windows")]
-                if let Some(e) = self.native.as_mut() {
-                    e.select_all(native_field(f));
-                }
-            }
+        if ctrl && is_key_pressed(KeyCode::A) && !self.field_text(f).is_empty() {
+            #[cfg(target_os = "windows")]
+            crate::native_edit::select_all(native_field(f));
             return;
         }
-        let mut batch = String::new();
-        loop {
-            match get_char_pressed() {
-                None => break,
-                Some(c) => {
-                    if c == '\r' || c == '\n' {
-                        self.finish_inline();
-                        return;
+        #[cfg(not(target_os = "windows"))]
+        let _ = ctrl;
+        #[cfg(not(target_os = "windows"))]
+        {
+            let mut batch = String::new();
+            loop {
+                match get_char_pressed() {
+                    None => break,
+                    Some(c) => {
+                        if c == '\r' || c == '\n' {
+                            self.finish_inline();
+                            return;
+                        }
+                        if c == '\u{8}' || c == '\u{7f}' || c.is_control() {
+                            continue;
+                        }
+                        batch.push(c);
                     }
-                    if c == '\u{8}' || c == '\u{7f}' || c.is_control() {
-                        continue;
-                    }
-                    batch.push(c);
                 }
             }
-        }
-        if !batch.is_empty() {
-            // 全选状态下打字 = 整段替换
-            if self.sel_all {
-                self.field_text_mut(f).clear();
-                self.sel_all = false;
-                #[cfg(target_os = "windows")]
-                if let Some(e) = self.native.as_mut() {
-                    e.reset(native_field(f), "");
+            if !batch.is_empty() {
+                let text = self.field_text_mut(f);
+                for c in batch.chars().rev() {
+                    text.push(c);
                 }
             }
-
-            let text = self.field_text_mut(f);
-            for c in batch.chars().rev() {
-                text.push(c);
-            }
-        }
-        if is_key_pressed(KeyCode::Backspace) {
-            if self.sel_all {
-                self.field_text_mut(f).clear();
-                self.sel_all = false;
-                #[cfg(target_os = "windows")]
-                if let Some(e) = self.native.as_mut() {
-                    e.reset(native_field(f), "");
-                }
-            } else {
+            if is_key_pressed(KeyCode::Backspace) {
                 self.field_text_mut(f).pop();
             }
         }
@@ -401,14 +388,16 @@ impl Login {
     fn field_display(&self, f: LoginField, masked: bool) -> String {
         let active = self.active == Some(f);
         let s = self.field_text(f);
+        // Windows 上用原生输入点，光标由 draw_caret_and_selection 画，文字里不再塞 "|"
+        let local_caret = !cfg!(target_os = "windows");
         if masked {
             let stars: String = "*".repeat(s.chars().count());
-            if active {
+            if active && local_caret {
                 format!("{stars}|")
             } else {
                 stars
             }
-        } else if active {
+        } else if active && local_caret {
             format!("{s}|")
         } else {
             s.to_string()
@@ -718,23 +707,23 @@ impl Login {
                 return true;
             }
             if self.input_email.touch(touch, t) {
-                self.activate_field(LoginField::Email);
+                self.activate_field(LoginField::Email, t);
                 return true;
             }
             if self.input_pwd.touch(touch, t) {
-                self.activate_field(LoginField::Pwd);
+                self.activate_field(LoginField::Pwd, t);
                 return true;
             }
             if self.input_reg_email.touch(touch, t) {
-                self.activate_field(LoginField::RegEmail);
+                self.activate_field(LoginField::RegEmail, t);
                 return true;
             }
             if self.input_reg_name.touch(touch, t) {
-                self.activate_field(LoginField::RegName);
+                self.activate_field(LoginField::RegName, t);
                 return true;
             }
             if self.input_reg_pwd.touch(touch, t) {
-                self.activate_field(LoginField::RegPwd);
+                self.activate_field(LoginField::RegPwd, t);
                 return true;
             }
             if self.btn_srv.touch(touch, t) {
@@ -940,60 +929,29 @@ impl Login {
     }
 
     /// 把账号/密码字段切给系统原生输入框：面板完全展开时显示并双向同步文本，
-    /// 其余时刻（进场动画、请求中、注册页）隐藏，避免遮挡。
+    /// 面板完全展开时把当前画出来的字段接到原生输入点上，其余时刻全部隐藏。
     #[cfg(target_os = "windows")]
     fn update_native_edits(&mut self) {
-        use crate::native_edit::Field;
-        let top = screen_height() / screen_width();
-        let rects = self.native_rects;
-        let show = self.show && self.task.is_none() && rects.is_some();
-        if show && self.native.is_none() {
-            let parent = crate::MAIN_HWND.load(Ordering::Relaxed);
-            if let Some(mut e) = crate::native_edit::Edits::create(parent) {
-                e.reset(Field::Email, &self.t_email);
-                e.reset(Field::Password, &self.t_pwd);
-                self.native = Some(e);
-            }
+        use crate::native_edit as ne;
+        ne::begin_frame();
+        let visible = std::mem::take(&mut self.native_visible);
+        for id in visible.iter().copied() {
+            let masked = matches!(id, "login_pwd" | "login_reg_pwd");
+            let focus = self.active.map(|f| native_field(f) == id).unwrap_or(false);
+            let text = match id {
+                "login_email" => &mut self.t_email,
+                "login_pwd" => &mut self.t_pwd,
+                "login_reg_email" => &mut self.t_reg_email,
+                "login_reg_name" => &mut self.t_reg_name,
+                "login_reg_pwd" => &mut self.t_reg_pwd,
+                #[cfg(feature = "hykb")]
+                "login_hykb_name" => &mut self.t_hykb_name,
+                _ => continue,
+            };
+            ne::edit(id, text, focus, masked);
         }
-        let Some(e) = self.native.as_mut() else { return };
-        match rects {
-            Some((email, pwd)) if show => {
-                e.layout(email, pwd, top, true);
-                let old_email = self.t_email.clone();
-                let mut email_text = std::mem::take(&mut self.t_email);
-                e.sync(Field::Email, &mut email_text);
-                let email_changed = email_text != old_email;
-                self.t_email = email_text;
-                let old_pwd = self.t_pwd.clone();
-                let mut pwd_text = std::mem::take(&mut self.t_pwd);
-                e.sync(Field::Password, &mut pwd_text);
-                let pwd_changed = pwd_text != old_pwd;
-                self.t_pwd = pwd_text;
-                // 点中的是哪个游戏内字段，就把键盘焦点交给对应的原生输入点
-                match self.active {
-                    Some(LoginField::Email) => {
-                        e.focus(Field::Email);
-                        if email_changed {
-                            self.sel_all = false;
-                        } else if e.selected_all(Field::Email) {
-                            self.sel_all = true;
-                        }
-                    }
-                    Some(LoginField::Pwd) => {
-                        e.focus(Field::Password);
-                        if pwd_changed {
-                            self.sel_all = false;
-                        } else if e.selected_all(Field::Password) {
-                            self.sel_all = true;
-                        }
-                    }
-                    _ => {
-                        self.sel_all = false;
-                    }
-                }
-            }
-            _ => e.layout(Rect::new(0., 0., 0.01, 0.01), Rect::new(0., 0., 0.01, 0.01), top, false),
-        }
+        self.native_visible = visible;
+        ne::end_frame();
     }
 
     /// Drive the HYKB login phases: the initial verify task, the register/claim
@@ -1075,7 +1033,7 @@ impl Login {
         self.fader.reset();
         #[cfg(target_os = "windows")]
         {
-            self.native_rects = None;
+            self.native_visible.clear();
         }
         if self.show || self.fader.transiting() {
             let p = if self.show { 1. } else { -self.fader.progress(t) };
@@ -1134,11 +1092,35 @@ impl Login {
                         let pad = 0.035;
                         let mut r = Rect::new(wr.x + pad, r.bottom() + 0.05, wr.w - pad * 2., 0.1);
                         self.input_reg_email.render_input(ui, r, t, &d_reg_email, tl!("email"), 0.62);
+                        #[cfg(target_os = "windows")]
+                        if self.in_reg && self.start_time.is_nan() {
+                            self.native_visible.push("login_reg_email");
+                            if self.active == Some(LoginField::RegEmail) {
+                                let sel = crate::native_edit::selection("login_reg_email");
+                                crate::native_edit::draw_caret_and_selection(ui, r, &self.t_reg_email, false, sel, 0.62, t);
+                            }
+                        }
                         r.y += r.h + 0.02;
                         self.input_reg_name.render_input(ui, r, t, &d_reg_name, tl!("username"), 0.62);
+                        #[cfg(target_os = "windows")]
+                        if self.in_reg && self.start_time.is_nan() {
+                            self.native_visible.push("login_reg_name");
+                            if self.active == Some(LoginField::RegName) {
+                                let sel = crate::native_edit::selection("login_reg_name");
+                                crate::native_edit::draw_caret_and_selection(ui, r, &self.t_reg_name, false, sel, 0.62, t);
+                            }
+                        }
                         r.y += r.h + 0.02;
                         self.input_reg_pwd
                             .render_input(ui, r, t, &d_reg_pwd, tl!("password"), 0.62);
+                        #[cfg(target_os = "windows")]
+                        if self.in_reg && self.start_time.is_nan() {
+                            self.native_visible.push("login_reg_pwd");
+                            if self.active == Some(LoginField::RegPwd) {
+                                let sel = crate::native_edit::selection("login_reg_pwd");
+                                crate::native_edit::draw_caret_and_selection(ui, r, &self.t_reg_pwd, true, sel, 0.62, t);
+                            }
+                        }
                         let h = 0.09;
                         let pad = 0.05;
                         let mut r = Rect::new(wr.x + pad, wr.bottom() - h - 0.04, (wr.w - pad) / 2. - pad, h);
@@ -1167,30 +1149,22 @@ impl Login {
                         let pad = 0.037;
                         let mut r = Rect::new(wr.x + pad, r.bottom() + 0.06, wr.w - pad * 2., 0.1);
                         self.input_email.render_input(ui, r, t, &d_email, tl!("email"), 0.62);
-                        // 全选时在文字上盖一层半透明高亮，给出"整段已选中"的反馈
                         #[cfg(target_os = "windows")]
-                        if self.sel_all && self.active == Some(LoginField::Email) && !self.t_email.is_empty() {
-                            ui.fill_rect(
-                                Rect::new(r.x + 0.012, r.y + 0.024, r.w - 0.024, r.h - 0.048),
-                                Color::new(0.36, 0.60, 1.0, 0.45),
-                            );
+                        if !self.in_reg && self.start_time.is_nan() {
+                            self.native_visible.push("login_email");
+                            if self.active == Some(LoginField::Email) {
+                                let sel = crate::native_edit::selection("login_email");
+                                crate::native_edit::draw_caret_and_selection(ui, r, &self.t_email, false, sel, 0.62, t);
+                            }
                         }
-                        #[cfg(target_os = "windows")]
-                        let email_rect = r;
                         r.y += r.h + 0.04;
                         self.input_pwd.render_input(ui, r, t, &d_pwd, tl!("password"), 0.62);
                         #[cfg(target_os = "windows")]
-                        if self.sel_all && self.active == Some(LoginField::Pwd) && !self.t_pwd.is_empty() {
-                            ui.fill_rect(
-                                Rect::new(r.x + 0.012, r.y + 0.024, r.w - 0.024, r.h - 0.048),
-                                Color::new(0.36, 0.60, 1.0, 0.45),
-                            );
-                        }
-                        #[cfg(target_os = "windows")]
-                        {
-                            // 只在停在登录页、且不在切换动画中时记录，避免注册页里把框摆到屏幕外
-                            if !self.in_reg && self.start_time.is_nan() {
-                                self.native_rects = Some((email_rect, r));
+                        if !self.in_reg && self.start_time.is_nan() {
+                            self.native_visible.push("login_pwd");
+                            if self.active == Some(LoginField::Pwd) {
+                                let sel = crate::native_edit::selection("login_pwd");
+                                crate::native_edit::draw_caret_and_selection(ui, r, &self.t_pwd, true, sel, 0.62, t);
                             }
                         }
 
@@ -1343,6 +1317,14 @@ impl Login {
 
                 let r = Rect::new(wr.x + pad, r.bottom() + 0.04, wr.w - pad * 2., 0.1);
                 self.input_hykb_name.render_input(ui, r, t, &self.t_hykb_name, tl!("username"), 0.62);
+                #[cfg(target_os = "windows")]
+                {
+                    self.native_visible.push("login_hykb_name");
+                    if self.active.is_some() {
+                        let sel = crate::native_edit::selection("login_hykb_name");
+                        crate::native_edit::draw_caret_and_selection(ui, r, &self.t_hykb_name, false, sel, 0.62, t);
+                    }
+                }
 
                 let h = 0.09;
                 let bpad = 0.05;

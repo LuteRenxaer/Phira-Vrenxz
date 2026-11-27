@@ -112,6 +112,16 @@ enum LoginField {
     Pwd,
 }
 
+/// 游戏内字段 → 原生输入点的稳定 id
+#[cfg(target_os = "windows")]
+fn native_field(f: LoginField) -> &'static str {
+    match f {
+        LoginField::Email => "setup_email",
+        LoginField::Name => "setup_name",
+        LoginField::Pwd => "setup_pwd",
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Row {
     label: Rect,
@@ -140,6 +150,10 @@ pub struct SetupScene {
     input_pwd: DRectButton,
     login_btn: DRectButton,
     register_btn: DRectButton,
+    /// 上一帧实际画出来的字段（Windows 上交给原生输入点）
+    #[cfg(target_os = "windows")]
+    native_visible: Vec<&'static str>,
+    last_field_click: Option<(LoginField, f32)>,
 
     music_slider: Slider,
     sfx_slider: Slider,
@@ -191,6 +205,9 @@ impl SetupScene {
             input_pwd: DRectButton::new(),
             login_btn: DRectButton::new(),
             register_btn: DRectButton::new(),
+            #[cfg(target_os = "windows")]
+            native_visible: Vec::new(),
+            last_field_click: None,
             music_slider: Slider::new(0.0..2.0, 0.05),
             sfx_slider: Slider::new(0.0..2.0, 0.05),
             bgm_slider: Slider::new(0.0..2.0, 0.05),
@@ -308,14 +325,30 @@ impl SetupScene {
                     let pwd = l10n::login::password();
                     let w = Self::input_w(rows[0].ctrl);
                     Self::label(ui, rows[0].label, &email);
-                    self.input_email
-                        .render_input(ui, Self::ctrl_rect(rows[0].ctrl, w, CTRL_H), t, &d_email, &email, 0.5);
+                    let r0 = Self::ctrl_rect(rows[0].ctrl, w, CTRL_H);
+                    self.input_email.render_input(ui, r0, t, &d_email, &email, 0.5);
                     Self::label(ui, rows[1].label, &name);
-                    self.input_name
-                        .render_input(ui, Self::ctrl_rect(rows[1].ctrl, w, CTRL_H), t, &d_name, &name, 0.5);
+                    let r1 = Self::ctrl_rect(rows[1].ctrl, w, CTRL_H);
+                    self.input_name.render_input(ui, r1, t, &d_name, &name, 0.5);
                     Self::label(ui, rows[2].label, &pwd);
-                    self.input_pwd
-                        .render_input(ui, Self::ctrl_rect(rows[2].ctrl, w, CTRL_H), t, &d_pwd, &pwd, 0.5);
+                    let r2 = Self::ctrl_rect(rows[2].ctrl, w, CTRL_H);
+                    self.input_pwd.render_input(ui, r2, t, &d_pwd, &pwd, 0.5);
+                    #[cfg(target_os = "windows")]
+                    {
+                        self.native_visible.push("setup_email");
+                        self.native_visible.push("setup_name");
+                        self.native_visible.push("setup_pwd");
+                        if let Some(f) = self.active {
+                            let id = native_field(f);
+                            let (r, text, masked) = match f {
+                                LoginField::Email => (r0, &self.t_email, false),
+                                LoginField::Name => (r1, &self.t_name, false),
+                                LoginField::Pwd => (r2, &self.t_pwd, true),
+                            };
+                            let sel = crate::native_edit::selection(id);
+                            crate::native_edit::draw_caret_and_selection(ui, r, text, masked, sel, 0.5, t);
+                        }
+                    }
 
                     let busy = self.login.as_ref().is_some_and(|it| it.busy());
                     let login_fill = if busy {
@@ -499,8 +532,16 @@ impl SetupScene {
         }
     }
 
-    fn activate(&mut self, f: LoginField) {
+    fn activate(&mut self, f: LoginField, t: f32) {
         self.active = Some(f);
+        // 双击同一字段 = 全选
+        let dbl = matches!(self.last_field_click, Some((last, at)) if last == f && t - at < 0.4);
+        self.last_field_click = Some((f, t));
+        #[cfg(target_os = "windows")]
+        if dbl && !self.field_mut(f).is_empty() {
+            crate::native_edit::select_all(native_field(f));
+        }
+        let _ = dbl;
         unsafe { get_internal_gl() }.quad_context.show_keyboard(true);
     }
 
@@ -529,7 +570,8 @@ impl SetupScene {
         } else {
             raw.clone()
         };
-        if self.active == Some(f) {
+        // Windows 上光标由原生输入点回显（draw_caret_and_selection），文字里不再拼 "|"
+        if self.active == Some(f) && !cfg!(target_os = "windows") {
             format!("{shown}|")
         } else {
             shown
@@ -538,31 +580,69 @@ impl SetupScene {
 
     fn update_typing(&mut self) {
         let Some(f) = self.active else { return };
-        let mut batch = String::new();
-        loop {
-            match get_char_pressed() {
-                None => break,
-                Some(c) => {
-                    if c == '\r' || c == '\n' {
-                        self.finish_editing();
-                        return;
+        let ctrl = is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl);
+        if ctrl && is_key_pressed(KeyCode::A) && !self.field_mut(f).is_empty() {
+            #[cfg(target_os = "windows")]
+            crate::native_edit::select_all(native_field(f));
+            return;
+        }
+        #[cfg(target_os = "windows")]
+        {
+            // Windows：字符/退格/粘贴走系统 EDIT，这里只接回车收尾
+            if crate::native_edit::enter_pressed() {
+                self.finish_editing();
+            }
+            return;
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let mut batch = String::new();
+            loop {
+                match get_char_pressed() {
+                    None => break,
+                    Some(c) => {
+                        if c == '\r' || c == '\n' {
+                            self.finish_editing();
+                            return;
+                        }
+                        if c == '\u{8}' || c == '\u{7f}' || c.is_control() {
+                            continue;
+                        }
+                        batch.push(c);
                     }
-                    if c == '\u{8}' || c == '\u{7f}' || c.is_control() {
-                        continue;
-                    }
-                    batch.push(c);
                 }
             }
-        }
-        if !batch.is_empty() {
-            let text = self.field_mut(f);
-            for c in batch.chars().rev() {
-                text.push(c);
+            if !batch.is_empty() {
+                let text = self.field_mut(f);
+                for c in batch.chars().rev() {
+                    text.push(c);
+                }
+            }
+            if is_key_pressed(KeyCode::Backspace) {
+                self.field_mut(f).pop();
             }
         }
-        if is_key_pressed(KeyCode::Backspace) {
-            self.field_mut(f).pop();
+    }
+
+    /// 本帧画出来的字段 → 原生输入点同步（键盘、选区、光标）
+    #[cfg(target_os = "windows")]
+    fn update_native_inputs(&mut self) {
+        use crate::native_edit as ne;
+        ne::begin_frame();
+        let visible = std::mem::take(&mut self.native_visible);
+        for id in visible.iter().copied() {
+            let masked = id == "setup_pwd";
+            let focus = self.active.map(|f| native_field(f) == id).unwrap_or(false);
+            let text = match id {
+                "setup_email" => &mut self.t_email,
+                "setup_name" => &mut self.t_name,
+                "setup_pwd" => &mut self.t_pwd,
+                _ => continue,
+            };
+            ne::edit(id, text, focus, masked);
         }
+        self.native_visible = visible;
+        ne::end_frame();
     }
 
     fn mark_dirty(&mut self, t: f32) {
@@ -640,15 +720,15 @@ impl Scene for SetupScene {
                     return Ok(false);
                 }
                 if self.input_email.touch(touch, t) {
-                    self.activate(LoginField::Email);
+                    self.activate(LoginField::Email, t);
                     return Ok(true);
                 }
                 if self.input_name.touch(touch, t) {
-                    self.activate(LoginField::Name);
+                    self.activate(LoginField::Name, t);
                     return Ok(true);
                 }
                 if self.input_pwd.touch(touch, t) {
-                    self.activate(LoginField::Pwd);
+                    self.activate(LoginField::Pwd, t);
                     return Ok(true);
                 }
                 if self.login_btn.touch(touch, t) {
@@ -719,6 +799,8 @@ impl Scene for SetupScene {
         self.lang_btn.update(t);
         self.perf_btn.update(t);
         self.update_typing();
+        #[cfg(target_os = "windows")]
+        self.update_native_inputs();
 
         if let Some(login) = &mut self.login {
             login.update(t)?;
@@ -753,6 +835,8 @@ impl Scene for SetupScene {
         if self.enter_time.is_nan() {
             self.enter_time = t;
         }
+        #[cfg(target_os = "windows")]
+        self.native_visible.clear();
 
         let f = theme::frame(ui, theme::BAR_BTN_H);
 

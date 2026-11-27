@@ -499,7 +499,7 @@ pub struct Render<'a> {
     pub messages: &'a mut MessageLog,
     /// 服务端系统日志（与聊天分开显示在中间下方那块）
     pub log: &'a mut MessageLog,
-    pub chat_text: &'a str,
+    pub chat_text: &'a mut String,
     /// 在线谱面下载中
     pub download: Option<&'a mut Downloading>,
 
@@ -519,6 +519,8 @@ pub struct Render<'a> {
 #[derive(Default)]
 pub struct RoomPage {
     back: DRectButton,
+    /// 聊天输入框是否处于编辑态（Windows 上由原生输入点接管键盘）
+    pub chat_focus: bool,
     /// 右侧用户列表的滚动区
     user_scroll: Scroll,
     user_rows: Vec<DRectButton>,
@@ -1039,10 +1041,24 @@ impl RoomPage {
             ui,
             input.feather(-0.012),
             t,
-            ctx.chat_text,
+            &*ctx.chat_text,
             mtl!("chat-placeholder"),
             FS_BODY,
         );
+        #[cfg(target_os = "windows")]
+        if self.chat_focus {
+            crate::native_edit::edit("mp_chat", ctx.chat_text, true, false);
+            let sel = crate::native_edit::selection("mp_chat");
+            crate::native_edit::draw_caret_and_selection(
+                ui,
+                input.feather(-0.012),
+                &*ctx.chat_text,
+                false,
+                sel,
+                FS_BODY,
+                t,
+            );
+        }
         theme::button(ui, &mut self.chat_send_btn, t, send, mtl!("chat-send"), FS_BUTTON, primary(accent), WHITE);
 
         // ---------- 右边：玩家列表 ----------
@@ -1581,10 +1597,24 @@ impl RoomPage {
                 ui,
                 br.feather(-0.01 * SCALE),
                 t,
-                ctx.chat_text,
+                &*ctx.chat_text,
                 mtl!("chat-placeholder"),
                 (input_h * 3.2).clamp(0.24, FS_BODY),
             );
+            #[cfg(target_os = "windows")]
+            if self.chat_focus {
+                crate::native_edit::edit("mp_chat", ctx.chat_text, true, false);
+                let sel = crate::native_edit::selection("mp_chat");
+                crate::native_edit::draw_caret_and_selection(
+                    ui,
+                    br.feather(-0.01 * SCALE),
+                    &*ctx.chat_text,
+                    false,
+                    sel,
+                    (input_h * 3.2).clamp(0.24, FS_BODY),
+                    t,
+                );
+            }
             let sb = Rect::new(br.right() + 0.015 * SCALE, iy, send_w, input_h);
             theme::button(
                 ui,

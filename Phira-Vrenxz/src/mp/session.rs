@@ -357,8 +357,9 @@ impl MpSession {
 
             room::Action::Back => self.back(t),
             room::Action::Manage(id) => self.goto(Page::Manage(id), t),
-            room::Action::ChatInput => request_input("chat", InputBox::new().default_text(&self.state.chat_text)),
+            room::Action::ChatInput => self.pages.room.chat_focus = true,
             room::Action::ChatSend => {
+                self.pages.room.chat_focus = false;
                 if self.state.chat_text.is_empty() {
                     show_message(mtl!("chat-empty")).error();
                 } else {
@@ -512,6 +513,18 @@ impl MpSession {
         self.msgs.update(t);
         self.log.update(t);
         self.pages.update(t);
+
+        // 聊天框在编辑态时：回车 = 发送，系统输入点已拿走键盘，这里直接问系统键状态
+        #[cfg(target_os = "windows")]
+        if self.page == Page::Room && self.pages.room.chat_focus && crate::native_edit::enter_pressed() {
+            self.pages.room.chat_focus = false;
+            if self.state.chat_text.is_empty() {
+                show_message(mtl!("chat-empty")).error();
+            } else {
+                let text = self.state.chat_text.clone();
+                self.state.send_chat(text);
+            }
+        }
 
         if let Some(client) = self.state.client() {
             let pending = client.blocking_take_messages();
@@ -881,19 +894,21 @@ impl MpSession {
         let me = self.state.me_id();
         let me_ready = me_ready(&self.state, &view);
         let prompt = self.preview.prompt(self.state.room_state().as_ref(), me_ready);
-        let chat_text = self.state.chat_text.clone();
+        let mut chat_text = std::mem::take(&mut self.state.chat_text);
         let download = self.state.download.ui.as_mut();
 
         for id in super::state::sorted_user_ids(&room, me) {
             UserManager::request(id);
         }
+        #[cfg(target_os = "windows")]
+        crate::native_edit::begin_frame();
         let ctx = room::Render {
             room: &room,
             room_id: room_id.as_deref(),
             view: &view,
             messages: &mut self.msgs,
             log: &mut self.log,
-            chat_text: &chat_text,
+            chat_text: &mut chat_text,
             download,
             syncing,
             busy,
@@ -903,6 +918,9 @@ impl MpSession {
             me_ready,
         };
         self.pages.room.render(ui, t, ctx);
+        #[cfg(target_os = "windows")]
+        crate::native_edit::end_frame();
+        self.state.chat_text = chat_text;
     }
 
     fn render_manage(&mut self, ui: &mut Ui, t: f32, id: i32) {
