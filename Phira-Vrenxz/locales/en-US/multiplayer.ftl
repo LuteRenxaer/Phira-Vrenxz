@@ -161,3 +161,6 @@ mp-manage-kick = Kick out
 mp-manage-cancel = Cancel
 mp-room-locked = 🔒 Password
 mp-library = Chart Library
+mp-chat-title = Chat
+mp-log-title = Log
+

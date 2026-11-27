@@ -41,6 +41,8 @@ const BGM_VOLUME: f32 = 0.1;
 pub struct MpSession {
     state: MpState,
     msgs: MessageLog,
+    /// 系统日志（与聊天分开一条流）
+    log: MessageLog,
     preview: Preview,
     pages: Pages,
 
@@ -98,6 +100,7 @@ impl MpSession {
         Self {
             state: MpState::new(),
             msgs: MessageLog::new(),
+        log: MessageLog::new(),
             preview: Preview::new(),
             pages: Pages::new(),
 
@@ -301,7 +304,7 @@ impl MpSession {
                 let room = self.state.room();
                 if let Some(room) = room {
                     let view = room_view(&self.state);
-                    if let Some(a) = self.pages.room.touch(touch, t, &room, &view, &mut self.msgs) {
+                    if let Some(a) = self.pages.room.touch(touch, t, &room, &view, &mut self.msgs, &mut self.log) {
                         self.apply_room(a, t, &room);
                     }
                 } else {
@@ -334,6 +337,7 @@ impl MpSession {
             lobby::Action::Disconnect => {
                 self.state.disconnect();
                 self.msgs.clear();
+                self.log.clear();
                 self.goto(Page::Connect, t);
             }
             lobby::Action::Back => self.back(t),
@@ -503,19 +507,31 @@ impl MpSession {
         if self.last_screen_size != new_size {
             self.last_screen_size = new_size;
             self.msgs.invalidate_layout();
+            self.log.invalidate_layout();
         }
         self.msgs.update(t);
+        self.log.update(t);
         self.pages.update(t);
 
         if let Some(client) = self.state.client() {
             let pending = client.blocking_take_messages();
-            for notice in self.msgs.ingest(&client, pending) {
+            // 聊天和服务端日志分两条流：房间页中间是「聊天栏」，下面是「日志」。
+            let mut chats = Vec::new();
+            let mut systems = Vec::new();
+            for msg in pending {
+                match msg {
+                    phira_mp_common::Message::Chat { .. } => chats.push(msg),
+                    _ => systems.push(msg),
+                }
+            }
+            for notice in self.log.ingest(&client, systems) {
 
                 match &notice {
                     RoomNotice::OnlineChart { name } => self.state.chart_name = Some(name.clone()),
                     RoomNotice::LocalChart { name } => self.state.chart_name = Some(name.clone()),
                 }
             }
+            self.msgs.ingest(&client, chats);
             self.update_room_stage(client.blocking_room_state())?;
         }
 
@@ -876,6 +892,7 @@ impl MpSession {
             room_id: room_id.as_deref(),
             view: &view,
             messages: &mut self.msgs,
+            log: &mut self.log,
             chat_text: &chat_text,
             download,
             syncing,
@@ -902,3 +919,4 @@ impl MpSession {
     }
 
 }
+

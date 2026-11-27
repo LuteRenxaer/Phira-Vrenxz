@@ -153,3 +153,6 @@ mp-manage-kick = 逐出
 mp-manage-cancel = Cancel
 mp-room-locked = 🔒 Password
 mp-library = 曲庫
+mp-chat-title = Chat
+mp-log-title = Log
+

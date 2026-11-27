@@ -497,6 +497,8 @@ pub struct Render<'a> {
     pub room_id: Option<&'a str>,
     pub view: &'a RoomView,
     pub messages: &'a mut MessageLog,
+    /// 服务端系统日志（与聊天分开显示在中间下方那块）
+    pub log: &'a mut MessageLog,
     pub chat_text: &'a str,
     /// 在线谱面下载中
     pub download: Option<&'a mut Downloading>,
@@ -763,444 +765,321 @@ impl RoomPage {
     // ==================== 横屏：严格照设计稿 ====================
 
     fn render_landscape(&mut self, ui: &mut Ui, t: f32, ctx: &mut Render, items: &[ActItem], accent: Color) {
-        // 走 theme::layout_top（把超出声明范围的比例钳住）而不是裸 ui.top：
-        // 横竖屏两条分支必须用同一个"版面高度"，否则超纲比例下两块会各排各的。
         let top = theme::layout_top(ui);
-        let d = Design::new(top);
-
-        // 稿子面片是直接进 quad_gl 的（见 theme::quad），绕过了 Ui 的透明度，
-        // 所以这里自己乘一份，否则切页淡入淡出时这几块会整片跳出来。
         let a = ui.alpha;
+        let m = 0.03;
 
-        // —— 整屏底色：稿子的灰渐变 #5d5d5d → #9d9d9d ——
+        // —— 整屏底色 ——
         theme::slant_panel_grad(ui, -1., -top, 2., 2. * top, 0., fade(BG_TOP, a), fade(BG_BOTTOM, a));
 
-        // —— 左面板：竖向 #888→#fff，右边缘向左倾斜（稿子 291.70 → 261.32）——
-        let panel_x = d.x(PANEL_LEFT);
-        let panel_y = d.y(PANEL_TOP);
-        let panel_w = d.x(PANEL_RIGHT_TOP) - panel_x;
-        let panel_h = d.y(PANEL_BOTTOM) - panel_y;
-        let panel_slant = d.w(PANEL_RIGHT_TOP - PANEL_RIGHT_BOTTOM) / panel_h;
+        // ---------- 顶部 tab 栏 ----------
+        let bar = Rect::new(-1. + m, top - 0.12, 2. - m * 2., 0.1);
+        theme::card_flat(ui, bar, fade(STRIP_C, a));
+
+        let back_s = (bar.h * 0.8).min(0.072);
+        theme::back_button(
+            ui,
+            &mut self.back,
+            t,
+            Rect::new(bar.x + 0.012, bar.center().y - back_s * 0.5, back_s, back_s),
+        );
+
+        let title = match ctx.room_id {
+            Some(id) => mtl!("mp-room-tag", "id" => id.to_owned()),
+            None => mtl!("multiplayer").into_owned(),
+        };
+        let title_x = bar.x + back_s + 0.036;
+        let chip_sz = FS_TAG;
+
+        // 主动作（开始/准备）放右下角，其余动作都收进顶栏
+        let main = items
+            .iter()
+            .find(|it| matches!(it.action, RoomAction::Start | RoomAction::Ready | RoomAction::CancelReady));
+        let chips: Vec<&ActItem> = items
+            .iter()
+            .filter(|it| main.is_none_or(|m2| m2.action != it.action))
+            .collect();
+
+        let mut widths: Vec<f32> = chips
+            .iter()
+            .map(|it| {
+                let tw = self.label_w(ui, short_label(it.action), chip_sz);
+                (tw + 0.045).max(0.085)
+            })
+            .collect();
+        let gap = 0.012;
+        let gaps = gap * chips.len().saturating_sub(1) as f32;
+        let chips_right = bar.right() - 0.012;
+        let title_w = ui.text(&title).size(FS_SECTION).measure().w;
+        let title_reserve = (title_w + 0.08).min(bar.w * 0.32);
+        let avail = chips_right - (title_x + title_reserve) - gaps;
+        let total: f32 = widths.iter().sum();
+        if total > avail && avail > 0.02 && !widths.is_empty() {
+            let k = avail / total;
+            for w in &mut widths {
+                *w = (*w * k).max(0.055);
+            }
+        }
+        let chip_h = bar.h * 0.64;
+        let mut cx = chips_right;
+        for (i, item) in chips.iter().enumerate().rev() {
+            let w = widths[i];
+            cx -= w;
+            if cx + w * 0.5 < title_x + title_reserve {
+                break;
+            }
+            let r = Rect::new(cx, bar.center().y - chip_h * 0.5, w, chip_h);
+            let label = short_label(item.action);
+            if item.disabled {
+                self.actions.get(item.action).invalidate();
+                theme::button_static(
+                    ui,
+                    r,
+                    label,
+                    chip_sz,
+                    Color::new(0.30, 0.30, 0.33, 1.),
+                    Color::new(0.62, 0.62, 0.66, 1.),
+                );
+            } else {
+                theme::button(ui, self.actions.get(item.action), t, r, label, chip_sz, secondary(), text());
+            }
+            cx -= gap;
+        }
+        theme::text_left_bold(ui, title_x, bar.center().y, FS_SECTION, semi_white(1.), &title, title_reserve);
+
+        let content_top = bar.y - 0.03;
+        let content_bottom = -top + m;
+
+        // ---------- 左边：谱面信息 ----------
+        let left = Rect::new(-1. + m, content_bottom, 0.62, (content_top - content_bottom).max(0.24));
         theme::slant_panel_grad(
             ui,
-            panel_x,
-            panel_y,
-            panel_w,
-            panel_h,
-            panel_slant,
+            left.x,
+            left.y,
+            left.w,
+            left.h,
+            0.,
             fade(PANEL_TOP_C, a),
             fade(PANEL_BOTTOM_C, a),
         );
-        let panel_right_bottom = d.x(PANEL_RIGHT_BOTTOM);
-
-        // —— 曲绘：稿子在这个位置写了「这里是曲绘」，所以**整个左面板就是曲绘位**，
-        //    玩家选好谱面之后才铺得出来（本地谱面库里查得到才有图）。
-        //    上面再压一层自上而下由浓转淡的白纱：房名、谱面行、成绩卡这些深色小字
-        //    压在图上才始终读得清，也不会把曲绘糊成一片白。
         if let Some(illu) = &self.illu {
             let ia = illu.alpha(t);
             if ia > 0.02 {
                 cover_quad(
                     [
-                        Vec2::new(panel_x, panel_y),
-                        Vec2::new(panel_x + panel_w, panel_y),
-                        Vec2::new(panel_x, panel_y + panel_h),
-                        Vec2::new(panel_x + panel_w - panel_h * panel_slant, panel_y + panel_h),
+                        Vec2::new(left.x, left.y),
+                        Vec2::new(left.right(), left.y),
+                        Vec2::new(left.x, left.bottom()),
+                        Vec2::new(left.right(), left.bottom()),
                     ],
-                    // 用整图（texture.1），不是缩略图
                     &illu.texture.1,
                     ia * a,
                 );
-                // 白纱**只压顶部文字那一带**（房名 / 谱面行 / 状态行），往下渐隐到全透明。
-                // 以前是整块面板从 0.80 糊到 0.28，图整个发白 —— 那就是「有点白」的来源。
-                let band = d.y(ILLU_VEIL_BOTTOM) - panel_y;
+                let band = 0.3;
                 theme::slant_panel_grad(
                     ui,
-                    panel_x,
-                    panel_y,
-                    panel_w,
+                    left.x,
+                    left.y + left.h - band,
+                    left.w,
                     band,
-                    panel_slant,
-                    fade(semi_white(0.78 * ia), a),
+                    0.,
+                    fade(semi_white(0.82 * ia), a),
                     fade(Color::new(1., 1., 1., 0.), a),
                 );
             }
         }
-
-        // —— 顶部黑条（只盖左面板）——
-        let strip_y = panel_y;
-        let strip_h = d.y(STRIP_BOTTOM) - panel_y;
-        let strip_x = d.x(STRIP_LEFT);
-        let strip_w = d.x(STRIP_RIGHT_TOP) - strip_x;
-        theme::slant_panel(ui, strip_x, strip_y, strip_w, strip_h, panel_slant, fade(STRIP_C, a));
-        let strip_right = d.x(STRIP_RIGHT_TOP - 1.5);
-
-        // —— 返回图标：稿子顶栏没画，占黑条最左边的空位 ——
-        let btn_y = d.y(BTN_TOP);
-        let btn_h = d.y(BTN_BOTTOM) - btn_y;
-        // 返回按钮不能压到第一个顶栏按钮（窗口比例越接近 1:1，按钮越高，
-        // 这里就必须跟着收窄，否则两者会叠在一起）
-        let back_s = (btn_h * BACK_SCALE).min((d.x(BTN_X0) - d.x(BACK_X)) * 0.85);
-        theme::back_button(
-            ui,
-            &mut self.back,
-            t,
-            Rect::new(d.x(BACK_X), btn_y + (btn_h - back_s) * 0.5, back_s, back_s),
-        );
-
-        // —— 主要动作（左下那块白底 ▶）：先定下来，下面排按钮时要把它排除掉 ——
-        let main = items
-            .iter()
-            .find(|it| matches!(it.action, RoomAction::Start | RoomAction::Ready | RoomAction::CancelReady));
-
-        // —— 其余动作：收成同样形状的小方块贴在顶栏尾部（稿子这儿是空的）——
-        // 先数清楚有几个，好给它们**预留**位置：功能按钮宁可变窄也不能被挤掉，
-        // 少一个按钮就等于少一条出路（「离开房间」被挤掉的话人就卡在房里了）。
-        //
-        // 顶栏主按钮 + 主动作之外的动作全在这儿；**同一个动作只能画一次**，
-        // 否则两次 `build` 会互相盖掉命中区，看起来有点不动的按钮。
-        let extras: Vec<&ActItem> = items
-            .iter()
-            .filter(|it| {
-                !matches!(
-                    it.action,
-                    RoomAction::Library
-                        | RoomAction::Preview
-                        | RoomAction::Start
-                        | RoomAction::Ready
-                ) && main.is_none_or(|m| m.action != it.action)
-            })
-            .collect();
-
-        // —— 顶栏主要按钮：稿子顺序「打开谱面库 / 预览」——
-        // 宽度按文字量（其它语言也放得下），宽度总量超预算时等比收窄。
-        let btn_sz = d.fs(BTN_FS);
-        let gap_px = BTN_GAP;
-        let full_px = BTN_BOTTOM - BTN_TOP;
-        let avail_px = d.px(strip_right - d.x(BTN_X0));
-        // 尾部小方块的宽度**先量出来**：以前它是"主按钮高度 × TAIL_SCALE"的正方形，
-        // 而一个汉字比这个方块还宽 —— 字被两边的斜边切掉一截，用户反馈"后四个按钮太短"。
-        // 现在按最宽的一个标签定宽（字宽 + 左右内边距），主按钮再按这份宽度预留空间。
-        let tail_px = extras
-            .iter()
-            .map(|it| d.px(self.label_w(ui, short_label(it.action), btn_sz)) + BTN_PAD * 1.6)
-            .fold(full_px * TAIL_SCALE, f32::max);
-        let reserve_px = (tail_px + gap_px) * extras.len() as f32;
-        let budget_px = (avail_px - reserve_px).max(avail_px * 0.5);
-        let mut mains: Vec<(RoomAction, &str, f32)> = [RoomAction::Library, RoomAction::Preview]
-            .into_iter()
-            .filter_map(|action| {
-                let item = items.iter().find(|it| it.action == action)?;
-                let tw = d.px(self.label_w(ui, item.label.as_str(), btn_sz));
-                Some((action, item.label.as_str(), (tw + BTN_PAD * 2.).max(BTN_MIN_W)))
-            })
-            .collect();
-        let used: f32 = mains.iter().map(|it| it.2).sum::<f32>() + gap_px * (mains.len().saturating_sub(1)) as f32;
-        if used > budget_px && !mains.is_empty() {
-            let room = (budget_px - gap_px * (mains.len() - 1) as f32).max(BTN_MIN_W);
-            let k = room / mains.iter().map(|it| it.2).sum::<f32>();
-            for it in &mut mains {
-                it.2 = (it.2 * k).max(BTN_MIN_W * 0.8);
-            }
-        }
-        let mut bx = d.x(BTN_X0);
-        for (action, label, w_px) in &mains {
-            let w = d.w(*w_px);
-            Self::skew_btn(
-                ui,
-                t,
-                self.actions.get(*action),
-                Rect::new(bx, btn_y, w, btn_h),
-                label,
-                btn_sz,
-                BTN_FILL,
-                WHITE,
-                d.slope(BTN_SLOPE),
-            );
-            bx += w + d.w(gap_px);
-        }
-
-        // —— 顶栏尾部的小方块（预留的位置一定放得下；真放不下就再压一点）——
-        if !extras.is_empty() {
-            let avail = (strip_right - bx).max(0.);
-            let full = d.w(tail_px);
-            let gap = d.w(gap_px);
-            let want = full * extras.len() as f32 + gap * (extras.len() - 1) as f32;
-            let w = if want > avail && avail > 0.02 {
-                ((avail - gap * (extras.len() - 1) as f32) / extras.len() as f32).max(0.01)
-            } else {
-                full
-            };
-            // 兜底：万一（超长语言 + 极端比例）还是超了，把整条尾巴往左推回黑条里，
-            // 宁可和主按钮贴近一点，也不能把按钮挤出黑条甚至挤出屏幕。
-            let total = w * extras.len() as f32 + gap * (extras.len() - 1) as f32;
-            let mut sx = bx.min(strip_right - total).max(d.x(BTN_X0));
-            for item in extras {
-                // 高度与主按钮齐平（以前矮一档，就是用户说的"太短"），宽度放得下单字标签
-                Self::skew_btn(
-                    ui,
-                    t,
-                    self.actions.get(item.action),
-                    Rect::new(sx, btn_y, w, btn_h),
-                    short_label(item.action),
-                    btn_sz,
-                    BTN_FILL,
-                    WHITE,
-                    d.slope(BTN_SLOPE),
-                );
-                sx += w + gap;
-            }
-        }
-
-        // —— 房名（基线 y 93.86，em 19.32px）——
-        let title = match ctx.room_id {
-            Some(id) => mtl!("mp-room-tag", "id" => id.to_owned()),
-            None => mtl!("multiplayer").into_owned(),
-        };
-        let text_w = panel_right_bottom - d.x(SUB_X) - 0.02;
-        theme::text_left_bold(
-            ui,
-            d.x(TITLE_X),
-            d.base_bold(TITLE_BASE_Y, TITLE_FS),
-            d.fs(TITLE_FS),
-            ON_PANEL,
-            title.as_str(),
-            text_w,
-        );
-
-        // —— 谱面:xxx（基线 y 105.81，em 8.66px）——
+        let pad = 0.032;
         let (state_text, chart_name) = chart_parts(ctx.room, ctx.view);
-        let sub = match &chart_name {
-            Some(n) if !n.is_empty() => format!("{}: {}", mtl!("mp-chart-label"), n),
+        let name = match &chart_name {
+            Some(n) if !n.is_empty() => n.clone(),
             _ => state_text.clone(),
         };
+        theme::text_left_bold(
+            ui,
+            left.x + pad,
+            left.y + left.h - 0.055,
+            FS_SECTION,
+            ON_PANEL,
+            &name,
+            left.w - pad * 2.,
+        );
+        if !self.chart_badge.is_empty() {
+            theme::text_right(
+                ui,
+                left.right() - pad,
+                left.y + left.h - 0.058,
+                FS_SMALL,
+                ON_PANEL_ID,
+                &self.chart_badge,
+                left.w * 0.42,
+            );
+        }
         theme::text_left(
             ui,
-            d.x(SUB_X),
-            d.base(SUB_BASE_Y, SUB_FS),
-            d.fs(SUB_FS),
+            left.x + pad,
+            left.y + left.h - 0.098,
+            FS_SMALL,
             ON_PANEL_DIM,
-            &sub,
-            text_w,
+            &state_text,
+            left.w - pad * 2.,
         );
 
-        // —— 进度 / 同步状态：紧贴谱面行下方（曲绘区上沿），不压任何稿件元素 ——
         if let Some(dl) = ctx.download.as_deref_mut() {
-            let dr = Rect::new(d.x(SUB_X), d.y(112.), d.w(150.), d.h(26.));
+            let dr = Rect::new(left.x + pad, left.y + left.h - 0.21, left.w - pad * 2., 0.085);
             theme::card_rect(ui, dr, card());
             dl.render_inline(ui, dr, t);
-        } else if ctx.syncing {
-            theme::text_left(
-                ui,
-                d.x(SUB_X),
-                d.base(118., SUB_FS),
-                d.fs(SUB_FS),
-                ON_PANEL_DIM,
-                &mtl!("mp-syncing-chart"),
-                d.w(150.),
-            );
-            theme::progress_bar(ui, Rect::new(d.x(SUB_X), d.y(122.), d.w(120.), d.h(3.)), None, t, accent);
-        } else if ctx.busy {
-            theme::progress_bar(ui, Rect::new(d.x(SUB_X), d.y(112.), d.w(120.), d.h(3.)), None, t, accent);
+        } else if ctx.syncing || ctx.busy {
+            let pb = Rect::new(left.x + pad, left.y + left.h - 0.15, left.w * 0.66, 0.007);
+            theme::progress_bar(ui, pb, None, t, accent);
         }
 
-        // —— 左下角：最好成绩卡（画法与选曲页一致，见 scene::song）——
-        self.render_score_card(ui, ctx, &d);
+        // 本地最好成绩（评级图 + 分数 + 准确率）
+        let (score, accuracy, full_combo) = self.chart_record.unwrap_or((0, 0., false));
+        theme::h_line(ui, left.x + pad, left.y + 0.12, left.w - pad * 2.);
+        if score > 0 {
+            if let Some(icons) = crate::scene::TEX_RANK_ICONS.with(|it| it.borrow().clone()) {
+                let r = Rect::new(left.x + pad, left.y + 0.035, 0.08, 0.08);
+                ui.fill_path(&r.rounded(R_ROW), Color::new(0., 0., 0., 0.18));
+                let idx = icon_index(score as u32, full_combo);
+                ui.fill_rect(r, (*icons[idx], r, ScaleType::Fit));
+            }
+        }
+        theme::text_left_bold(
+            ui,
+            left.x + pad + 0.1,
+            left.y + 0.082,
+            FS_BODY,
+            ON_PANEL,
+            &format!("{score:07}"),
+            left.w - pad * 2. - 0.11,
+        );
+        theme::text_left(
+            ui,
+            left.x + pad + 0.1,
+            left.y + 0.050,
+            FS_SMALL,
+            ON_PANEL_DIM,
+            &format!("{:.2}%", accuracy * 100.),
+            left.w - pad * 2. - 0.11,
+        );
 
-        // —— 主要动作：稿子那块白色平行四边形 + 里面「外黑内白」的 ▶ ——
+        // ---------- 中间：聊天栏 + 日志 ----------
+        let mid_x = -1. + m + 0.65;
+        let mid_w = 0.6;
+        let input_h = 0.115;
+        let input_y = content_bottom;
+        let log_h = 0.19;
+        let log_y = input_y + input_h + 0.03;
+        let chat_y = log_y + log_h + 0.03;
+
+        let chat = Rect::new(mid_x, chat_y, mid_w, (content_top - chat_y).max(0.18));
+        theme::panel_caption(ui, chat.x, chat.y, chat.w, &mtl!("mp-chat-title"));
+        let chat_list = Rect::new(chat.x, chat.y + CAPTION_H, chat.w, (chat.h - CAPTION_H).max(0.05));
+        let chat_inner = theme::parallelogram(ui, chat_list, 0., fade(CHAT_VEIL, a), fade(CHAT_VEIL, a));
+        ui.scope(|ui| {
+            ui.dx(chat_inner.x + 0.006);
+            ui.dy(chat_inner.y + 0.006);
+            ctx.messages.render(
+                ui,
+                Rect::new(0., 0., (chat_inner.w - 0.012).max(0.05), (chat_inner.h - 0.012).max(0.05)),
+            );
+        });
+
+        let log = Rect::new(mid_x, log_y, mid_w, log_h);
+        theme::panel_caption(ui, log.x, log.y, log.w, &mtl!("mp-log-title"));
+        let log_list = Rect::new(log.x, log.y + CAPTION_H, log.w, (log.h - CAPTION_H).max(0.05));
+        let log_inner = theme::parallelogram(
+            ui,
+            log_list,
+            0.,
+            fade(Color::new(0., 0., 0., 0.22), a),
+            fade(Color::new(0., 0., 0., 0.22), a),
+        );
+        ui.scope(|ui| {
+            ui.dx(log_inner.x + 0.006);
+            ui.dy(log_inner.y + 0.006);
+            ctx.log.render(
+                ui,
+                Rect::new(0., 0., (log_inner.w - 0.012).max(0.05), (log_inner.h - 0.012).max(0.05)),
+            );
+        });
+
+        // 输入行
+        let send_w = 0.115;
+        let input = Rect::new(mid_x, input_y, (mid_w - send_w - 0.02).max(0.1), input_h);
+        let send = Rect::new(mid_x + mid_w - send_w, input_y, send_w, input_h);
+        theme::card_rect(ui, input, card());
+        self.chat_btn.render_input(
+            ui,
+            input.feather(-0.012),
+            t,
+            ctx.chat_text,
+            mtl!("chat-placeholder"),
+            FS_BODY,
+        );
+        theme::button(ui, &mut self.chat_send_btn, t, send, mtl!("chat-send"), FS_BUTTON, primary(accent), WHITE);
+
+        // ---------- 右边：玩家列表 ----------
+        let right_w = 0.6;
+        let right_x = 1. - m - right_w;
+        let start_h = 0.135;
+        let users = Rect::new(
+            right_x,
+            content_bottom + start_h + 0.03,
+            right_w,
+            (content_top - content_bottom - start_h - 0.03).max(0.16),
+        );
+        theme::panel_caption(
+            ui,
+            users.x,
+            users.y,
+            users.w,
+            &mtl!("mp-player-count", "n" => user_count(ctx.room) as u64),
+        );
+        let list = Rect::new(users.x, users.y + CAPTION_H, users.w, (users.h - CAPTION_H).max(0.06));
+        let list_inner = theme::parallelogram(ui, list, 0., fade(card_soft(), a), fade(card_soft(), a));
+        self.render_user_rows(ui, t, list_inner, ctx, accent);
+
+        // ---------- 右下角：开始 / 准备 ----------
         if let Some(item) = main {
-            let (px, py, pw, ph) = PLAY_BOX;
-            let box_r = Rect::new(d.x(px), d.y(py), d.w(pw), d.h(ph));
-            let (tx, ty, tw, th) = PLAY_TRI;
-            let tri = Rect::new(d.x(tx), d.y(ty), d.w(tw), d.h(th));
-            let label = (item.action != RoomAction::Start).then(|| item.label.as_str());
-            let label_cy = d.base(PLAY_LABEL_BASE_Y, PLAY_LABEL_FS);
-            let label_sz = d.fs(PLAY_LABEL_FS);
-            let play_icon = theme::tool_icon(theme::ToolIcon::Play);
-            // 禁用态：底色压暗一档、文字与图标都调灰（见 [ActItem::disabled]）。
-            // 用户要求"变暗、且不可交互"，所以下面既不登记命中区、也不做按压缩放。
-            let disabled = item.disabled;
-            let (box_fill, fg, icon_tint) = if disabled {
-                (
-                    Color::new(0.78, 0.78, 0.80, 1.),
-                    Color::new(0.52, 0.52, 0.56, 1.),
-                    Color::new(0.55, 0.55, 0.58, 1.),
-                )
+            let r = Rect::new(right_x, content_bottom, right_w, start_h);
+            let label = item.label.clone();
+            if item.disabled {
+                self.actions.get(item.action).invalidate();
+                theme::button_static(
+                    ui,
+                    r,
+                    label,
+                    FS_BUTTON,
+                    Color::new(0.32, 0.32, 0.35, 0.9),
+                    Color::new(0.6, 0.6, 0.64, 1.),
+                );
             } else {
-                (WHITE, ON_PANEL, WHITE)
-            };
-            let btn = self.actions.get(item.action);
-            let draw_main = |ui: &mut Ui, r: Rect| {
-                let (cx, cy) = (r.center().x, r.center().y);
-                let k = r.w / box_r.w.max(0.0001);
-                design_quad(&d, PLAY_QUAD, [fade(box_fill, a); 4], Vec2::new(cx, cy), k);
-                if let Some(label) = label {
-                    ui.text(label)
-                        .pos(box_r.center().x, label_cy)
-                        .anchor(0.5, 0.5)
-                        .no_baseline()
-                        .size(label_sz)
-                        .color(fg)
-                        .max_width(box_r.w * 0.92)
-                        .draw();
-                }
-                // 开始按钮的图标直接用主菜单那枚现成的
-                // （assets/icon_old(home)/resume.png，启动时已装进工具条图标表）。
-                // 以前是拿 triangle_right 拼的 —— 那个内三角是贴着右边画的，
-                // 拼出来是个歪掉的图形，不是设计稿上那个「黑边白心」的 ▶。
-                let ir = scaled(tri, Vec2::new(cx, cy), k);
-                match &play_icon {
-                    Some(tex) => ui.fill_rect(ir, (**tex, ir, ScaleType::Fit, icon_tint)),
-                    // 图标没装载成功才退回手画的三角形
-                    None => theme::triangle_right(ui, ir, Color::new(0.02, 0.02, 0.03, 1.), PLAY_TRI_INNER, Some(if disabled { fg } else { WHITE })),
-                }
-            };
-            if disabled {
-                // 作废命中区：触摸侧查的就是这个按钮池，没有命中区 = 点不动
-                btn.invalidate();
-                draw_main(ui, box_r);
-            } else {
-                quad_btn(btn, ui, t, box_r, draw_main);
+                theme::button(ui, self.actions.get(item.action), t, r, label, FS_BUTTON, primary(accent), WHITE);
             }
         }
 
-        // —— 右栏：标题 + 人数 ——
-        theme::text_left_bold(
-            ui,
-            d.x(R_TITLE.0),
-            d.base_bold(R_TITLE.1, R_TITLE.2),
-            d.fs(R_TITLE.2),
-            ON_PANEL,
-            &mtl!("user-list"),
-            d.w(120.),
-        );
-        let count = mtl!("mp-n-players", "n" => user_count(ctx.room) as u64);
-        theme::text_right(
-            ui,
-            d.x(R_RIGHT),
-            d.base(R_TITLE.1, R_COUNT_FS),
-            d.fs(R_COUNT_FS),
-            ON_PANEL,
-            &count,
-            d.w(110.),
-        );
-
-        // —— 用户列表（到细线 y 177.47 为止）——
-        let list_top = d.y(R_ROW_CY - R_ROW_H * 0.5);
-        let list = Rect::new(
-            d.x(R_X),
-            list_top,
-            d.x(R_RIGHT) - d.x(R_X),
-            d.y(R_SPLIT_Y) - list_top,
-        );
-        // 用户列表底：平行四边形。斜度取输入框那档（也是左面板右边缘的斜率），
-        // 形状正好收在细线左边不会压到左面板；返回值是内缩后的内容区。
-        let veil_slope = d.slope(R_INPUT_SLOPE);
-        let list_inner = theme::parallelogram(ui, list, veil_slope, fade(CHAT_VEIL, a), fade(CHAT_VEIL, a));
-        self.render_user_rows(ui, t, list_inner, ctx, accent);
-        theme::h_line(ui, d.x(R_X), d.y(R_SPLIT_Y), d.x(R_RIGHT) - d.x(R_X));
-
-        // —— 聊天区（细线 → 输入框上沿）——
-        // 下沿直接取输入框的上边：以前聊天区停在"加粗线"处（273.33），而输入框从 275.02
-        // 才开始，中间 1.69 稿子 px 的缝是被那条黑线盖住的 —— 用户要求删掉黑线（第 8 条），
-        // 缝就会露出来，所以顺手让两块**边贴边**（右栏与底部 UI 对齐，不留缝也不重叠）。
-        let chat = Rect::new(
-            d.x(R_X),
-            d.y(R_SPLIT_Y) + 0.006,
-            d.x(R_RIGHT) - d.x(R_X),
-            (d.y(R_INPUT_TOP) - d.y(R_SPLIT_Y) - 0.006).max(0.06),
-        );
-        // 聊天日志底：同样是平行四边形
-        let chat_inner = theme::parallelogram(ui, chat, veil_slope, fade(CHAT_VEIL, a), fade(CHAT_VEIL, a));
-        ui.scope(|ui| {
-            ui.dx(chat_inner.x + 0.004);
-            ui.dy(chat_inner.y + 0.004);
-            ctx.messages.render(
-                ui,
-                Rect::new(0., 0., (chat_inner.w - 0.008).max(0.05), (chat_inner.h - 0.008).max(0.05)),
-            );
-        });
-
-        // —— 输入框：稿子里的控件统一是「上边右移」的平行四边形，输入框也用同一个斜度，
-        //    和右边的「发送」拼成一对。
-        //
-    //    两处以前是错的：
-        //    1. 底是圆角矩形（`render_input` 自带深色圆角底），和稿子的斜角控件不是一套；
-        //    2. 命中区包在 `if CHAT_ENABLED` 里 —— 而 chat 不是默认 feature，
-        //       于是白框画出来了、却点不动（「输入框用不了」）。现在底色自己画、
-        //       命中区无条件登记。
-        let input = Rect::new(
-            d.x(R_X),
-            d.y(R_INPUT_TOP),
-            d.x(R_INPUT_RIGHT) - d.x(R_X),
-            d.y(R_INPUT_BOTTOM) - d.y(R_INPUT_TOP),
-        );
-        {
-            let slope = d.slope(R_INPUT_SLOPE);
-            let size = d.fs(R_INPUT_FS);
-            let pad = d.w(9.);
-            let typed = ctx.chat_text;
-            let empty = typed.trim().is_empty();
-            let hint = mtl!("chat-placeholder").into_owned();
-            quad_btn(&mut self.chat_btn, ui, t, input, |ui, r| {
-                theme::skew_panel(ui, r.x, r.y, r.w, r.h, slope, WHITE, WHITE);
-                ui.text(if empty { hint.as_str() } else { typed })
-                    .pos(r.x + pad, r.center().y)
-                    .anchor(0., 0.5)
-                    .no_baseline()
-                    .size(size)
-                    .color(if empty {
-                        Color::new(0.45, 0.45, 0.48, 1.)
-                    } else {
-                        Color::new(0.07, 0.07, 0.09, 1.)
-                    })
-                    .max_width(r.w - pad * 2.)
-                    .draw();
-            });
-        }
-        // 发送按钮是稿子画的梯形，直接按四角铺，别用对称的平行四边形去近似
-        let send = Rect::new(
-            d.x(R_SEND_X),
-            d.y(R_INPUT_TOP),
-            d.x(R_SEND_RIGHT) - d.x(R_SEND_X),
-            d.y(R_INPUT_BOTTOM) - d.y(R_INPUT_TOP),
-        );
-        let send_label = mtl!("chat-send").into_owned();
-        let send_sz = d.fs(R_SEND_FS);
-        quad_btn(&mut self.chat_send_btn, ui, t, send, |ui, r| {
-            let k = r.w / send.w.max(0.0001);
-            design_quad(&d, R_SEND_QUAD, [fade(SEND_FILL, a); 4], send.center(), k);
-            ui.text(send_label.as_str())
-                .pos(r.center().x, r.center().y)
-                .anchor(0.5, 0.5)
-                .no_baseline()
-                .size(send_sz)
-                .color(Color::new(0., 0., 0., 1.))
-                .max_width(r.w * 0.9)
-                .draw();
-        });
-
-        // —— 内联确认条（房主要开始游戏了 → 准备 / 暂不）——
+        // ---------- 内联确认条：房主要开始了 ----------
         if ctx.prompt {
-            let h = d.h(26.);
-            let cr = Rect::new(d.x(SUB_X), d.y(222.), d.w(248.), h);
+            let h = 0.13;
+            let cr = Rect::new(mid_x, log_y + 0.03, mid_w, h);
             theme::card_rect(ui, cr, tag_accent(accent));
             theme::text_left(
                 ui,
-                cr.x + CARD_PAD * 0.6,
-                cr.y + h * 0.34,
-                d.fs(SUB_FS),
+                cr.x + 0.022,
+                cr.y + h * 0.66,
+                FS_SMALL,
                 text(),
                 &mtl!("preview-interrupted-content"),
-                cr.w - CARD_PAD,
+                cr.w - 0.044,
             );
-            let bh = h * 0.42;
-            let bw = (0.22 * SCALE).min((cr.w - CARD_PAD) / 2.2);
-            let by = cr.bottom() - bh - h * 0.12;
-            let rr = Rect::new(cr.right() - CARD_PAD * 0.5 - bw, by, bw, bh);
+            let bh = h * 0.32;
+            let bw = 0.18f32.min((cr.w - 0.044) / 2.2);
+            let by = cr.y + 0.012;
+            let rr = Rect::new(cr.right() - 0.022 - bw, by, bw, bh);
             let ll = Rect::new(rr.x - 0.02 - bw, by, bw, bh);
-            theme::button(ui, &mut self.prompt_later, t, ll, mtl!("preview-not-now"), d.fs(9.), secondary(), text());
-            theme::button(ui, &mut self.prompt_ready, t, rr, mtl!("preview-ready"), d.fs(9.), primary(accent), WHITE);
+            theme::button(ui, &mut self.prompt_later, t, ll, mtl!("preview-not-now"), FS_TAG, secondary(), text());
+            theme::button(ui, &mut self.prompt_ready, t, rr, mtl!("preview-ready"), FS_TAG, primary(accent), WHITE);
         }
     }
 
@@ -1633,9 +1512,9 @@ impl RoomPage {
         }
     }
 
-    /// 竖屏聊天框：日志与聊天是同一个消息流，跟输入行同框。
+    /// 竖屏聊天框：上半聊天、下半日志，跟输入行同框。
     fn render_chat(&mut self, ui: &mut Ui, t: f32, r: Rect, ctx: &mut Render, accent: Color) {
-        let caption = mtl!("mp-chat-caption");
+        let caption = mtl!("mp-chat-title");
         theme::panel_caption(ui, r.x, r.y, r.w, &caption);
         let input_h = if CHAT_ENABLED { (r.h * 0.26).clamp(0.11 * SCALE, 0.15 * SCALE) } else { 0. };
         let list = Rect::new(
@@ -1646,14 +1525,25 @@ impl RoomPage {
         );
         let a = ui.alpha;
         let list_inner = theme::parallelogram(ui, list, P_SLOPE, fade(card_soft(), a), fade(card_soft(), a));
+        let inner_w = (list_inner.w - PANEL_INSET * 2.).max(0.05);
+        let log_h = (list_inner.h * 0.34).clamp(0.1, 0.6);
+        let chat_h = (list_inner.h - PANEL_INSET * 2. - log_h - 0.02).max(0.06);
+        let x = list_inner.x + PANEL_INSET;
+        let bottom = list_inner.y + PANEL_INSET;
         ui.scope(|ui| {
-            ui.dx(list_inner.x + PANEL_INSET);
-            ui.dy(list_inner.y + PANEL_INSET);
-            ctx.messages.render(
-                ui,
-                Rect::new(0., 0., (list_inner.w - PANEL_INSET * 2.).max(0.05), (list_inner.h - PANEL_INSET * 2.).max(0.04)),
-            );
+            ui.dx(x);
+            ui.dy(bottom);
+            ctx.log.render(ui, Rect::new(0., 0., inner_w, (log_h - PANEL_INSET).max(0.04)));
         });
+        ui.scope(|ui| {
+            ui.dx(x);
+            ui.dy(bottom + log_h + 0.02);
+            ctx.messages.render(ui, Rect::new(0., 0., inner_w, chat_h));
+        });
+        ui.fill_rect(
+            Rect::new(x, bottom + log_h + 0.005, inner_w, 0.0025),
+            Color::new(1., 1., 1., 0.18),
+        );
         if CHAT_ENABLED {
             let iy = r.bottom() - input_h;
             let send_w = (0.17f32 * SCALE).min(r.w * 0.28).max(0.1 * SCALE);
@@ -1682,10 +1572,17 @@ impl RoomPage {
             );
         }
     }
-
-    pub fn touch(&mut self, touch: &Touch, t: f32, room: &ClientRoomState, view: &RoomView, msgs: &mut MessageLog) -> Option<Action> {
+    pub fn touch(
+        &mut self,
+        touch: &Touch,
+        t: f32,
+        room: &ClientRoomState,
+        view: &RoomView,
+        msgs: &mut MessageLog,
+        log: &mut MessageLog,
+    ) -> Option<Action> {
         // 聊天 / 日志滚动区优先
-        if msgs.touch(touch, t) {
+        if msgs.touch(touch, t) || log.touch(touch, t) {
             return None;
         }
         // 用户列表滚动区
