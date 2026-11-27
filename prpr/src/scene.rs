@@ -23,7 +23,7 @@ pub use loading::{BasicPlayer, FinishedStats, LoadingScene, SaveFn, UpdateFn, Up
 use crate::{
     core::BOLD_FONT,
     ext::{
-        draw_image, draw_parallelogram, draw_parallelogram_ex, screen_aspect, semi_black,
+        draw_image, draw_parallelogram, draw_parallelogram_band, screen_aspect, semi_black,
         semi_white, RectExt, LocalTask, SafeTexture, ScaleType, PARALLELOGRAM_SLOPE,
     },
     judge::Judge,
@@ -739,63 +739,55 @@ impl InputDialog {
         }
         self.cursor_timer += get_frame_time();
 
-        let p = ((t - self.enter_time) / 0.2).clamp(0., 1.);
+        let p: f32 = ((t - self.enter_time) / 0.2).clamp(0., 1.);
         let ease = 1. - (1. - p).powi(3);
-        ui.fill_rect(ui.screen_rect(), semi_black(0.55 * ease));
+        ui.fill_rect(ui.screen_rect(), semi_black(0.6 * ease));
 
-        let w = 0.9;
-        let h = if self.multiline { 0.58 } else { 0.42 };
-        let scale = 0.92 + 0.08 * ease;
+        let w = 0.86;
+        let h = if self.multiline { 0.56 } else { 0.40 };
+        let scale = 0.94 + 0.06 * ease;
         let wr = Rect::new(-w * scale / 2., -h * scale / 2., w * scale, h * scale);
         let l = wr.h * PARALLELOGRAM_SLOPE;
+        let header_h = 0.135;
 
-        // 平行四边形底板（与“提示弹窗”一致的样式）
-        draw_parallelogram_ex(
-            wr,
-            None,
-            Color::new(0.20, 0.23, 0.29, 0.97 * ease),
-            Color::new(0.09, 0.11, 0.15, 0.97 * ease),
-            true,
-        );
-        draw_parallelogram(wr, None, Color::new(1., 1., 1., 0.09 * ease), false);
+        // 深灰面板 + 近黑标题条（与提示弹窗同一套观感）
+        draw_parallelogram(wr, None, Color::new(0.185, 0.185, 0.20, 0.97 * ease), true);
+        draw_parallelogram_band(wr, wr.y, wr.y + header_h, Color::new(0.05, 0.05, 0.06, 0.98 * ease));
 
-        let pad = 0.05;
+        let pad = 0.045;
         let cx = wr.x + l + pad;
         let cw = wr.w - l - pad * 2.;
 
-        // 顶边高光（平行四边形上边缘）
-        ui.fill_rect(Rect::new(wr.x + l, wr.y, wr.w - l, 0.004), Color::new(1., 1., 1., 0.12 * ease));
-
         ui.text(&self.title)
-            .pos(cx, wr.y + pad)
-            .size(0.48)
+            .pos(cx + 0.01, wr.y + header_h / 2.)
+            .anchor(0., 0.5)
+            .size(0.58)
+            .max_width(cw)
+            .no_baseline()
             .color(Color::new(1., 1., 1., ease))
             .draw_using(&BOLD_FONT);
 
-        let mut y = wr.y + pad + 0.075;
+        let mut y = wr.y + header_h + 0.028;
         if !self.prompt.is_empty() {
             let r = ui
                 .text(&self.prompt)
                 .pos(cx, y)
                 .size(0.32)
-                .color(semi_white(0.65 * ease))
+                .color(semi_white(0.7 * ease))
                 .max_width(cw)
                 .multiline()
                 .draw();
-            y = r.bottom() + 0.03;
+            y = r.bottom() + 0.022;
         }
 
-        let input_h = if self.multiline { 0.2 } else { 0.075 };
+        let input_h = if self.multiline { 0.2 } else { 0.078 };
         let input_r = Rect::new(cx, y, cw, input_h);
-        let il = input_r.h * PARALLELOGRAM_SLOPE;
-        // 输入框：平行四边形暗底 + 蓝色细描边
-        draw_parallelogram(
-            input_r.feather(0.0025),
-            None,
-            Color::new(0.4, 0.6, 1., 0.35 * ease),
-            false,
+        // 输入区：比面板略亮的凹槽 + 底部一条细线，不再用蓝色描边方块
+        ui.fill_rect(input_r, Color::new(0.10, 0.10, 0.12, 0.98 * ease));
+        ui.fill_rect(
+            Rect::new(input_r.x, input_r.bottom() - 0.0015, input_r.w, 0.0015),
+            Color::new(1., 1., 1., 0.22 * ease),
         );
-        draw_parallelogram(input_r, None, Color::new(0.08, 0.09, 0.13, 0.98 * ease), false);
 
         let display: String = if self.password {
             self.text.chars().map(|_| '*').collect()
@@ -808,10 +800,10 @@ impl InputDialog {
             self.text[..self.cursor].to_string()
         };
 
-        let text_size = 0.38;
-        let text_x0 = input_r.x + il + 0.015;
+        let text_size = 0.36;
+        let text_x0 = input_r.x + 0.018;
         let text_y = input_r.center().y;
-        let text_max_w = (input_r.w - il - 0.06).max(0.02);
+        let text_max_w = (input_r.w - 0.036).max(0.02);
         let before_w = ui.text(&before_cursor).size(text_size).measure().w;
         // 单行输入横向滚动：光标跑到框外时让文本跟着左移，光标始终留在框内。
         let scroll = if self.multiline {
@@ -837,8 +829,8 @@ impl InputDialog {
                     let off_x = ui.text(&before_sel).size(text_size).measure().w;
                     let sel_w = ui.text(&sel_text).size(text_size).measure().w;
                     ui.fill_rect(
-                        Rect::new(text_x + off_x, input_r.y + 0.01, sel_w, input_r.h - 0.02),
-                        Color::new(0.2, 0.4, 0.8, 0.5 * ease),
+                        Rect::new(text_x + off_x, input_r.y + 0.008, sel_w, input_r.h - 0.016),
+                        Color::new(0.28, 0.46, 0.86, 0.55 * ease),
                     );
                 }
             }
@@ -874,107 +866,77 @@ impl InputDialog {
                 let cursor_x = text_x + before_w;
                 ui.fill_rect(
                     Rect::new(cursor_x, input_r.y + 0.012, 0.0025, input_r.h - 0.024),
-                    Color::new(0.4, 0.6, 1., ease),
+                    Color::new(1., 1., 1., ease),
                 );
             }
         });
 
-        let bh = 0.065;
-        let bw = 0.16;
-        let gap = 0.025;
-        let by = wr.bottom() - bh - pad;
-        let right_edge = wr.right() - l - pad;
-        let ok_r = Rect::new(right_edge - bw, by, bw, bh);
-        let cancel_r = Rect::new(ok_r.x - gap - bw, by, bw, bh);
-
-        // 文本快捷键按钮（键盘/IME 拦截 Ctrl 时也能用鼠标完成复制粘贴）
-        let sb_h = 0.055;
-        let sb_w = 0.16;
-        let sb_gap = 0.02;
-        let sb_y = (input_r.bottom() + 0.012)
-            .min(by - sb_h - 0.006)
-            .max(wr.y + pad);
-        let mut draw_small = |ui: &mut Ui, btn: &mut DRectButton, r: Rect, label: &str| {
-            btn.inner.set(ui, r);
-            let v = if btn.inner.touching() { 0.30 } else { 0.16 };
-            draw_parallelogram(r, None, Color::new(v, v, v + 0.05, 0.92 * ease), true);
-            let ss = 0.05;
-            draw_parallelogram(
-                Rect::new(r.x + r.w * (1. - ss), r.y, r.w * ss, r.h),
-                None,
-                Color::new(1., 1., 1., 0.75 * ease),
-                false,
-            );
-            let ct = r.center();
-            ui.text(label)
-                .pos(ct.x, ct.y)
-                .anchor(0.5, 0.5)
+        // 全选 / 复制 / 粘贴：一行低调小字（系统接管键盘后仍可作为鼠标快捷方式）
+        let sb_y = input_r.bottom() + 0.012;
+        let mut sx = cx;
+        for (btn, label) in [
+            (&mut self.select_all_btn, ttl!("select-all")),
+            (&mut self.copy_btn, ttl!("copy")),
+            (&mut self.paste_btn, ttl!("paste")),
+        ] {
+            let tr = ui
+                .text(label.as_ref())
+                .size(0.28)
                 .no_baseline()
-                .size(0.24)
-                .color(semi_white(0.9 * ease))
-                .max_width(r.w)
+                .measure();
+            btn.inner.set(ui, Rect::new(sx - 0.01, sb_y - 0.012, tr.w + 0.02, tr.h + 0.024));
+            let pressed = btn.inner.touching();
+            ui.text(label.as_ref())
+                .pos(sx, sb_y)
+                .anchor(0., 0.5)
+                .no_baseline()
+                .size(0.28)
+                .color(if pressed { semi_white(0.95 * ease) } else { semi_white(0.55 * ease) })
                 .draw();
-        };
-        draw_small(
-            ui,
-            &mut self.select_all_btn,
-            Rect::new(cx, sb_y, sb_w, sb_h),
-            ttl!("select-all").as_ref(),
-        );
-        draw_small(
-            ui,
-            &mut self.copy_btn,
-            Rect::new(cx + (sb_w + sb_gap), sb_y, sb_w, sb_h),
-            ttl!("copy").as_ref(),
-        );
-        draw_small(
-            ui,
-            &mut self.paste_btn,
-            Rect::new(cx + (sb_w + sb_gap) * 2., sb_y, sb_w, sb_h),
-            ttl!("paste").as_ref(),
-        );
+            sx += tr.w + 0.06;
+        }
 
-        self.cancel_btn.inner.set(ui, cancel_r);
-        let cv = if self.cancel_btn.inner.touching() { 0.3 } else { 0.16 };
-        draw_parallelogram(cancel_r, None, Color::new(cv, cv, cv + 0.05, 0.92 * ease), true);
-        let ss = 0.05;
-        draw_parallelogram(
-            Rect::new(cancel_r.x + cancel_r.w * (1. - ss), cancel_r.y, cancel_r.w * ss, cancel_r.h),
-            None,
-            Color::new(1., 1., 1., 0.9 * ease),
-            false,
-        );
-        let ct = cancel_r.center();
-        ui.text(&self.cancel_label)
-            .pos(ct.x, ct.y)
-            .anchor(0.5, 0.5)
+        // 右下角纯文字按钮：取消（暗）/ 确定（亮）
+        let bh = 0.06;
+        let by = wr.bottom() - bh / 2. - 0.02;
+        let mut rx = wr.right() - l - pad;
+        let ok_w = ui
+            .text(&self.ok_label)
+            .size(0.46)
             .no_baseline()
-            .size(0.34)
-            .color(semi_white(0.85 * ease))
-            .max_width(cancel_r.w)
-            .draw();
-
-        self.ok_btn.inner.set(ui, ok_r);
-        let ob = if self.ok_btn.inner.touching() {
-            Color::new(0.45, 0.65, 1., 0.95 * ease)
-        } else {
-            Color::new(0.3, 0.5, 0.95, 0.95 * ease)
-        };
-        draw_parallelogram(ok_r, None, ob, true);
-        draw_parallelogram(
-            Rect::new(ok_r.x + ok_r.w * (1. - ss), ok_r.y, ok_r.w * ss, ok_r.h),
-            None,
-            Color::new(1., 1., 1., 0.9 * ease),
-            false,
-        );
-        let ct = ok_r.center();
+            .max_width(0.4)
+            .measure_using(&BOLD_FONT)
+            .w;
+        self.ok_btn
+            .inner
+            .set(ui, Rect::new(rx - ok_w - 0.03, by - 0.045, ok_w + 0.06, 0.09));
         ui.text(&self.ok_label)
-            .pos(ct.x, ct.y)
-            .anchor(0.5, 0.5)
+            .pos(rx, by)
+            .anchor(1., 0.5)
             .no_baseline()
-            .size(0.34)
+            .size(0.46)
+            .max_width(0.4)
             .color(Color::new(1., 1., 1., ease))
-            .max_width(ok_r.w)
+            .draw_using(&BOLD_FONT);
+        rx -= ok_w + 0.09;
+
+        let cancel_w = ui
+            .text(&self.cancel_label)
+            .size(0.46)
+            .no_baseline()
+            .max_width(0.4)
+            .measure_using(&BOLD_FONT)
+            .w;
+        self.cancel_btn
+            .inner
+            .set(ui, Rect::new(rx - cancel_w - 0.03, by - 0.045, cancel_w + 0.06, 0.09));
+        ui.text(&self.cancel_label)
+            .pos(rx, by)
+            .anchor(1., 0.5)
+            .no_baseline()
+            .size(0.46)
+            .max_width(0.4)
+            .color(semi_white(0.62 * ease))
             .draw_using(&BOLD_FONT);
     }
 }
