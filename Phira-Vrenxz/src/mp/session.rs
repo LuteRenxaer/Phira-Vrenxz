@@ -355,8 +355,14 @@ impl MpSession {
     fn apply_room(&mut self, a: room::Action, t: f32, room: &ClientRoomState) {
         match a {
 
-            room::Action::Back => self.back(t),
-            room::Action::Manage(id) => self.goto(Page::Manage(id), t),
+            room::Action::Back => {
+                self.pages.room.chat_focus = false;
+                self.back(t)
+            }
+            room::Action::Manage(id) => {
+                self.pages.room.chat_focus = false;
+                self.goto(Page::Manage(id), t)
+            }
             room::Action::ChatInput => self.pages.room.chat_focus = true,
             room::Action::ChatSend => {
                 self.pages.room.chat_focus = false;
@@ -385,7 +391,10 @@ impl MpSession {
     fn apply_room_action(&mut self, action: room::RoomAction, room: &ClientRoomState, t: f32) {
         use room::RoomAction as A;
         match action {
-            A::Start => self.state.request_start(),
+            A::Start => {
+                self.pages.room.chat_focus = false;
+                self.state.request_start()
+            }
             A::LockRoom => self.state.lock_room(!room.locked),
             A::CycleRoom => self.state.cycle_room(!room.cycle),
             A::Password => request_input("set_pwd", InputBox::new()),

@@ -217,13 +217,39 @@ impl Drop for Inputs {
 }
 
 static INPUTS: Mutex<Option<Inputs>> = Mutex::new(None);
+static FRAME_HAS_INPUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// 一帧开始时调用，清空"本帧用到"的字段列表
 pub fn begin_frame() {
+    FRAME_HAS_INPUT.store(true, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut g) = INPUTS.lock() {
         if let Some(it) = g.as_mut() {
             it.used.clear();
             it.focus_req = None;
+        }
+    }
+}
+
+/// 每帧最后调用一次。若这一帧根本没有任何输入字段（游玩、结算、过场……），
+/// 就把所有隐形输入点收起来、把键盘焦点还给游戏窗口——否则残留的输入点会
+/// 吞掉游玩按键。
+pub fn end_of_frame() {
+    if FRAME_HAS_INPUT.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    if let Ok(mut g) = INPUTS.lock() {
+        let Some(inp) = g.as_mut() else { return };
+        let parent = inp.parent;
+        for slot in inp.slots.values_mut() {
+            if slot.shown {
+                unsafe { ShowWindow(slot.h, SW_HIDE) };
+                slot.shown = false;
+            }
+        }
+        unsafe {
+            if GetFocus() != parent {
+                SetFocus(parent);
+            }
         }
     }
 }

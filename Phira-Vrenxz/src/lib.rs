@@ -733,6 +733,10 @@ async fn the_main() -> Result<()> {
                 std::thread::sleep(std::time::Duration::from_secs_f64(target - elapsed));
             }
         }
+        // 本帧没有任何输入字段时，收起隐形输入点并把焦点还给游戏窗口，
+        // 保证游玩按键不会被残留的系统输入框吃掉
+        #[cfg(target_os = "windows")]
+        crate::native_edit::end_of_frame();
         next_frame().await;
     }
 
