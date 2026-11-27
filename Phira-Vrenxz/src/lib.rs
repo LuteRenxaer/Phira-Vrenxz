@@ -526,6 +526,13 @@ async fn the_main() -> Result<()> {
     {
         crate::MAIN_HWND.store(hwnd, Ordering::Relaxed);
         info!("cached main hwnd: {hwnd:#x}");
+        // 通用输入对话框（设置项、收藏夹、房间号等）也接系统输入点：
+        // 文字/选区/光标由游戏画，键盘交给系统 EDIT（输入法、Ctrl+A/C/V 全可用）
+        prpr::scene::set_dialog_input(Some(prpr::scene::DialogInputHooks {
+            input: crate::native_edit::dialog_input,
+            select_all: crate::native_edit::dialog_select_all,
+            release: crate::native_edit::dialog_release,
+        }));
     } else {
         info!("failed to obtain main hwnd via native_window_handle");
     }

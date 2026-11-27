@@ -59,6 +59,44 @@ pub enum NextScene {
     Replace(Box<dyn Scene>),
 }
 
+/// 通用输入对话框的一次同步结果（字符下标，非字节）
+pub struct DialogInputResult {
+    pub changed: bool,
+    pub sel: Option<(usize, usize)>,
+    /// 光标位置（字符下标）；有选区时等于选区末端
+    pub caret: usize,
+    pub enter: bool,
+    /// Esc 边沿（系统框吃掉键盘时由宿主轮询给出）
+    pub escape: bool,
+}
+
+/// 宿主程序（Windows）挂上来的原生输入点；挂上后输入对话框不再自己处理键盘，
+/// 而是把文本交给系统 EDIT，再把自己的选区和回车结果读回来。
+#[derive(Clone, Copy)]
+pub struct DialogInputHooks {
+    pub input: fn(&mut String, bool, bool) -> DialogInputResult,
+    pub select_all: fn(),
+    pub release: fn(),
+}
+
+static DIALOG_INPUT_HOOKS: Mutex<Option<DialogInputHooks>> = Mutex::new(None);
+
+pub fn set_dialog_input(hooks: Option<DialogInputHooks>) {
+    *DIALOG_INPUT_HOOKS.lock().unwrap() = hooks;
+}
+
+fn dialog_input_hooks() -> Option<DialogInputHooks> {
+    *DIALOG_INPUT_HOOKS.lock().unwrap()
+}
+
+/// 关闭输入对话框统一走这里（顺便让原生输入点退场）
+fn close_input_dialog() {
+    INPUT_DIALOG.with(|it| *it.borrow_mut() = None);
+    if let Some(h) = dialog_input_hooks() {
+        (h.release)();
+    }
+}
+
 thread_local! {
     pub static GLOBAL_OVERLAY: RefCell<Option<fn(&mut crate::ui::Ui)>> = const { RefCell::new(None) };
     pub static BILLBOARD: RefCell<(BillBoard, TimeManager)> = RefCell::new((BillBoard::new(), TimeManager::default()));
@@ -349,17 +387,26 @@ impl InputDialog {
         INPUT_TEXT.lock().unwrap().1 = Some(self.text.clone());
         set_ime_enabled(false);
         android_show_keyboard(false);
+        if let Some(h) = dialog_input_hooks() {
+            (h.release)();
+        }
     }
 
     fn cancel(&self) {
         *INPUT_CANCELLED.lock().unwrap() = Some(self.id.clone());
         set_ime_enabled(false);
         android_show_keyboard(false);
+        if let Some(h) = dialog_input_hooks() {
+            (h.release)();
+        }
     }
 
     fn select_all(&mut self) {
         self.selection = Some((0, self.text.len()));
         self.cursor = self.text.len();
+        if let Some(h) = dialog_input_hooks() {
+            (h.select_all)();
+        }
     }
 
     fn copy_selection(&mut self) {
@@ -437,6 +484,38 @@ impl InputDialog {
         // IME candidate does not also delete committed text or reach the scene.
         if ime_composing() {
             while get_char_pressed().is_some() {}
+            return true;
+        }
+        // Windows（宿主挂了原生输入点）：把键盘整个交给系统 EDIT，文本/光标/选区
+        // 都从它同步回来；多行对话框的回车由 EDIT 自己换成换行符。
+        if let Some(h) = dialog_input_hooks() {
+            let res = (h.input)(&mut self.text, self.password, self.multiline);
+            let sel = res.sel;
+            let to_byte = |text: &str, idx: usize| -> usize {
+                text.char_indices().nth(idx).map(|(i, _)| i).unwrap_or(text.len())
+            };
+            self.cursor = to_byte(&self.text, res.caret);
+            if res.changed {
+                self.selection = None;
+            }
+            if let Some((s, e)) = sel {
+                let bs = to_byte(&self.text, s);
+                let be = to_byte(&self.text, e);
+                if bs < be {
+                    self.selection = Some((bs, be));
+                } else {
+                    self.selection = None;
+                }
+            }
+            while get_char_pressed().is_some() {}
+            if res.escape || is_key_pressed(KeyCode::Escape) {
+                self.cancel();
+                return false;
+            }
+            if res.enter && !self.multiline {
+                self.confirm();
+                return false;
+            }
             return true;
         }
         // Windows 上 IME 有时会吃掉 Ctrl 组合键；用物理键状态兜底。
@@ -1001,7 +1080,10 @@ pub fn request_input(id: impl Into<String>, mut config: InputBox) {
         return;
     }
     INPUT_DIALOG.with(|it| *it.borrow_mut() = Some(InputDialog::new(id, config)));
-    set_ime_enabled(true);
+    // 有原生输入点时不要再开游戏自己的 IME，否则两边同时合成
+    if dialog_input_hooks().is_none() {
+        set_ime_enabled(true);
+    }
     android_show_keyboard(true);
 }
 
@@ -1343,7 +1425,10 @@ impl Main {
                     if let Some(dialog) = guard.as_mut() {
                         if !dialog.touch(touch, t as _) {
                             drop(guard);
-                            *it.borrow_mut() = None;
+                            it.borrow_mut().take();
+                            if let Some(h) = dialog_input_hooks() {
+                                (h.release)();
+                            }
                         }
                         false
                     } else {
@@ -1353,7 +1438,10 @@ impl Main {
                             if let Some(dlg) = guard.as_mut() {
                                 if !dlg.touch(touch, t as _) {
                                     drop(guard);
-                                    *it.borrow_mut() = None;
+                                    it.borrow_mut().take();
+                                    if let Some(h) = dialog_input_hooks() {
+                                        (h.release)();
+                                    }
                                 }
                                 true
                             } else {
@@ -1398,7 +1486,10 @@ impl Main {
             if let Some(dlg) = guard.as_mut() {
                 if !dlg.update_keyboard() {
                     drop(guard);
-                    *it.borrow_mut() = None;
+                    it.borrow_mut().take();
+                    if let Some(h) = dialog_input_hooks() {
+                        (h.release)();
+                    }
                     false
                 } else {
                     true

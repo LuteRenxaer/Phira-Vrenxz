@@ -30,6 +30,7 @@ const SWP_NOZORDER: u32 = 0x0004;
 const SWP_NOACTIVATE: u32 = 0x0010;
 
 const VK_RETURN: i32 = 0x0D;
+const VK_ESCAPE: i32 = 0x1B;
 
 #[link(name = "user32")]
 extern "system" {
@@ -108,10 +109,14 @@ fn put_text(h: Handle, s: &str) {
     }
 }
 
-fn create_edit(parent: Handle, instance: Handle, password: bool, font: Handle) -> Handle {
+fn create_edit(parent: Handle, instance: Handle, password: bool, font: Handle, multiline: bool) -> Handle {
     let mut style = WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL;
     if password {
         style |= ES_PASSWORD;
+    }
+    if multiline {
+        // ES_MULTILINE | ES_WANTRETURN：回车在框内换行，不走对话框的"确认"
+        style |= 0x0000_0004 | 0x0000_1000 | 0x0000_0040;
     }
     let class = wide("EDIT");
     let h = unsafe {
@@ -133,7 +138,7 @@ fn create_edit(parent: Handle, instance: Handle, password: bool, font: Handle) -
     if h != 0 {
         unsafe {
             SendMessageW(h, WM_SETFONT, font as usize, 1);
-            SendMessageW(h, EM_SETLIMITTEXT, 512, 0);
+            SendMessageW(h, EM_SETLIMITTEXT, 4096, 0);
         }
     }
     h
@@ -143,6 +148,7 @@ struct Slot {
     h: Handle,
     cache: String,
     shown: bool,
+    multiline: bool,
 }
 
 struct Inputs {
@@ -152,6 +158,7 @@ struct Inputs {
     used: Vec<&'static str>,
     focus_req: Option<&'static str>,
     enter_down: bool,
+    escape_down: bool,
 }
 
 impl Inputs {
@@ -179,14 +186,15 @@ impl Inputs {
                 used: Vec::new(),
                 focus_req: None,
                 enter_down: false,
+                escape_down: false,
             })
         }
     }
 
-    fn slot(&mut self, id: &'static str, masked: bool) -> &mut Slot {
+    fn slot(&mut self, id: &'static str, masked: bool, multiline: bool) -> &mut Slot {
         if !self.slots.contains_key(id) {
-            let h = create_edit(self.parent, self.instance(), masked, self.font);
-            self.slots.insert(id, Slot { h, cache: String::new(), shown: false });
+            let h = create_edit(self.parent, self.instance(), masked, self.font, multiline);
+            self.slots.insert(id, Slot { h, cache: String::new(), shown: false, multiline });
         }
         self.slots.get_mut(id).unwrap()
     }
@@ -222,21 +230,23 @@ pub fn begin_frame() {
 
 /// 同步某个字段：系统框里改了文本就写回游戏，游戏里清了文本就写进系统框。
 /// `focus` 表示这一帧要不要把键盘焦点交给它。返回文本是否被系统侧改过。
-pub fn edit(id: &'static str, text: &mut String, focus: bool, masked: bool) -> bool {
+pub fn edit(id: &'static str, text: &mut String, focus: bool, masked: bool, multiline: bool) -> bool {
     let Ok(mut g) = INPUTS.lock() else { return false };
     if g.is_none() {
         let parent = crate::MAIN_HWND.load(std::sync::atomic::Ordering::Relaxed);
         *g = Inputs::new(parent);
     }
     let Some(inp) = g.as_mut() else { return false };
-    let slot = inp.slot(id, masked);
+    let slot = inp.slot(id, masked, multiline);
     let win = get_text(slot.h);
+    let win = if multiline { win.replace("\r\n", "\n") } else { win };
     let changed = win != slot.cache;
     if changed {
         *text = win.clone();
         slot.cache = win;
     } else if *text != slot.cache {
-        put_text(slot.h, text);
+        let s = if multiline { text.replace('\n', "\r\n") } else { text.clone() };
+        put_text(slot.h, &s);
         slot.cache = text.clone();
     }
     if !inp.used.contains(&id) {
@@ -280,6 +290,51 @@ pub fn end_frame() {
             },
         }
     }
+}
+
+/// 通用输入对话框用：同步文本、取选区、取回车边沿，一帧内自洽（begin/edit/end）
+pub fn dialog_input(text: &mut String, masked: bool, multiline: bool) -> prpr::scene::DialogInputResult {
+    let id: &'static str = if multiline { "dialog_multi" } else { "dialog" };
+    begin_frame();
+    let changed = edit(id, text, true, masked, multiline);
+    let sel = selection(id);
+    let caret = caret(id);
+    let enter = if multiline { false } else { enter_pressed() };
+    let escape = escape_pressed();
+    end_frame();
+    prpr::scene::DialogInputResult { changed, sel, caret, enter, escape }
+}
+
+/// 对话框「全选」按钮
+pub fn dialog_select_all() {
+    select_all("dialog");
+    select_all("dialog_multi");
+}
+
+/// 对话框关闭：隐藏输入点、焦点交回游戏窗口
+pub fn dialog_release() {
+    begin_frame();
+    end_frame();
+}
+
+/// 某个字段的光标位置（按字符计）
+pub fn caret(id: &'static str) -> usize {
+    let g = match INPUTS.lock() {
+        Ok(g) => g,
+        Err(_) => return 0,
+    };
+    let Some(slot) = g.as_ref().and_then(|it| it.slots.get(id)) else { return 0 };
+    let mut start: u32 = 0;
+    let mut end: u32 = 0;
+    unsafe {
+        SendMessageW(
+            slot.h,
+            EM_GETSEL,
+            &mut start as *mut u32 as usize,
+            &mut end as *mut u32 as isize,
+        );
+    }
+    start as usize
 }
 
 /// 某个字段当前的选区（按字符计，非空才算）
@@ -328,6 +383,18 @@ pub fn enter_pressed() -> bool {
         let Some(inp) = g.as_mut() else { return false };
         let edge = down && !inp.enter_down;
         inp.enter_down = down;
+        edge
+    }
+}
+
+/// 读一次物理 Esc 的"刚按下"边沿（同样是为了绕过被系统框吃掉的键盘事件）
+pub fn escape_pressed() -> bool {
+    unsafe {
+        let down = GetAsyncKeyState(VK_ESCAPE) < 0;
+        let Ok(mut g) = INPUTS.lock() else { return false };
+        let Some(inp) = g.as_mut() else { return false };
+        let edge = down && !inp.escape_down;
+        inp.escape_down = down;
         edge
     }
 }
