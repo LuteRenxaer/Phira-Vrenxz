@@ -164,3 +164,10 @@ mp-library = 谱面库
 mp-chat-title = 聊天
 mp-log-title = 日志
 
+
+mp-servers-manage = 管理服务器
+mp-servers-title = 管理服务器
+mp-servers-empty = 还没有服务器，点下方「添加服务器」
+mp-servers-add = 添加服务器
+mp-servers-name-empty = 服务器名称不能为空
+mp-servers-addr-invalid = 无效的服务器地址

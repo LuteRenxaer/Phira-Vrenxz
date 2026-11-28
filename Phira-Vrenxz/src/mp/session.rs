@@ -2,6 +2,7 @@
 use anyhow::{Context, Result};
 use inputbox::InputBox;
 use macroquad::prelude::*;
+use std::net::ToSocketAddrs;
 use phira_mp_common::{ClientRoomState, RoomId, RoomState};
 use prpr::{
     config::Mods,
@@ -17,7 +18,7 @@ use tracing::warn;
 use super::{
     actions::DownloadStep,
     messages::{MessageLog, RoomNotice},
-    page::{connect, lobby, players, room, Page, Pages},
+    page::{connect, lobby, players, room, servers, Page, Pages},
     preview::{Preview, PreviewReturn},
     state::{DownloadIntent, MpState},
 };
@@ -216,6 +217,7 @@ impl MpSession {
         let root = self.root_page();
         let valid = match self.page {
             Page::Connect => root == Page::Connect,
+            Page::Servers => root == Page::Connect,
             Page::Lobby => root == Page::Lobby,
             Page::Room => root == Page::Room,
             Page::Manage(id) => self
@@ -251,6 +253,7 @@ impl MpSession {
     fn back(&mut self, t: f32) {
         match self.page {
             Page::Connect | Page::Lobby | Page::Room => self.exit_scene(t),
+            Page::Servers => self.goto(Page::Connect, t),
             Page::Manage(_) => self.goto(Page::Room, t),
         }
     }
@@ -285,6 +288,11 @@ impl MpSession {
             Page::Connect => {
                 if let Some(a) = self.pages.connect.touch(touch, t) {
                     self.apply_connect(a, t);
+                }
+            }
+            Page::Servers => {
+                if let Some(a) = self.pages.servers.touch(touch, t) {
+                    self.apply_servers(a, t);
                 }
             }
             Page::Lobby => {
@@ -326,13 +334,47 @@ impl MpSession {
         match a {
             connect::Action::Connect => self.state.connect(),
             connect::Action::Back => self.back(t),
-            connect::Action::SetServer(i) => {
-                let Some((_, addr)) = connect::SERVERS.get(i) else { return };
-                if get_data().config.mp_address != *addr {
-                    crate::get_data_mut().config.mp_address = (*addr).to_owned();
+            connect::Action::ManageServers => self.goto(Page::Servers, t),
+        }
+    }
+
+    /// 服务器地址簿：选中 / 删除 / 添加。
+    fn apply_servers(&mut self, a: servers::Action, t: f32) {
+        match a {
+            servers::Action::Select(i) => {
+                let addr = get_data().config.mp_servers.get(i).map(|it| it.addr.clone());
+                if let Some(addr) = addr {
+                    if get_data().config.mp_address != addr {
+                        crate::get_data_mut().config.mp_address = addr;
+                        let _ = crate::save_data();
+                    }
+                }
+                // 选中即回连接页，省一次返回
+                self.goto(Page::Connect, t);
+            }
+            servers::Action::Delete(i) => {
+                let cur = get_data().config.mp_address.clone();
+                let mut removed_addr = None;
+                {
+                    let data = crate::get_data_mut();
+                    if i < data.config.mp_servers.len() {
+                        removed_addr = Some(data.config.mp_servers.remove(i).addr);
+                    }
+                    // 删掉的正好是当前服务器：退到列表里第一条，列表空了就留原地址
+                    if removed_addr.as_deref() == Some(cur.as_str()) {
+                        if let Some(first) = data.config.mp_servers.first() {
+                            data.config.mp_address = first.addr.clone();
+                        }
+                    }
+                }
+                if removed_addr.is_some() {
                     let _ = crate::save_data();
                 }
             }
+            servers::Action::Add => {
+                request_input("srv_name", InputBox::new());
+            }
+            servers::Action::Back => self.goto(Page::Connect, t),
         }
     }
 
@@ -814,6 +856,31 @@ impl MpSession {
     fn handle_input(&mut self, id: &str, text: String) -> Result<()> {
         match id {
             "chat" => self.state.chat_text = text,
+            // 服务器管理：先问名称，再问地址，两步都填完才入表
+            "srv_name" => {
+                if text.trim().is_empty() {
+                    show_message(mtl!("mp-servers-name-empty")).error();
+                } else {
+                    self.pages.servers.pending_name = Some(text.trim().to_owned());
+                    request_input("srv_addr", InputBox::new());
+                }
+            }
+            "srv_addr" => {
+                let addr = text.trim().to_owned();
+                if addr.to_socket_addrs().is_err() {
+                    self.pages.servers.pending_name = None;
+                    show_message(mtl!("mp-servers-addr-invalid")).error();
+                } else {
+                    let name = self.pages.servers.pending_name.take().unwrap_or_else(|| addr.clone());
+                    let data = crate::get_data_mut();
+                    if !data.config.mp_servers.iter().any(|it| it.addr == addr) {
+                        data.config.mp_servers.push(prpr::config::MpServer { name, addr: addr.clone() });
+                        // 新加的顺手设成当前服务器
+                        data.config.mp_address = addr;
+                        let _ = crate::save_data();
+                    }
+                }
+            }
             "room_id" => {
                 let room_id: RoomId = text.try_into().with_context(|| mtl!("create-invalid-id"))?;
                 self.state.create_room(room_id);
@@ -878,6 +945,13 @@ impl MpSession {
                         address: &get_data().config.mp_address,
                     };
                     self.pages.connect.render(ui, t, &v);
+                }
+                Page::Servers => {
+                    let v = servers::View {
+                        servers: &get_data().config.mp_servers,
+                        current: &get_data().config.mp_address,
+                    };
+                    self.pages.servers.render(ui, t, &v);
                 }
                 Page::Lobby => {
 

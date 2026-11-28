@@ -144,17 +144,8 @@ impl LobbyPage {
                 .color(theme::text_muted())
                 .draw();
         }
-        // 第二行：连接状态。这行字随面板一起可点（刷新），所以连接提示本身就是个按钮。
-        let connected = mtl!("mp-lobby-connected");
-        theme::text_left(
-            ui,
-            text_left,
-            plate.y + plate.h * 0.76,
-            FS_TAG,
-            theme::text_muted(),
-            connected.as_ref(),
-            text_w,
-        );
+        // 第二行：连接状态（原来那句「已连接到服务器」的提示按用户要求删掉了，
+        // 这一行留空，面板高度不变，下面几排按钮不会因此跳位）
 
         // 断开 / 刷新 / 加入：三枚图标钮
         let btn_y = plate.center().y - btn_h * 0.5;

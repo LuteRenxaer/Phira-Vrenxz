@@ -261,6 +261,9 @@ pub struct Config {
     pub interactive: bool,
     pub mods: Mods,
     pub mp_address: String,
+    /// 多人服务器列表（连接页「管理服务器」里维护的地址簿）
+    #[serde(default)]
+    pub mp_servers: Vec<MpServer>,
     pub mp_enabled: bool,
     pub note_scale: f32,
     pub offline_mode: bool,
@@ -443,6 +446,13 @@ impl HpMode {
 }
 
 
+/// 多人服务器地址簿里的一条
+#[derive(Clone, Default, Debug, Deserialize, Serialize)]
+pub struct MpServer {
+    pub name: String,
+    pub addr: String,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -501,6 +511,10 @@ impl Default for Config {
             interactive: true,
             mods: Mods::default(),
             mp_address: "mp2.phira.cn:12345".to_owned(),
+            mp_servers: vec![
+                MpServer { name: "官方".to_owned(), addr: "mp2.phira.cn:12345".to_owned() },
+                MpServer { name: "天工作室".to_owned(), addr: "mp.tianstudio.top:31205".to_owned() },
+            ],
             mp_enabled: false,
             note_scale: 1.0,
             offline_mode: false,

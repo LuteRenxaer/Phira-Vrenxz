@@ -164,3 +164,10 @@ mp-library = Chart Library
 mp-chat-title = Chat
 mp-log-title = Log
 
+
+mp-servers-manage = Manage servers
+mp-servers-title = Manage servers
+mp-servers-empty = No servers yet - use Add server below
+mp-servers-add = Add server
+mp-servers-name-empty = Server name cannot be empty
+mp-servers-addr-invalid = Invalid server address
