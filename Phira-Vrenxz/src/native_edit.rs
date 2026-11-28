@@ -29,6 +29,17 @@ const SW_SHOW: i32 = 5;
 const SWP_NOZORDER: u32 = 0x0004;
 const SWP_NOACTIVATE: u32 = 0x0010;
 
+/// IME 组合窗样式：只给一个锚点（候选窗就贴在这一点下面）
+const CFS_POINT: u32 = 0x0002;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CompositionForm {
+    style: u32,
+    current_pos: [i32; 2],
+    area: [i32; 4],
+}
+
 const VK_RETURN: i32 = 0x0D;
 const VK_ESCAPE: i32 = 0x1B;
 
@@ -59,6 +70,14 @@ extern "system" {
     fn IsWindow(h: Handle) -> i32;
     fn GetWindowLongW(h: Handle, index: i32) -> i32;
     fn SetWindowLongW(h: Handle, index: i32, value: i32) -> i32;
+    fn ClientToScreen(h: Handle, pt: *mut i32) -> i32;
+}
+
+#[link(name = "imm32")]
+extern "system" {
+    fn ImmGetContext(h: Handle) -> Handle;
+    fn ImmSetCompositionWindow(himc: Handle, form: *const CompositionForm) -> i32;
+    fn ImmReleaseContext(h: Handle, himc: Handle) -> i32;
 }
 
 #[link(name = "kernel32")]
@@ -217,6 +236,23 @@ impl Drop for Inputs {
 }
 
 static INPUTS: Mutex<Option<Inputs>> = Mutex::new(None);
+
+/// 游戏内输入对话框的「输入框在窗口里的像素位置」(x, y, w, h)。
+/// 隐形输入点挪到那儿去，系统输入法的候选窗才会贴到输入框旁边，
+/// 而不是钉在窗口左上角。
+static DIALOG_PLACE: Mutex<Option<(i32, i32, i32, i32)>> = Mutex::new(None);
+
+/// 由 prpr 每帧告知输入框的像素位置（客户区坐标，左上原点）
+pub fn dialog_place(x: f32, y: f32, w: f32, h: f32) {
+    if let Ok(mut g) = DIALOG_PLACE.lock() {
+        *g = Some((x as i32, y as i32, w.max(2.) as i32, h.max(2.) as i32));
+    }
+}
+
+fn slot_hwnd(id: &'static str) -> Option<Handle> {
+    let g = INPUTS.lock().ok()?;
+    g.as_ref().and_then(|it| it.slots.get(id)).map(|it| it.h)
+}
 static FRAME_HAS_INPUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// 一帧开始时调用，清空"本帧用到"的字段列表
@@ -328,7 +364,51 @@ pub fn dialog_input(text: &mut String, masked: bool, multiline: bool) -> prpr::s
     let enter = if multiline { false } else { enter_pressed() };
     let escape = escape_pressed();
     end_frame();
+    // 关键：end_frame 会把所有输入点收回 (1,1)，所以必须在它之后再挪，否则
+    // 系统输入法候选窗仍然锚在窗口左上角。挪到输入框上以后候选窗就贴着输入框弹。
+    place_dialog_edit(id);
     prpr::scene::DialogInputResult { changed, sel, caret, enter, escape }
+}
+
+/// 上次给 IME 设过的锚点：位置没变就不重复设，免得打字时候选窗每帧被重置。
+static LAST_PLACE: Mutex<Option<(Handle, i32, i32)>> = Mutex::new(None);
+
+fn place_dialog_edit(id: &'static str) {
+    let (Some(slot_h), Some((x, y, w, h))) =
+        (slot_hwnd(id), DIALOG_PLACE.lock().ok().and_then(|g| *g))
+    else {
+        return;
+    };
+    unsafe {
+        SetWindowPos(slot_h, 0, x, y, 1, 1, SWP_NOZORDER | SWP_NOACTIVATE);
+        let mut pt = [0i32, 0i32];
+        ClientToScreen(slot_h, pt.as_mut_ptr());
+        // 锚点放在输入框左侧偏下一点，候选窗会展开在它下面
+        let anchor = (pt[0] + 4, pt[1] + (h / 2).max(4));
+        let stale = LAST_PLACE
+            .lock()
+            .map(|g| match *g {
+                Some((lh, lx, ly)) => lh != slot_h || lx != anchor.0 || ly != anchor.1,
+                None => true,
+            })
+            .unwrap_or(true);
+        if !stale {
+            return;
+        }
+        let himc = ImmGetContext(slot_h);
+        if himc != 0 {
+            let form = CompositionForm {
+                style: CFS_POINT,
+                current_pos: [anchor.0, anchor.1],
+                area: [0; 4],
+            };
+            ImmSetCompositionWindow(himc, &form);
+            ImmReleaseContext(slot_h, himc);
+        }
+        if let Ok(mut g) = LAST_PLACE.lock() {
+            *g = Some((slot_h, anchor.0, anchor.1));
+        }
+    }
 }
 
 /// 对话框「全选」按钮

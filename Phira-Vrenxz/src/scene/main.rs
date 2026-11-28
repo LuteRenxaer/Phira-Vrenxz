@@ -442,6 +442,7 @@ impl MainScene {
             "icon_old(home)/close.png", // Disconnect
             "icons/menu.png",           // Library
             "icons/leave_back.png",     // LeaveRoom
+            "icons/key.png",            // Key（房间密码位用钥匙）
         ]) {
             match load_texture(path).await {
                 Ok(tex) => *slot = Some(SafeTexture::from(tex)),

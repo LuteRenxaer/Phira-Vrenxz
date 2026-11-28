@@ -89,6 +89,9 @@ pub enum ToolIcon {
     Library = 11,
 
     LeaveRoom = 12,
+
+    /// 房间密码（钥匙）
+    Key = 13,
 }
 
 thread_local! {

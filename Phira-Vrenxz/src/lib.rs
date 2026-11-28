@@ -532,6 +532,7 @@ async fn the_main() -> Result<()> {
             input: crate::native_edit::dialog_input,
             select_all: crate::native_edit::dialog_select_all,
             release: crate::native_edit::dialog_release,
+            place: crate::native_edit::dialog_place,
         }));
     } else {
         info!("failed to obtain main hwnd via native_window_handle");

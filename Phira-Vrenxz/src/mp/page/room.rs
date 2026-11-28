@@ -253,7 +253,7 @@ impl RoomAction {
             RoomAction::Start => I::Play,
             RoomAction::Ready => I::Ready,
             RoomAction::CancelReady | RoomAction::CancelDownload | RoomAction::CancelLocalShare => I::Cancel,
-            RoomAction::Password => I::Settings,
+            RoomAction::Password => I::Key,
             RoomAction::CycleRoom => I::Cycle,
             RoomAction::LockRoom => I::Lock,
             RoomAction::Preview => I::Preview,

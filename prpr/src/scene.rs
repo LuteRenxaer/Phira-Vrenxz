@@ -77,6 +77,8 @@ pub struct DialogInputHooks {
     pub input: fn(&mut String, bool, bool) -> DialogInputResult,
     pub select_all: fn(),
     pub release: fn(),
+    /// 输入框在窗口客户区里的像素位置 (x, y, w, h)：宿主据此把系统输入点/输入法候选窗挪过去
+    pub place: fn(f32, f32, f32, f32),
 }
 
 static DIALOG_INPUT_HOOKS: Mutex<Option<DialogInputHooks>> = Mutex::new(None);
@@ -796,6 +798,16 @@ impl InputDialog {
             false,
         );
         draw_parallelogram(input_r, None, Color::new(0.08, 0.09, 0.13, 0.98 * ease), false);
+
+        // 告诉宿主输入框在哪（像素）：它把隐形系统输入点挪到这儿，
+        // 输入法候选窗才不会钉在窗口左上角
+        if let Some(h) = dialog_input_hooks() {
+            let vp = crate::ext::get_viewport();
+            let gr = ui.rect_to_global(input_r);
+            let sx = vp.2 as f32 / 2.;
+            let sy = vp.3 as f32 / (2. * ui.top).max(1e-3);
+            (h.place)(vp.0 as f32 + (gr.x + 1.) * sx, vp.1 as f32 + (gr.y + ui.top) * sy, gr.w * sx, gr.h * sy);
+        }
 
         let display: String = if self.password {
             self.text.chars().map(|_| '*').collect()
