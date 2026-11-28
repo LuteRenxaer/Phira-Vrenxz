@@ -482,3 +482,4 @@ sx-account-switching = 正在切換帳號…
 sx-account-switched = 已切換帳號
 sx-account-switch-failed = 切換帳號失敗
 sx-account-hint = 點帳號直接切換，× 從列表移除
+sx-maimai-bga = 舞萌即時演算

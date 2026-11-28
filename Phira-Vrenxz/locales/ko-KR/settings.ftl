@@ -473,3 +473,4 @@ sx-account-switching = 계정 전환 중…
 sx-account-switched = 계정이 전환되었습니다
 sx-account-switch-failed = 계정 전환 실패
 sx-account-hint = 계정을 누르면 전환, × 는 목록에서 삭제
+sx-maimai-bga = maimai 실시간 연산

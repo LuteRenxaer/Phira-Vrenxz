@@ -498,4 +498,4 @@ sx-account-switched = Account switched
 sx-account-switch-failed = Failed to switch account
 sx-account-hint = Tap an account to switch, × removes it from the list
 sx-apply = OK
-
+sx-maimai-bga = maimai Realtime BGA

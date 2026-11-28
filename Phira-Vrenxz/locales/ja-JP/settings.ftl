@@ -485,3 +485,4 @@ sx-account-switching = アカウントを切り替えています…
 sx-account-switched = アカウントを切り替えました
 sx-account-switch-failed = アカウントの切り替えに失敗しました
 sx-account-hint = アカウントをタップで切替、× でリストから削除
+sx-maimai-bga = maimai リアルタイム演算

@@ -1272,6 +1272,7 @@ impl SettingsPage {
             tl!("sx-off").to_string(),
             tl!("sx-static-brightness").to_string(),
             tl!("sx-dynamic-brightness").to_string(),
+            tl!("sx-maimai-bga").to_string(),
         ]);
         self.list_custom.home_bg_btn.set_options(vec![
             tl!("item-home-bg-default").to_string(),
@@ -3151,6 +3152,7 @@ impl VisualList {
                     tl!("sx-off").to_string(),
                     tl!("sx-static-brightness").to_string(),
                     tl!("sx-dynamic-brightness").to_string(),
+                    tl!("sx-maimai-bga").to_string(),
                 ])
                 .with_selected(get_data().config.dynamic_background.as_u8() as usize),
             show_watermark_btn: DRectButton::new(),
@@ -3211,7 +3213,8 @@ impl VisualList {
             get_data_mut().config.dynamic_background = match self.dynamic_bg_btn.selected() {
                 0 => prpr::config::DynamicBackgroundMode::Off,
                 1 => prpr::config::DynamicBackgroundMode::StaticBrightness,
-                _ => prpr::config::DynamicBackgroundMode::DynamicBrightness,
+                2 => prpr::config::DynamicBackgroundMode::DynamicBrightness,
+                _ => prpr::config::DynamicBackgroundMode::MaimaiRealtime,
             };
             return Ok(true);
         }

@@ -17,6 +17,8 @@ pub enum DynamicBackgroundMode {
     Off,
     StaticBrightness,
     DynamicBrightness,
+    /// 舞萌（maimai DX 旧框）式的即时演算背景：色扇/光环/光束实时演算
+    MaimaiRealtime,
 }
 
 impl DynamicBackgroundMode {
@@ -25,6 +27,7 @@ impl DynamicBackgroundMode {
             Self::Off => 0,
             Self::StaticBrightness => 1,
             Self::DynamicBrightness => 2,
+            Self::MaimaiRealtime => 3,
         }
     }
 }

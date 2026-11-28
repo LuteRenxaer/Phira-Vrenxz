@@ -88,7 +88,7 @@ vec4 color_for(int i) {
     return color13;
 }
 
-void main() {
+void fluid_bg() {
     vec3 avg_color = (color0.rgb + color1.rgb + color2.rgb + color3.rgb + color4.rgb) * 0.2;
 
     vec3 acc = vec3(0.0);
@@ -132,6 +132,62 @@ void main() {
     col *= base + energy * amp;
 
     gl_FragColor = vec4(col, 1.0);
+}
+
+// 舞萌（maimai DX 旧框）式的「即时演算」背景：
+// 旋转色扇 + 向外扩散的判定光环 + 放射光束 + 扫过光带，全部由曲绘代表色驱动，
+// 能量（音乐 RMS）越高中心越亮、色扇越饱和。
+void maimai_bga() {
+    vec2 p = uv - 0.5;
+    p.x *= aspect;
+    float r = length(p);
+    float ang = atan(p.y, p.x);
+    float t = time * 0.25;
+    float spin = t * 0.6;
+
+    // 旋转色扇：按角度对 6 个代表色做余弦加权混合
+    vec3 fan = vec3(0.0);
+    float fw = 0.0;
+    for (int i = 0; i < 6; ++i) {
+        float fi = float(i);
+        float ai = fi * 1.0471976 + spin;
+        float w = pow(max(cos(ang - ai), 0.0), 3.0);
+        fan += color_for(i).rgb * w;
+        fw += w;
+    }
+    fan = fw > 0.0001 ? fan / fw : color0.rgb;
+
+    // 扩散光环：类似判定圈一波波往外推
+    vec3 rings = vec3(0.0);
+    for (int i = 0; i < 5; ++i) {
+        float fi = float(i);
+        float ph = fract(t * 0.45 + fi * 0.2);
+        float rr = 0.10 + ph * 0.66;
+        float band = exp(-abs(r - rr) * 34.0) * (1.0 - ph);
+        rings += color_for(i + 6).rgb * band;
+    }
+
+    // 放射光束与扫过光带
+    float rays = pow(abs(sin(ang * 9.0 + spin * 1.4)), 20.0) * exp(-r * 2.2);
+    float sweep = pow(max(0.0, sin((p.x * 1.3 + p.y) * 3.0 - t * 4.0 - ang * 0.4)), 6.0) * 0.5;
+
+    vec3 col = fan * (0.34 + 0.52 * exp(-r * 1.6));
+    col += rings * 0.55;
+    col += vec3(1.0) * rays * 0.35;
+    col += color_for(3).rgb * sweep * exp(-r * 1.2);
+    col += vec3(0.10, 0.09, 0.14) * exp(-r * 1.4);
+    col *= 0.86 + energy * 0.9;
+    col += color_for(4).rgb * exp(-r * 9.0) * (0.35 + energy * 1.1);
+
+    gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}
+
+void main() {
+    if (mode > 2.5) {
+        maimai_bga();
+    } else {
+        fluid_bg();
+    }
 }"#;
 
 const COMPOSITE_FRAGMENT: &str = r#"#version 100
@@ -171,7 +227,7 @@ void main() {
     }
 
     // 原曲背景暗度叠加。静态亮度模式下弱化暗度，让色块更明亮。
-    float final_dim = dim * (mode < 1.5 ? 0.03 : 0.08);
+    float final_dim = dim * (mode < 1.5 ? 0.03 : (mode < 2.5 ? 0.08 : 0.02));
     col *= 1.0 - final_dim;
 
     // 轻微暗角，保留更多亮度
@@ -323,7 +379,7 @@ impl DynamicBackground {
     /// 从曲绘创建动态背景，模式 0 应直接返回 None（调用方判断）。
     /// viewport 用于创建固定大小的渲染目标，避免后续替换纹理导致外部 SafeTexture 引用失效。
     pub fn new(mode: u8, image: &DynamicImage, dim: f32, viewport: (i32, i32, i32, i32)) -> Result<Self> {
-        anyhow::ensure!(mode == 1 || mode == 2, "unsupported dynamic background mode: {mode}");
+        anyhow::ensure!(mode == 1 || mode == 2 || mode == 3, "unsupported dynamic background mode: {mode}");
         anyhow::ensure!(viewport.2 > 0 && viewport.3 > 0, "invalid viewport size");
 
         let rgb = image.to_rgb8();
