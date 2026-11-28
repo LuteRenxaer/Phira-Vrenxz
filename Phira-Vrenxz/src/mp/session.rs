@@ -610,7 +610,7 @@ impl MpSession {
             if let Some(res) = task.take() {
                 match res {
                     Ok(client) => {
-                        show_message(mtl!("server-welcome")).ok();
+                        // 连接成功不再弹「Welcome Phira-V Server!」那条提示
                         self.state.client = Some(client.into());
                     }
                     Err(err) => show_error(err.context(mtl!("connect-failed"))),
