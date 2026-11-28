@@ -2,6 +2,7 @@
 use macroquad::prelude::*;
 use prpr::{
     config::MpServer,
+    ext::PARALLELOGRAM_SLOPE,
     ui::{DRectButton, Ui},
 };
 
@@ -88,7 +89,7 @@ impl ServersPage {
         let row_h = if n == 0 {
             0.1
         } else {
-            ((f.body.h - gap * (n - 1) as f32) / n as f32).min(0.13)
+            ((f.body.h - gap * (n - 1) as f32) / n as f32).min(0.1)
         };
         let cur = v.current.trim();
         if n == 0 {
@@ -113,9 +114,13 @@ impl ServersPage {
             let fill = if active { primary(accent) } else { theme::secondary() };
             let marker = if active { Some(fade(WHITE, a)) } else { None };
             theme::bar_plate(ui, sel_r, fade(fill, a), marker, false);
+            // 斜边会吃掉一段水平空间，左侧还有亮条：文字都得让过去，
+            // 否则白字压在白亮条上就是「名称看不见」。
+            let lean = sel_r.h * PARALLELOGRAM_SLOPE;
+            let mw = (sel_r.h * 0.26).min(sel_r.w * 0.2);
             let fg = if active { WHITE } else { text() };
             ui.text(s.name.as_str())
-                .pos(sel_r.x + 0.05, sel_r.center().y)
+                .pos(sel_r.x + lean + mw + 0.018, sel_r.center().y)
                 .anchor(0., 0.5)
                 .no_baseline()
                 .size(FS_BODY)
@@ -123,7 +128,7 @@ impl ServersPage {
                 .max_width(sel_r.w * 0.4)
                 .draw();
             ui.text(s.addr.as_str())
-                .pos(sel_r.right() - 0.02, sel_r.center().y)
+                .pos(sel_r.right() - lean - 0.02, sel_r.center().y)
                 .anchor(1., 0.5)
                 .no_baseline()
                 .size(FS_TAG)
@@ -137,7 +142,11 @@ impl ServersPage {
                 Some(&mut self.del[i]),
                 dr,
                 "×",
-                &theme::BarStyle::secondary(),
+                &theme::BarStyle {
+                    fill: theme::secondary(),
+                    fg: text(),
+                    marker: color_alpha(WHITE, 0.),
+                },
                 true,
             );
         }
