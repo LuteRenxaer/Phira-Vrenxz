@@ -276,6 +276,9 @@ fn slot_hwnd(id: &'static str) -> Option<Handle> {
     g.as_ref().and_then(|it| it.slots.get(id)).map(|it| it.h)
 }
 static FRAME_HAS_INPUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// 对话框（"dialog"/"dialog_multi"）当前是否占着键盘。开着的时候，页面自己在渲染里
+/// 调 begin_frame/end_frame 也不能把焦点抢回去。
+static DIALOG_LATCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// 一帧开始时调用，清空"本帧用到"的字段列表
 pub fn begin_frame() {
@@ -292,6 +295,9 @@ pub fn begin_frame() {
 /// 就把所有隐形输入点收起来、把键盘焦点还给游戏窗口——否则残留的输入点会
 /// 吞掉游玩按键。
 pub fn end_of_frame() {
+    if DIALOG_LATCH.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
     if FRAME_HAS_INPUT.swap(false, std::sync::atomic::Ordering::Relaxed) {
         return;
     }
@@ -344,6 +350,16 @@ pub fn edit(id: &'static str, text: &mut String, focus: bool, masked: bool, mult
 
 /// 一帧结束时调用：用到的字段显示成 1px 隐形输入点，其余隐藏；焦点按请求分配
 pub fn end_frame() {
+    // 对话框开着的时候，页面自己的帧（比如房间页 render 里的 begin_frame/end_frame）
+    // 不能在对话框之后又把焦点抢走：抢走以后按键落到聊天框或被还给游戏窗口，
+    // 对话框下一帧把字符队列一清，就表现为「弹窗输入不了」。
+    if DIALOG_LATCH.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    end_frame_unguarded();
+}
+
+fn end_frame_unguarded() {
     if let Ok(mut g) = INPUTS.lock() {
         let Some(inp) = g.as_mut() else { return };
         let used: Vec<&'static str> = inp.used.clone();
@@ -379,13 +395,15 @@ pub fn end_frame() {
 /// 通用输入对话框用：同步文本、取选区、取回车边沿，一帧内自洽（begin/edit/end）
 pub fn dialog_input(text: &mut String, masked: bool, multiline: bool) -> prpr::scene::DialogInputResult {
     let id: &'static str = if multiline { "dialog_multi" } else { "dialog" };
+    DIALOG_LATCH.store(true, std::sync::atomic::Ordering::Relaxed);
     begin_frame();
     let changed = edit(id, text, true, masked, multiline);
     let sel = selection(id);
     let caret = caret(id);
     let enter = if multiline { false } else { enter_pressed() };
     let escape = escape_pressed();
-    end_frame();
+    // 对话框自己这一帧必须落实焦点，不能走带 latch 检查的通用版本
+    end_frame_unguarded();
     // 关键：end_frame 会把所有输入点收回 (1,1)，所以必须在它之后再挪，否则
     // 系统输入法候选窗仍然锚在窗口左上角。挪到输入框上以后候选窗就贴着输入框弹。
     place_dialog_edit(id);
@@ -461,6 +479,7 @@ pub fn dialog_select_all() {
 
 /// 对话框关闭：隐藏输入点、焦点交回游戏窗口
 pub fn dialog_release() {
+    DIALOG_LATCH.store(false, std::sync::atomic::Ordering::Relaxed);
     begin_frame();
     end_frame();
 }
