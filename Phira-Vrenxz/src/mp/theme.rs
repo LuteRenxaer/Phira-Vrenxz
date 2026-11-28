@@ -1,7 +1,7 @@
 
 use macroquad::prelude::*;
 use prpr::{
-    ext::{semi_white, RectExt, SafeTexture, ScaleType},
+    ext::{draw_parallelogram_ex, semi_white, RectExt, SafeTexture, ScaleType, PARALLELOGRAM_SLOPE},
     ui::{DRectButton, Ui},
 };
 
@@ -933,4 +933,118 @@ pub fn button_bar(
         }
     }
     (Rect::new(x, top, avail, total_h), rects)
+}
+
+// ==================== 操作条上的斜角按钮（连接页 / 服务器管理共用） ====================
+
+/// 斜角按钮的配色（三种角色：主操作 / 次要操作 / 置灰）
+pub struct BarStyle {
+    pub fill: Color,
+    pub fg: Color,
+    pub marker: Color,
+}
+
+impl BarStyle {
+    /// 主操作：强调色实心 + 白字 + 白亮条
+    pub fn primary(accent: Color) -> Self {
+        Self {
+            fill: primary(accent),
+            fg: WHITE,
+            marker: WHITE,
+        }
+    }
+
+    /// 次要操作：与大厅页底部那枚「离开房间」同色
+    pub fn secondary() -> Self {
+        Self {
+            fill: secondary(),
+            fg: text(),
+            marker: text(),
+        }
+    }
+
+    /// 置灰：底色取次要按钮的 0.7 倍，文字与亮条再压一档
+    pub fn disabled() -> Self {
+        Self {
+            fill: color_alpha(secondary(), 0.7),
+            fg: text_muted(),
+            marker: color_alpha(WHITE, 0.22),
+        }
+    }
+}
+
+/// 斜角面片：平行四边形（`marker` 给定时在内侧斜边贴一条亮条）。
+///
+/// 面片直连 quad_gl，不吃 Ui 的 alpha，透明度由调用方乘进颜色里。
+pub fn bar_plate(ui: &mut Ui, r: Rect, fill: Color, marker: Option<Color>, marker_right: bool) {
+    let lean = r.h * PARALLELOGRAM_SLOPE;
+    ui.apply(|_ui| {
+        draw_parallelogram_ex(r, None, fill, fill, true);
+        if let Some(mc) = marker {
+            let mw = (r.h * 0.26).min(r.w * 0.2);
+            let (top, bottom, dir) = if marker_right {
+                (
+                    Vec2::new(r.right(), r.y),
+                    Vec2::new(r.right() - lean, r.bottom()),
+                    Vec2::new(-mw, 0.),
+                )
+            } else {
+                (
+                    Vec2::new(r.x + lean, r.y),
+                    Vec2::new(r.x, r.bottom()),
+                    Vec2::new(mw, 0.),
+                )
+            };
+            quad([top + dir, top, bottom + dir, bottom], [mc; 4]);
+        }
+    });
+}
+
+/// 斜角按钮：斜角片 + 内侧亮条 + 居中文字。`btn == None` 表示置灰（不登记命中区）。
+pub fn bar_button(
+    ui: &mut Ui,
+    t: f32,
+    btn: Option<&mut DRectButton>,
+    r: Rect,
+    label: &str,
+    style: &BarStyle,
+    marker_right: bool,
+) {
+    let enabled = btn.is_some();
+    let (rr, press) = match btn {
+        Some(btn) => bar_begin(btn, ui, t, r),
+        None => (r, 0.),
+    };
+    let fill = if enabled {
+        lerp_color(style.fill, WHITE, press * 0.10)
+    } else {
+        style.fill
+    };
+    bar_plate(ui, rr, fill, Some(style.marker), marker_right);
+    let mw = (rr.h * 0.26).min(rr.w * 0.2);
+    let text_r = if marker_right {
+        Rect::new(rr.x, rr.y, rr.w - mw, rr.h)
+    } else {
+        Rect::new(rr.x + mw, rr.y, rr.w - mw, rr.h)
+    };
+    ui.text(label)
+        .pos(text_r.center().x, text_r.center().y)
+        .anchor(0.5, 0.5)
+        .no_baseline()
+        .size(FS_BUTTON)
+        .color(style.fg)
+        .max_width(text_r.w * 0.92)
+        .draw();
+}
+
+/// 登记命中区并算一次按压动画；返回（按压时缩过的矩形, 按压力度）
+fn bar_begin(btn: &mut DRectButton, ui: &mut Ui, t: f32, r: Rect) -> (Rect, f32) {
+    btn.inner.set(ui, r);
+    let press = (1. - btn.progress(t)).clamp(0., 1.);
+    let c = r.center();
+    let k = 1. - press * 0.04;
+    (
+        Rect::new(c.x + (r.x - c.x) * k, c.y + (r.y - c.y) * k, r.w * k, r.h * k),
+        press,
+    )
 }

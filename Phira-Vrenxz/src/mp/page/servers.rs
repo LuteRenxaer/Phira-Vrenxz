@@ -79,7 +79,8 @@ impl ServersPage {
             .max_width(f.header.w - hs - 0.04)
             .draw();
 
-        // 列表：每行一张卡片，左边名称、右边地址，当前那行左侧有强调色竖条
+        // 列表：每行一条斜角片（与操作条上的按钮同一套形状），左边名称、右边地址，
+        // 当前那行用强调色 + 左侧亮条标出来
         let n = v.servers.len();
         self.rows.resize_with(n, DRectButton::default);
         self.del.resize_with(n, DRectButton::default);
@@ -106,38 +107,38 @@ impl ServersPage {
             let y = f.body.y + i as f32 * (row_h + gap);
             let r = Rect::new(f.body.x, y, f.body.w, row_h);
             let active = s.addr.trim() == cur;
-            let fill = if active { primary(accent) } else { card_soft() };
-            self.rows[i].build(ui, t, Rect::new(r.x, r.y, r.w - dw - 0.012, r.h), |ui, path| {
-                ui.fill_path(&path, fade(fill, a));
-                ui.stroke_path(&path, STROKE_W, stroke());
-            });
+            // 行本身只当「选中」用，右侧让出一枚删除按钮的宽度
+            let sel_r = Rect::new(r.x, r.y, r.w - dw - 0.012, r.h);
+            self.rows[i].inner.set(ui, sel_r);
+            let fill = if active { primary(accent) } else { theme::secondary() };
+            let marker = if active { Some(fade(WHITE, a)) } else { None };
+            theme::bar_plate(ui, sel_r, fade(fill, a), marker, false);
             let fg = if active { WHITE } else { text() };
             ui.text(s.name.as_str())
-                .pos(r.x + 0.024, r.center().y)
+                .pos(sel_r.x + 0.05, sel_r.center().y)
                 .anchor(0., 0.5)
                 .no_baseline()
                 .size(FS_BODY)
                 .color(fg)
-                .max_width(r.w * 0.4)
+                .max_width(sel_r.w * 0.4)
                 .draw();
             ui.text(s.addr.as_str())
-                .pos(r.right() - dw - 0.02, r.center().y)
+                .pos(sel_r.right() - 0.02, sel_r.center().y)
                 .anchor(1., 0.5)
                 .no_baseline()
                 .size(FS_TAG)
                 .color(if active { WHITE } else { text_muted() })
-                .max_width(r.w * 0.4)
+                .max_width(sel_r.w * 0.4)
                 .draw();
             let dr = Rect::new(r.right() - dw - 0.006, r.center().y - dw * 0.5, dw, dw);
-            theme::button(
+            theme::bar_button(
                 ui,
-                &mut self.del[i],
                 t,
+                Some(&mut self.del[i]),
                 dr,
                 "×",
-                FS_SMALL,
-                if active { fade(WHITE, 0.2) } else { theme::secondary() },
-                fg,
+                &theme::BarStyle::secondary(),
+                true,
             );
         }
 
@@ -157,8 +158,25 @@ impl ServersPage {
             BAR_COL_GAP,
             theme::BarAlign::Fill,
         );
-        theme::button(ui, &mut self.add, t, rects[0], labels[0].as_str(), FS_BUTTON, primary(accent), WHITE);
-        theme::button(ui, &mut self.back_bar, t, rects[1], labels[1].as_str(), FS_BUTTON, theme::secondary(), text());
+        // 两枚按钮的亮条都贴在自己内侧那一边（左「添加」贴右端、右「返回」贴左端）
+        theme::bar_button(
+            ui,
+            t,
+            Some(&mut self.add),
+            rects[0],
+            labels[0].as_str(),
+            &theme::BarStyle::primary(accent),
+            true,
+        );
+        theme::bar_button(
+            ui,
+            t,
+            Some(&mut self.back_bar),
+            rects[1],
+            labels[1].as_str(),
+            &theme::BarStyle::secondary(),
+            false,
+        );
     }
 
     pub fn touch(&mut self, touch: &Touch, t: f32) -> Option<Action> {

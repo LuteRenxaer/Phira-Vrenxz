@@ -116,19 +116,19 @@ impl ConnectPage {
         let lean = cr.h * PARALLELOGRAM_SLOPE;
         let text_w = (cr.w - (lean + INSET) * 2.).max(0.05);
 
-        // 「管理服务器」入口：地址簿（增删、选中）全在那一页，本页只留一个入口
-        let mw = text_w.min(0.42);
-        let mh = (ch * 0.2).min(0.07);
-        let mr = Rect::new(cr.center().x - mw / 2., cr.y + ch * 0.46, mw, mh);
-        theme::button(
+        // 「管理服务器」入口：地址簿（增删、选中）全在那一页，本页只留一个入口。
+        // 形状与下面操作条那两枚按钮同一套斜角片语言。
+        let mw = text_w.min(0.52);
+        let mh = (ch * 0.22).min(0.085);
+        let mr = Rect::new(cr.center().x - mw / 2., cr.y + ch * 0.44, mw, mh);
+        theme::bar_button(
             ui,
-            &mut self.manage,
             t,
+            Some(&mut self.manage),
             mr,
-            mtl!("mp-servers-manage"),
-            FS_SMALL,
-            theme::secondary(),
-            text(),
+            mtl!("mp-servers-manage").as_ref(),
+            &theme::BarStyle::secondary(),
+            false,
         );
 
         // 状态行 + 忙碌反馈：连接中才出现；空闲时这一行留空但仍然占位，不跳版。
@@ -171,66 +171,15 @@ impl ConnectPage {
             theme::BarAlign::Fill,
         );
         // 两枚按钮的亮条都贴在自己**内侧**那一边：左「返回主页」贴右端、右「连接」贴左端
-        Self::action_btn(ui, t, Some(&mut self.back), rects[0], &labels[0], BtnStyle::secondary(), true);
+        theme::bar_button(ui, t, Some(&mut self.back), rects[0], &labels[0], &theme::BarStyle::secondary(), true);
         if v.can_connect() {
-            Self::action_btn(ui, t, Some(&mut self.connect), rects[1], &labels[1], BtnStyle::primary(accent), false);
+            theme::bar_button(ui, t, Some(&mut self.connect), rects[1], &labels[1], &theme::BarStyle::primary(accent), false);
         } else {
             // 置灰且点不动：`DRectButton` 没有 disabled 状态，「不登记命中区」就是点不动。
             // 这里显式撤一次，免得上一帧留下的命中区（那时按钮还可点）继续吃点击。
             self.connect.invalidate();
-            Self::action_btn(ui, t, None, rects[1], &labels[1], BtnStyle::disabled(), false);
+            theme::bar_button(ui, t, None, rects[1], &labels[1], &theme::BarStyle::disabled(), false);
         }
-    }
-
-    /// 斜角按钮：斜角片 + 内侧一条亮色斜条 + 居中文字（与大厅页底部两枚角钮同构）。
-    ///
-    /// `btn == None` 表示置灰态：不登记命中区、不响应按压，只用更暗的面片和弱化文字说明
-    /// 「现在不能点」。置灰时的形状与可点状态**完全一致** —— 换个形状会让人以为按钮挪了位置。
-    fn action_btn(ui: &mut Ui, t: f32, btn: Option<&mut DRectButton>, r: Rect, label: &str, style: BtnStyle, marker_right: bool) {
-        let a = ui.alpha;
-        let enabled = btn.is_some();
-        let (rr, press) = match btn {
-            Some(btn) => begin(btn, ui, t, r),
-            None => (r, 0.),
-        };
-        let lean = rr.h * PARALLELOGRAM_SLOPE;
-        // 面片与文字取按角色给定的颜色；按压只把面片往白里推一点（置灰态没有按压）
-        let fill = if enabled { lerp_color(style.fill, WHITE, press * 0.10) } else { style.fill };
-        // 亮条宽度按**高度**取（结算页那两枚角钮的亮条也是窄窄一条竖片），
-        // 顺着按钮自己那条斜边贴上去；这么窄的条用 skew_panel 那种「上下各移一份 lean」
-        // 的形状会自交，所以这里直接给四个顶点。
-        let mw = (rr.h * 0.26).min(rr.w * 0.2);
-        ui.apply(|_ui| {
-            draw_parallelogram_ex(rr, None, fade(fill, a), fade(fill, a), true);
-            let (top, bottom, dir) = if marker_right {
-                (
-                    Vec2::new(rr.right(), rr.y),
-                    Vec2::new(rr.right() - lean, rr.bottom()),
-                    Vec2::new(-mw, 0.),
-                )
-            } else {
-                (
-                    Vec2::new(rr.x + lean, rr.y),
-                    Vec2::new(rr.x, rr.bottom()),
-                    Vec2::new(mw, 0.),
-                )
-            };
-            theme::quad([top + dir, top, bottom + dir, bottom], [fade(style.marker, a); 4]);
-        });
-        // 文字居中在「让出亮条」之后的那一段里，不会压在亮条上
-        let text_r = if marker_right {
-            Rect::new(rr.x, rr.y, rr.w - mw, rr.h)
-        } else {
-            Rect::new(rr.x + mw, rr.y, rr.w - mw, rr.h)
-        };
-        ui.text(label)
-            .pos(text_r.center().x, text_r.center().y)
-            .anchor(0.5, 0.5)
-            .no_baseline()
-            .size(FS_BUTTON)
-            .color(style.fg)
-            .max_width(text_r.w * 0.92)
-            .draw();
     }
 
     pub fn touch(&mut self, touch: &Touch, t: f32) -> Option<Action> {
@@ -250,44 +199,6 @@ impl ConnectPage {
     }
 }
 
-/// 一枚斜角按钮的配色（三种角色：主操作 / 次要操作 / 置灰）。
-struct BtnStyle {
-    fill: Color,
-    fg: Color,
-    marker: Color,
-}
-
-impl BtnStyle {
-    /// 主操作（连接）：强调色实心 + 白字 + 白亮条。
-    fn primary(accent: Color) -> Self {
-        Self {
-            fill: primary(accent),
-            fg: WHITE,
-            marker: WHITE,
-        }
-    }
-
-    /// 次要操作（返回主页）：与大厅页底部那枚「离开房间」同色。
-    fn secondary() -> Self {
-        Self {
-            fill: theme::secondary(),
-            fg: text(),
-            marker: text(),
-        }
-    }
-
-    /// 置灰：底色取次要按钮的 0.7 倍 —— 介于「次要按钮」与「信息面片」之间，
-    /// 既明确还是一枚按钮（不会看着像版面上的一个洞），又明显比旁边可点的按钮暗；
-    /// 文字与亮条再各自压一档，于是「能点的返回主页 / 点不动的连接」一眼可分。
-    fn disabled() -> Self {
-        Self {
-            fill: fade(theme::secondary(), 0.7),
-            fg: text_muted(),
-            marker: color_alpha(WHITE, 0.22),
-        }
-    }
-}
-
 /// 斜角面片语言：平行四边形 + 竖向渐变 + 投影（结算页画主面板用的是同一个函数）。
 fn panel(r: Rect, top: Color, bottom: Color, a: f32) {
     draw_parallelogram_ex(r, None, fade(top, a), fade(bottom, a), true);
@@ -296,26 +207,4 @@ fn panel(r: Rect, top: Color, bottom: Color, a: f32) {
 /// 面片透明度：[`draw_parallelogram_ex`] / [`theme::quad`] 绕过了 Ui 的 alpha，得自己乘。
 fn fade(c: Color, a: f32) -> Color {
     Color { a: c.a * a, ..c }
-}
-
-/// 登记命中区，并算一次按压动画。
-///
-/// 面片是直连 quad_gl 画的、不吃 `DRectButton::build` 那套 Ui 变换，只能自己缩 ——
-/// 否则按下时会「字在缩、底不动」。命中区一律用**未缩放**的矩形登记：视觉上缩一点没关系，
-/// 但不能因此点不到。与大厅页 / 房间页里的同名小工具是同一套做法。
-fn begin(btn: &mut DRectButton, ui: &mut Ui, t: f32, r: Rect) -> (Rect, f32) {
-    btn.inner.set(ui, r);
-    // progress 每帧只能读一次（它自带状态），所以缩放与亮度都从这一个值派生
-    let press = (1. - btn.progress(t)).clamp(0., 1.);
-    (scaled(r, r.center(), 1. - press * 0.04), press)
-}
-
-/// 以 `center` 为中心缩放一个矩形。
-fn scaled(r: Rect, center: Vec2, k: f32) -> Rect {
-    Rect::new(
-        center.x + (r.x - center.x) * k,
-        center.y + (r.y - center.y) * k,
-        r.w * k,
-        r.h * k,
-    )
 }
