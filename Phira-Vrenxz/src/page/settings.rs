@@ -3154,6 +3154,7 @@ impl VisualList {
                     tl!("sx-dynamic-brightness").to_string(),
                     tl!("sx-maimai-bga").to_string(),
                 ])
+                .with_height(0.44)
                 .with_selected(get_data().config.dynamic_background.as_u8() as usize),
             show_watermark_btn: DRectButton::new(),
             show_score_btn: DRectButton::new(),
