@@ -326,6 +326,13 @@ impl MpSession {
         match a {
             connect::Action::Connect => self.state.connect(),
             connect::Action::Back => self.back(t),
+            connect::Action::SetServer(i) => {
+                let Some((_, addr)) = connect::SERVERS.get(i) else { return };
+                if get_data().config.mp_address != *addr {
+                    crate::get_data_mut().config.mp_address = (*addr).to_owned();
+                    let _ = crate::save_data();
+                }
+            }
         }
     }
 

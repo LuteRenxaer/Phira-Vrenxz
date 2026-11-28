@@ -8,11 +8,21 @@ use prpr::{
 use super::super::theme::{self, *};
 use crate::mp::L10N_LOCAL;
 
+/// 预设服务器（名字 + 地址）。在这里切服务器只会改 `config.mp_address` 并落盘，
+/// 与设置页里手填地址走的是同一份配置。
+pub const SERVERS: &[(&str, &str)] = &[
+    ("官方", "mp2.phira.cn:12345"),
+    ("天工作室", "mp.tianstudio.top:31205"),
+];
+
 pub enum Action {
 
     Connect,
 
     Back,
+
+    /// 切到第 n 个预设服务器
+    SetServer(usize),
 }
 
 pub struct View<'a> {
@@ -38,6 +48,13 @@ impl View<'_> {
     fn can_connect(&self) -> bool {
         !self.connecting && self.has_address()
     }
+
+    /// 当前地址落在第几个预设上（手填的自定义地址返回 None）
+    #[inline]
+    fn current_server(&self) -> Option<usize> {
+        let addr = self.address.trim();
+        SERVERS.iter().position(|(_, a)| *a == addr)
+    }
 }
 
 /// 面片内文字相对斜边的留白（斜边本身会吃掉一段水平空间）。
@@ -49,12 +66,17 @@ pub struct ConnectPage {
     back: DRectButton,
     /// 右：连接（地址为空 / 连接中时置灰）
     connect: DRectButton,
+    /// 服务器切换按钮（每个预设一枚，长度按 `SERVERS` 补齐）
+    servers: Vec<DRectButton>,
 }
 
 impl ConnectPage {
     pub fn invalidate(&mut self) {
         self.back.invalidate();
         self.connect.invalidate();
+        for it in self.servers.iter_mut() {
+            it.invalidate();
+        }
     }
 
     pub fn render(&mut self, ui: &mut Ui, t: f32, v: &View) {
@@ -110,17 +132,25 @@ impl ConnectPage {
         let lean = cr.h * PARALLELOGRAM_SLOPE;
         let text_w = (cr.w - (lean + INSET) * 2.).max(0.05);
 
-        // 说明文案：本页唯一的正文
-        let hint = mtl!("mp-connect-hint");
-        ui.text(hint.as_ref())
-            .pos(cr.center().x, cr.y + ch * 0.40)
-            .anchor(0.5, 0.5)
-            .no_baseline()
-            .size(FS_BODY)
-            .color(text_dim())
-            .max_width(text_w)
-            .multiline()
-            .draw();
+        // 服务器切换：几枚并排的预设服务器，当前那枚高亮；点一下直接换地址。
+        // （原来那行「连接服务器后即可与好友一起游玩」的提示删掉了，位置让给切换条。）
+        self.servers.resize_with(SERVERS.len(), DRectButton::default);
+        let n = SERVERS.len();
+        let gap = 0.018;
+        let chip_w = ((text_w - gap * (n.saturating_sub(1)) as f32) / n.max(1) as f32).max(0.1);
+        let chip_h = (ch * 0.2).min(0.07);
+        let row_y = cr.y + ch * 0.24;
+        let cur = v.current_server();
+        for i in 0..n {
+            let x = cr.center().x - (chip_w * n as f32 + gap * (n - 1) as f32) / 2. + i as f32 * (chip_w + gap);
+            let r = Rect::new(x, row_y, chip_w, chip_h);
+            let (fill, fg) = if cur == Some(i) {
+                (primary(accent), WHITE)
+            } else {
+                (theme::secondary(), text())
+            };
+            theme::button(ui, &mut self.servers[i], t, r, SERVERS[i].0, FS_SMALL, fill, fg);
+        }
 
         // 状态行 + 忙碌反馈：连接中才出现；空闲时这一行留空但仍然占位，不跳版。
         if v.connecting {
@@ -225,6 +255,12 @@ impl ConnectPage {
     }
 
     pub fn touch(&mut self, touch: &Touch, t: f32) -> Option<Action> {
+        // 服务器切换条（与下面两枚操作按钮不重叠，先判它最省事）
+        for i in 0..self.servers.len() {
+            if self.servers[i].touch(touch, t) {
+                return Some(Action::SetServer(i));
+            }
+        }
         // 「返回主页」始终可点，先判它（两枚按钮在版面上不重叠，顺序只影响可读性）
         if self.back.touch(touch, t) {
             return Some(Action::Back);
