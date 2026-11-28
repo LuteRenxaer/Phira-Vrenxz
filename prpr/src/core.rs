@@ -86,6 +86,22 @@ thread_local! {
     pub static PGR_FONT: RefCell<Option<TextPainter>> = RefCell::default();
     pub static BOLD_FONT: RefCell<Option<TextPainter>> = RefCell::default();
     pub static MAIN_FONT: RefCell<Option<TextPainter>> = RefCell::default();
+    /// 谚文回退字体（Source Han Sans CN 不含韩文，切到 한국어 会全是方块）
+    pub static KOREAN_FALLBACK: RefCell<Option<glyph_brush::ab_glyph::FontArc>> = RefCell::default();
+}
+
+/// 按「主字体 → 可选回退 → 韩文回退」构字字体链。
+pub fn make_text_painter(main: glyph_brush::ab_glyph::FontArc, fallback: Option<glyph_brush::ab_glyph::FontArc>) -> TextPainter {
+    let mut fonts = vec![main];
+    if let Some(fallback) = fallback {
+        fonts.push(fallback);
+    }
+    KOREAN_FALLBACK.with(|it| {
+        if let Some(font) = it.borrow().clone() {
+            fonts.push(font);
+        }
+    });
+    TextPainter::new_with_fonts(fonts)
 }
 
 pub fn init_assets() {

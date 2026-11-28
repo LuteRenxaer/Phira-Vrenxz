@@ -4071,7 +4071,7 @@ impl CustomList {
                     }
                     None => (builtin, None),
                 };
-                MAIN_FONT.with(|it| *it.borrow_mut() = Some(TextPainter::new(main_font, fallback)));
+                MAIN_FONT.with(|it| *it.borrow_mut() = Some(prpr::core::make_text_painter(main_font, fallback)));
                 Ok(())
             }));
             return Ok(true);

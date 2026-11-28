@@ -541,6 +541,24 @@ async fn the_main() -> Result<()> {
     let pgr_font = FontArc::try_from_vec(load_file("fonts/phigros.ttf").await?)?;
     PGR_FONT.with(move |it| *it.borrow_mut() = Some(TextPainter::new(pgr_font, None)));
 
+    // 韩文回退：优先 assets/fonts/korean.ttf，Windows 上退回系统 Malgun Gothic
+    let korean_font: Option<FontArc> = {
+        let mut candidate = None;
+        if let Ok(bytes) = load_file("fonts/korean.ttf").await {
+            candidate = FontArc::try_from_vec(bytes).ok();
+        }
+        #[cfg(windows)]
+        if candidate.is_none() {
+            candidate = std::fs::read("C:/Windows/Fonts/malgun.ttf")
+                .ok()
+                .and_then(|bytes| FontArc::try_from_vec(bytes).ok());
+        }
+        candidate
+    };
+    if let Some(font) = korean_font.clone() {
+        prpr::core::KOREAN_FALLBACK.with(move |it| *it.borrow_mut() = Some(font));
+    }
+
     // 主字体：优先使用玩家导入的自定义字体，否则回退到内置字体
     let builtin_font = FontArc::try_from_vec(load_file("fonts/font.ttf").await?)?;
     let (main_font, fallback) = {
@@ -557,7 +575,7 @@ async fn the_main() -> Result<()> {
             None => (builtin_font.clone(), None),
         }
     };
-    MAIN_FONT.with(move |it| *it.borrow_mut() = Some(TextPainter::new(main_font, fallback)));
+    MAIN_FONT.with(move |it| *it.borrow_mut() = Some(prpr::core::make_text_painter(main_font, fallback)));
 
     let first_scene: Box<dyn prpr::scene::Scene> = {
 

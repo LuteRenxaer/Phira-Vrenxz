@@ -603,7 +603,7 @@ fn load_font_with_cksum(data: Vec<u8>) -> Result<(FontArc, String)> {
 }
 
 fn set_bold_font((font, cksum): (FontArc, String)) {
-    BOLD_FONT.with(move |it| *it.borrow_mut() = Some(TextPainter::new(font, FALLBACK.with(|it| it.borrow().clone()))));
+    BOLD_FONT.with(move |it| *it.borrow_mut() = Some(prpr::core::make_text_painter(font, FALLBACK.with(|it| it.borrow().clone()))));
     BOLD_FONT_CKSUM.with(move |it| *it.borrow_mut() = Some(cksum));
 }
 

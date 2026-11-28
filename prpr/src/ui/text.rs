@@ -115,29 +115,43 @@ impl<'a, 's, 'ui> DrawText<'a, 's, 'ui> {
 
         let mut section = Section::new().with_layout(Layout::default().h_align(self.h_align));
         if painter.brush.fonts().len() > 1 {
-            let mut last = 0;
-            let mut last_contain = false;
+            // 逐字符挑第一个含该字形的字体，按字体分段落；空白跟随前一段落
+            let mut run_start = 0;
+            let mut run_font: Option<usize> = None;
             for (i, c) in text.char_indices() {
-                let contain = " \n\t".contains(c) || painter.brush.fonts()[0].glyph_id(c).0 != 0;
-                if last_contain != contain {
-                    if last != i {
-                        section = section.add_text(
-                            Text::new(&text[last..i])
-                                .with_scale(scale)
-                                .with_color(self.color)
-                                .with_font_id(FontId((!last_contain) as usize)),
-                        );
+                let id = if " \n\t".contains(c) {
+                    run_font.unwrap_or(0)
+                } else {
+                    painter
+                        .brush
+                        .fonts()
+                        .iter()
+                        .position(|f| f.glyph_id(c).0 != 0)
+                        .unwrap_or(0)
+                };
+                match run_font {
+                    None => run_font = Some(id),
+                    Some(f) if f != id => {
+                        if run_start != i {
+                            section = section.add_text(
+                                Text::new(&text[run_start..i])
+                                    .with_scale(scale)
+                                    .with_color(self.color)
+                                    .with_font_id(FontId(f)),
+                            );
+                        }
+                        run_start = i;
+                        run_font = Some(id);
                     }
-                    last = i;
-                    last_contain = contain;
+                    _ => {}
                 }
             }
-            if last != text.len() {
+            if run_start != text.len() {
                 section = section.add_text(
-                    Text::new(&text[last..])
+                    Text::new(&text[run_start..])
                         .with_scale(scale)
                         .with_color(self.color)
-                        .with_font_id(FontId((!last_contain) as usize)),
+                        .with_font_id(FontId(run_font.unwrap_or(0))),
                 );
             }
         } else {
@@ -291,6 +305,12 @@ impl TextPainter {
         if let Some(fallback) = fallback {
             fonts.push(fallback);
         }
+        Self::new_with_fonts(fonts)
+    }
+
+    /// 多字体回退链：按顺序取第一个含该字符字形的字体。
+    /// 用于主字体（中日文）+ 韩文回退（Source Han Sans CN 不含谚文）。
+    pub fn new_with_fonts(fonts: Vec<FontArc>) -> Self {
         let mut brush = GlyphBrushBuilder::using_fonts(fonts).build();
         let dim = *TEXTURE_DIM;
         brush.resize_texture(dim, dim);
