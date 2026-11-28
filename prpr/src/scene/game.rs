@@ -3133,7 +3133,13 @@ impl Scene for GameScene {
         let rt_sync = self.realtime_bg.as_ref().map_or(0., |it| it.sync_offset());
         let rt_time = (tm.now() as f64 - self.offset() as f64 + rt_sync) as f32;
         let rt_beat = if self.realtime_bg.is_some() && rt_time >= 0. {
-            self.chart.bpm_list.borrow_mut().beat(rt_time as f64)
+            let mut bpm = self.chart.bpm_list.borrow_mut();
+            if bpm.elements().is_empty() {
+                // 谱面没有 BPM 事件时退回 120 BPM 估算，避免空表索引越界
+                rt_time as f64 * 2.
+            } else {
+                bpm.beat(rt_time as f64)
+            }
         } else {
             -1.
         };
