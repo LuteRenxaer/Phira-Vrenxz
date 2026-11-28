@@ -303,6 +303,8 @@ pub struct GameScene {
     hud_preview: bool,
     pub res: Resource,
     pub dynamic_bg: Option<crate::core::DynamicBackground>,
+    /// 实时演算背景（谱面内 `.pbfx` / `.cfg`，或「舞萌即时演算」内置效果）
+    pub realtime_bg: Option<crate::core::RealtimePlaylist>,
     pub chart: Chart,
     pub judge: Judge,
     pub gl: InternalGlContext<'static>,
@@ -750,6 +752,7 @@ impl GameScene {
             hud_preview,
             res,
             dynamic_bg: None,
+            realtime_bg: None,
             chart,
             judge,
             gl: unsafe { get_internal_gl() },
@@ -3126,7 +3129,20 @@ impl Scene for GameScene {
             self.res.background = dbg.texture();
         }
 
-        let dyn_bg = self.dynamic_bg.is_some();
+        // 实时演算背景（谱面内 .pbfx/.cfg 或内置舞萌式效果）：按谱面时间与拍点推进
+        let rt_sync = self.realtime_bg.as_ref().map_or(0., |it| it.sync_offset());
+        let rt_time = (tm.now() as f64 - self.offset() as f64 + rt_sync) as f32;
+        let rt_beat = if self.realtime_bg.is_some() && rt_time >= 0. {
+            self.chart.bpm_list.borrow_mut().beat(rt_time as f64)
+        } else {
+            -1.
+        };
+        if let Some(rbg) = &mut self.realtime_bg {
+            rbg.update(rt_time, ui.viewport, rt_beat);
+            self.res.background = rbg.texture();
+        }
+
+        let dyn_bg = self.dynamic_bg.is_some() || self.realtime_bg.is_some();
         let res = &mut self.res;
         let asp = ui.viewport.2 as f32 / ui.viewport.3 as f32;
         if res.update_size(ui.viewport) || self.mode == GameMode::View {

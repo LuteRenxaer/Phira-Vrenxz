@@ -3,7 +3,7 @@ prpr_l10n::tl_file!("loading");
 use super::{challenge::ChallengeConfig, draw_background, ending::RecordUpdateState, game::GameMode, GameScene, NextScene, Scene};
 use crate::{
     config::{Config, DynamicBackgroundMode},
-    core::{DynamicBackground, Resource},
+    core::{find_cfg_file, find_effect_file, DynamicBackground, PlaylistCfg, RealtimeFx, RealtimePlaylist, Resource},
     ext::{
         draw_parallelogram, get_viewport, poll_future, screen_aspect, semi_black, LocalTask,
         SafeTexture, BLACK_TEXTURE,
@@ -260,7 +260,43 @@ impl LoadingScene {
         if info.tip.is_none() {
             info.tip = Some(crate::config::TIPS.choose(&mut thread_rng()).unwrap().to_owned());
         }
-        let dynamic_bg = if info.dynamic_background > 0 {
+        // 谱面内 .cfg 播放列表优先，其次单个 .pbfx；都没有时按设置走曲绘动态背景
+        let roots = fs.list_root().unwrap_or_default();
+        let realtime_bg: Option<RealtimePlaylist> = if let Some(cfg_name) = find_cfg_file(&roots) {
+            match Self::load_playlist(fs.as_mut(), &cfg_name).await {
+                Ok(playlist) => Some(playlist),
+                Err(err) => {
+                    warn!("failed to load realtime playlist: {err:?}");
+                    match find_effect_file(&roots) {
+                        Some(name) => match Self::load_realtime(fs.as_mut(), &name).await {
+                            Ok(playlist) => Some(playlist),
+                            Err(err) => {
+                                warn!("failed to load realtime background: {err:?}");
+                                None
+                            }
+                        },
+                        None => None,
+                    }
+                }
+            }
+        } else if let Some(name) = find_effect_file(&roots) {
+            match Self::load_realtime(fs.as_mut(), &name).await {
+                Ok(playlist) => Some(playlist),
+                Err(err) => {
+                    warn!("failed to load realtime background: {err:?}");
+                    None
+                }
+            }
+        } else if info.dynamic_background >= 3 {
+            // 「舞萌即时演算」：谱面没带 .pbfx 时用内置参数表跑同一套实时演算
+            Some(RealtimePlaylist::single(RealtimeFx::default(), get_viewport()))
+        } else {
+            None
+        };
+
+        let dynamic_bg = if realtime_bg.is_some() {
+            None
+        } else if info.dynamic_background > 0 {
             match fs.load_file(&info.illustration).await {
                 Ok(bytes) => match image::load_from_memory(&bytes) {
                     Ok(image) => match DynamicBackground::new(
@@ -310,6 +346,7 @@ impl LoadingScene {
             )
             .await?;
             scene.dynamic_bg = dynamic_bg;
+            scene.realtime_bg = realtime_bg;
             Ok(scene)
         });
         let charter = Regex::new(r"\[!:[0-9]+:([^:]*)\]").unwrap().replace_all(&info.charter, "$1").to_string();
@@ -324,6 +361,30 @@ impl LoadingScene {
             target: None,
             charter,
         })
+    }
+
+    /// 读取谱面内的 `.pbfx` 实时演算效果并创建（单效果）播放列表。
+    async fn load_realtime(fs: &mut dyn FileSystem, name: &str) -> Result<RealtimePlaylist> {
+        let data = fs.load_file(name).await.with_context(|| format!("failed to load {name}"))?;
+        RealtimePlaylist::load_single(&data, get_viewport())
+    }
+
+    /// 读取 `.cfg` 播放列表，并加载其引用的全部 `.pbfx`。
+    async fn load_playlist(fs: &mut dyn FileSystem, name: &str) -> Result<RealtimePlaylist> {
+        let bytes = fs.load_file(name).await.with_context(|| format!("failed to load {name}"))?;
+        let cfg = PlaylistCfg::parse(&String::from_utf8_lossy(&bytes))?;
+        let mut effects = Vec::new();
+        for file in &cfg.files {
+            match fs.load_file(file).await {
+                Ok(data) => match serde_json::from_slice::<RealtimeFx>(&data) {
+                    Ok(fx) => effects.push(fx),
+                    Err(err) => warn!("failed to parse {file}: {err:?}"),
+                },
+                Err(err) => warn!("failed to load {file}: {err:?}"),
+            }
+        }
+        anyhow::ensure!(!effects.is_empty(), "no valid .pbfx referenced by {name}");
+        RealtimePlaylist::new(cfg, effects, get_viewport())
     }
 
     /// HUD 编辑：加载页示例预览。不加载任何谱面、不进入游戏，纯示例数据供编辑器拖拽布局；

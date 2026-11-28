@@ -38,6 +38,12 @@ pub use chart::{Chart, ChartExtra, ChartSettings, HitSoundMap};
 mod dynamic_background;
 pub use dynamic_background::DynamicBackground;
 
+mod realtime_background;
+pub use realtime_background::{find_effect_file, is_effect_file, RealtimeBackground, RealtimeFx};
+
+mod realtime_playlist;
+pub use realtime_playlist::{find_cfg_file, is_cfg_file, BeatSwitch, PlaylistCfg, RealtimePlaylist};
+
 mod effect;
 pub use effect::{Effect, Uniform};
 
