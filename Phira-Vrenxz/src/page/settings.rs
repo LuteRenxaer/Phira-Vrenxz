@@ -392,14 +392,16 @@ fn stroke_slant(ui: &mut Ui, r: Rect, skew: f32, width: f32, color: Color) {
 }
 fn chevron(ui: &mut Ui, r: Rect, color: Color) {
     use lyon::math::point;
-    let cx = r.center().x + r.h * 0.06;
+    // 箭头要占满斜切片：半高按片高的 0.30 取、横向也铺开，
+    // 否则在一个 0.058 宽的白色斜片上只画出一个极小的「>」，看着像块空白板。
+    let cx = r.center().x + r.h * 0.05;
     let cy = r.center().y;
-    let d = r.h * 0.20;
+    let d = r.h * 0.30;
     let mut b = lyon::path::Path::builder();
-    b.begin(point(cx - d * 0.7, cy - d));
-    b.line_to(point(cx + d * 0.5, cy));
-    b.line_to(point(cx - d * 0.7, cy + d));
-    ui.stroke_path(&b.build(), (r.h * 0.075).max(0.0035), color);
+    b.begin(point(cx - d * 1.0, cy - d));
+    b.line_to(point(cx + d * 0.75, cy));
+    b.line_to(point(cx - d * 1.0, cy + d));
+    ui.stroke_path(&b.build(), (r.h * 0.11).max(0.004), color);
 }
 /// 白色斜切箭头按钮
 fn arrow_button(ui: &mut Ui, t: f32, btn: &mut DRectButton, r: Rect) {
@@ -1147,7 +1149,7 @@ fn render_account(ui: &mut Ui, r: Rect, t: f32, icon: &SafeTexture, logout: &mut
             .color(WHITE)
             .draw();
     });
-    let cr2 = Rect::new(srow.right() - 0.058, srow.center().y - SIZE_CTL_H * 0.5, 0.058, SIZE_CTL_H);
+    let cr2 = Rect::new(srow.right() - 0.082, srow.center().y - SIZE_CTL_H * 0.5, 0.058, SIZE_CTL_H);
     arrow_shape(ui, cr2);
     // 登出行
     let row = Rect::new(r.x, r.bottom() - 0.115, r.w, 0.115);
@@ -1160,7 +1162,7 @@ fn render_account(ui: &mut Ui, r: Rect, t: f32, icon: &SafeTexture, logout: &mut
             .color(if me.is_some() { WHITE } else { semi_white(0.35) })
             .draw();
     });
-    let cr = Rect::new(row.right() - 0.058, row.center().y - SIZE_CTL_H * 0.5, 0.058, SIZE_CTL_H);
+    let cr = Rect::new(row.right() - 0.082, row.center().y - SIZE_CTL_H * 0.5, 0.058, SIZE_CTL_H);
     arrow_shape(ui, cr);
 }
 /// 关于页
