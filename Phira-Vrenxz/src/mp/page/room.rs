@@ -539,6 +539,8 @@ pub struct RoomPage {
     illu: Option<Illustration>,
     /// 上面那张图对应的谱面 id
     illu_key: Option<i32>,
+    /// 上面那张图对应的谱面路径（本地谱面分享时 chart_id 是 None，只按 id 判断会不刷新）
+    illu_path: Option<String>,
 
     // ---- 以下都是「每帧重算太贵」的东西的缓存（见 RoomPage::refresh）----
     /// 功能按钮集合（action_items 里每个标签都要走一次 Fluent mtl!）
@@ -739,9 +741,11 @@ impl RoomPage {
             self.illu = None;
         }
 
-        // 曲绘：只有换谱面时才重新起任务（本地谱面库里查得到才有图）
-        if self.illu_key != view.chart_id {
+        // 曲绘：换谱面（id 或本地谱面路径变了）就重新起任务
+        if self.illu_key != view.chart_id || self.illu_path != self.chart_path {
             self.illu_key = view.chart_id;
+            self.illu_path = self.chart_path.clone();
+            self.illu = None;
             if let Some(path) = self.chart_path.clone() {
                 // full = true：曲绘要铺满整个左面板，缩略图（347×200）撑不满，放大就是糊的
                 let illu = crate::page::local_illustration(path, BLACK_TEXTURE.clone(), true);
@@ -759,8 +763,33 @@ impl RoomPage {
         let a = ui.alpha;
         let m = 0.03;
 
-        // —— 背景：整页灰色纯色（不铺曲绘、不做渐变） ——
-        ui.fill_rect(ui.screen_rect(), fade(BG_SOLID, a));
+        // —— 背景：没选谱面时灰色纯色；选了谱面后铺它曲绘的高斯模糊图 ——
+        let mut bg_done = false;
+        if ctx.view.chart_id.is_some() || ctx.view.local_chart.is_some() {
+            if let Some(illu) = &self.illu {
+                let ia = illu.alpha(t);
+                if ia > 0.02 {
+                    let blur = illu.blurred.lock().unwrap().clone();
+                    let tex = blur.as_ref().unwrap_or(&illu.texture.0);
+                    cover_quad(
+                        [
+                            Vec2::new(-1., -top),
+                            Vec2::new(1., -top),
+                            Vec2::new(-1., top),
+                            Vec2::new(1., top),
+                        ],
+                        tex,
+                        ia * a,
+                    );
+                    // 压一层暗纱，保证面板上的字读得清
+                    ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 0.35 * ia * a));
+                    bg_done = true;
+                }
+            }
+        }
+        if !bg_done {
+            ui.fill_rect(ui.screen_rect(), fade(BG_SOLID, a));
+        }
 
         // ---------- 顶部 tab 栏 ----------
         let bar = Rect::new(-1. + m, -top + 0.025, 2. - m * 2., 0.1);
