@@ -434,14 +434,14 @@ impl MainScene {
             "icon_old(home)/close.png", // Cancel
             "icons/settings.png",       // Settings
             "icons/order.png",          // Cycle
-            "icons/mod.png",            // Lock
+            "icons/lock.png",           // Lock
             "icons/search.png",         // Preview
             "icons/plus.png",           // Create
             "icons/user.png",           // Join
             "icons/order.png",          // Refresh
             "icon_old(home)/close.png", // Disconnect
             "icons/menu.png",           // Library
-            "icons/back.png",           // LeaveRoom
+            "icons/leave_back.png",     // LeaveRoom
         ]) {
             match load_texture(path).await {
                 Ok(tex) => *slot = Some(SafeTexture::from(tex)),
