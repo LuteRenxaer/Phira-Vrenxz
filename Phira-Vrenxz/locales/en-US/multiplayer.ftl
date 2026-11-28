@@ -171,3 +171,8 @@ mp-servers-empty = No servers yet - use Add server below
 mp-servers-add = Add server
 mp-servers-name-empty = Server name cannot be empty
 mp-servers-addr-invalid = Invalid server address
+
+mp-servers-name-title = Server name
+mp-servers-name-prompt = A name for this server, e.g. Tian Studio
+mp-servers-addr-title = Server address
+mp-servers-addr-prompt = host:port, e.g. mp2.phira.cn:12345

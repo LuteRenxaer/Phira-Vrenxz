@@ -372,7 +372,12 @@ impl MpSession {
                 }
             }
             servers::Action::Add => {
-                request_input("srv_name", InputBox::new());
+                request_input(
+                    "srv_name",
+                    InputBox::new()
+                        .title(mtl!("mp-servers-name-title"))
+                        .prompt(mtl!("mp-servers-name-prompt")),
+                );
             }
             servers::Action::Back => self.goto(Page::Connect, t),
         }
@@ -862,7 +867,12 @@ impl MpSession {
                     show_message(mtl!("mp-servers-name-empty")).error();
                 } else {
                     self.pages.servers.pending_name = Some(text.trim().to_owned());
-                    request_input("srv_addr", InputBox::new());
+                    request_input(
+                        "srv_addr",
+                        InputBox::new()
+                            .title(mtl!("mp-servers-addr-title"))
+                            .prompt(mtl!("mp-servers-addr-prompt")),
+                    );
                 }
             }
             "srv_addr" => {

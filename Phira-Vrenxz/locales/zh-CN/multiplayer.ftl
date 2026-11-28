@@ -171,3 +171,8 @@ mp-servers-empty = 还没有服务器，点下方「添加服务器」
 mp-servers-add = 添加服务器
 mp-servers-name-empty = 服务器名称不能为空
 mp-servers-addr-invalid = 无效的服务器地址
+
+mp-servers-name-title = 服务器名称
+mp-servers-name-prompt = 给服务器起个名字，例如「天工作室」
+mp-servers-addr-title = 服务器地址
+mp-servers-addr-prompt = 主机:端口，例如 mp2.phira.cn:12345
