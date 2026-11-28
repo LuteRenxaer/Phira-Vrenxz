@@ -852,6 +852,7 @@ pub extern "C" fn quad_main() {
 }
 
 fn on_pause_resume(pause: bool) {
+    sasa::set_global_paused(pause);
     if let Some(tx) = MESSAGES_TX.lock().unwrap().as_mut() {
         let _ = tx.send(pause);
     }
@@ -909,6 +910,9 @@ pub extern "C" fn Java_quad_1native_QuadNative_initializeEnvironment(env: EnvUno
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "C" fn Java_quad_1native_QuadNative_prprActivityOnPause(_env: EnvUnowned, _class: JClass) {
+    // 后台立即静音：Android 切后台后渲染线程可能被挂起，帧循环里的 main.pause()
+    // 不一定来得及跑，直接掐音频回调输出更可靠。
+    sasa::set_global_paused(true);
     if let Some(tx) = MESSAGES_TX.lock().unwrap().as_mut() {
         let _ = tx.send(true);
     }
@@ -917,6 +921,7 @@ pub extern "C" fn Java_quad_1native_QuadNative_prprActivityOnPause(_env: EnvUnow
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "C" fn Java_quad_1native_QuadNative_prprActivityOnResume(_env: EnvUnowned, _class: JClass) {
+    sasa::set_global_paused(false);
     if let Some(tx) = MESSAGES_TX.lock().unwrap().as_mut() {
         let _ = tx.send(false);
     }

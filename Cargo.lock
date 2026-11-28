@@ -4804,7 +4804,6 @@ dependencies = [
 [[package]]
 name = "sasa"
 version = "0.1.0"
-source = "git+https://github.com/Mivik/sasa?rev=e76229b#e76229b2f68e4dc68b22bc375d2a92e8e7897691"
 dependencies = [
  "anyhow",
  "cpal",

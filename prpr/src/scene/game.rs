@@ -677,9 +677,20 @@ impl GameScene {
 
         let exercise_range = (chart.offset + info_offset + res.config.offset) as f64..res.track_length;
 
+        // [多人联机] 判定窗口固定为 Phigros 标准窗口（±80 / ±160 / ±220 ms），
+        // 不使用本地自定义窗口、后判补偿或 Perfect+ 阈值，防止自定义判定刷分。
+        let mp_mode = matches!(mode, GameMode::Lan);
         let mut judge = Judge::new(&chart);
-        judge.set_late_leniency(res.config.judge_late_leniency_ms as f64 / 1000.);
-        judge.set_perfect_plus(res.config.judge_perfect_plus_ms as f64 / 1000.);
+        judge.set_late_leniency(if mp_mode {
+            0.
+        } else {
+            res.config.judge_late_leniency_ms as f64 / 1000.
+        });
+        judge.set_perfect_plus(if mp_mode {
+            0.
+        } else {
+            res.config.judge_perfect_plus_ms as f64 / 1000.
+        });
         judge.set_detailed(
             res.config.judge_detailed,
             res.config.judge_great_ms as f64 / 1000.,
@@ -689,17 +700,21 @@ impl GameScene {
 
         // [课题模式] 自定义判定窗口 + 课题计分（无连击加成，单局满分 1000000）
         let challenge_limits = challenge.as_ref().and_then(|c| c.custom_limits);
-        let limits = challenge_limits.or_else(|| {
-            if res.config.arcaea_judgement || res.config.fnf_judgement {
-                return None;
-            }
-            if res.config.judge_preset == JudgePreset::Custom {
-                res.config.custom_judge_limits()
-            } else {
-                let [p, g, b] = res.config.judge_preset.windows_ms();
-                Some((p as f64 / 1000., g as f64 / 1000., b as f64 / 1000.))
-            }
-        });
+        let limits = if mp_mode {
+            Some((80. / 1000., 160. / 1000., 220. / 1000.))
+        } else {
+            challenge_limits.or_else(|| {
+                if res.config.arcaea_judgement || res.config.fnf_judgement {
+                    return None;
+                }
+                if res.config.judge_preset == JudgePreset::Custom {
+                    res.config.custom_judge_limits()
+                } else {
+                    let [p, g, b] = res.config.judge_preset.windows_ms();
+                    Some((p as f64 / 1000., g as f64 / 1000., b as f64 / 1000.))
+                }
+            })
+        };
         judge.set_challenge(limits, challenge.is_some());
 
         // [HP 血量模式] 课题里 HP 由课题页显式决定（开/关），关掉就是真的关，

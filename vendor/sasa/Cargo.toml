@@ -1,0 +1,21 @@
+[package]
+name = "sasa"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["cpal"]
+cpal = ["dep:cpal"]
+oboe = ["dep:oboe"]
+ohos = ["dep:ohos-audio-sys"]
+
+[dependencies]
+anyhow = "1.0.100"
+cpal = { version = "0.17.1", optional = true }
+parking_lot = "0.12.5"
+ringbuf = "0.4.8"
+symphonia = { version = "0.5.5", features = ["mp3", "aac"] }
+thiserror = "2.0.18"
+
+oboe = { version = "0.6.1", optional = true, features = ["shared-stdcxx"] }
+ohos-audio-sys = { version = "0.0.1", optional = true, features = ["api-20"] }

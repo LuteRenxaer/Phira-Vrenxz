@@ -86,3 +86,6 @@ opt-level = 2
 [patch."https://github.com/Mivik/prpr-miniquad"]
 miniquad = { path = "vendor/prpr-miniquad" }
 
+[patch."https://github.com/Mivik/sasa"]
+sasa = { path = "vendor/sasa" }
+

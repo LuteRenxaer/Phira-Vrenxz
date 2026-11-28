@@ -443,13 +443,14 @@ impl LibraryPage {
     /// 进入内联搜索（不再弹 request_input 弹窗），弹出软键盘。
     fn begin_search(&mut self) {
         while get_char_pressed().is_some() {}
-        #[cfg(target_os = "ios")]
+        #[cfg(any(target_os = "ios", target_os = "android"))]
         {
-            // iOS 的内联键盘不可用：走系统原生输入框，结果由 take_input("search") 接收。
+            // iOS / Android 的内联键盘拿不到输入法的组合与语音输入：
+            // 走引擎的系统输入框，结果由 take_input("search") 接收。
             request_input("search", InputBox::new().default_text(&self.search_str));
             return;
         }
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(all(not(target_os = "ios"), not(target_os = "android")))]
         {
             self.search_active = true;
             self.show_keyboard(true);

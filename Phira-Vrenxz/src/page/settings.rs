@@ -207,7 +207,27 @@ pub struct SettingsPage {
 static TEXT_EDIT: Lazy<std::sync::Mutex<Option<(String, String)>>> =
     Lazy::new(|| std::sync::Mutex::new(None));
 
+/// 安卓：设置项编辑走引擎输入框（系统输入法 / 语音输入），这里记住正在回填的字段 id。
+#[cfg(target_os = "android")]
+static ANDROID_EDIT_ID: Lazy<std::sync::Mutex<Option<String>>> =
+    Lazy::new(|| std::sync::Mutex::new(None));
+
 fn text_edit_open(id: &str, value: &str) {
+    #[cfg(target_os = "android")]
+    {
+        // 安卓没有 Windows 原生 EDIT，也不显示内联编辑条：直接拉起输入框
+        if let Ok(mut g) = ANDROID_EDIT_ID.lock() {
+            *g = Some(id.to_string());
+        }
+        request_input(
+            "settings_edit",
+            InputBox::new()
+                .title(text_edit_label(id).to_string())
+                .default_text(value),
+        );
+        return;
+    }
+    #[cfg(not(target_os = "android"))]
     if let Ok(mut g) = TEXT_EDIT.lock() {
         *g = Some((id.to_string(), value.to_string()));
     }
@@ -1615,6 +1635,28 @@ impl Page for SettingsPage {
     }
     fn update(&mut self, s: &mut SharedState) -> Result<()> {
         let t = s.t;
+        // 安卓：设置项编辑用引擎输入框，这里收结果并交给各列表的 take_input 分支
+        #[cfg(target_os = "android")]
+        {
+            let pending = ANDROID_EDIT_ID.lock().ok().and_then(|g| g.clone());
+            if pending.is_some() {
+                if let Some((id, text)) = take_input() {
+                    if id == "settings_edit" {
+                        if let Ok(mut g) = ANDROID_EDIT_ID.lock() {
+                            *g = None;
+                        }
+                        if let Some(field) = pending {
+                            return_input(field, text);
+                        }
+                    }
+                }
+                if prpr::scene::take_input_cancelled().as_deref() == Some("settings_edit") {
+                    if let Ok(mut g) = ANDROID_EDIT_ID.lock() {
+                        *g = None;
+                    }
+                }
+            }
+        }
         // 内联编辑条：每帧同步系统输入点，回车提交 / Esc 取消
         #[cfg(target_os = "windows")]
         if let Some((id, mut text)) = text_edit_take() {
