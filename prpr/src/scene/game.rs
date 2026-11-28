@@ -3126,6 +3126,7 @@ impl Scene for GameScene {
             self.res.background = dbg.texture();
         }
 
+        let dyn_bg = self.dynamic_bg.is_some();
         let res = &mut self.res;
         let asp = ui.viewport.2 as f32 / ui.viewport.3 as f32;
         if res.update_size(ui.viewport) || self.mode == GameMode::View {
@@ -3152,7 +3153,13 @@ impl Scene for GameScene {
             ..Default::default()
         });
         clear_background(BLACK);
-        draw_background(*res.background);
+        if dyn_bg {
+            // 动态背景自身的着色器已经带了暗角与亮度控制，这里不再叠
+            // `draw_background` 那层固定 0.3 黑纱，否则流体色块会被压得看不见
+            crate::ext::draw_image(*res.background, Rect::new(-1., -1. / asp, 2., 2. / asp), ScaleType::CropCenter);
+        } else {
+            draw_background(*res.background);
+        }
         pop_camera_state();
 
         let chart_target_vp = if res.chart_target.is_some() {
@@ -3165,7 +3172,10 @@ impl Scene for GameScene {
         self.gl.quad_gl.viewport(chart_target_vp);
 
         let h = 1. / res.aspect_ratio;
-        draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., res.alpha * res.info.background_dim));
+        // 谱面自带的 BackgroundDim 照旧；开了动态背景时只取三成，
+        // 否则一层 0.6 的黑罩盖下去，色块基本看不见
+        let bg_dim = if dyn_bg { res.info.background_dim * 0.3 } else { res.info.background_dim };
+        draw_rectangle(-1., -h, 2., h * 2., Color::new(0., 0., 0., res.alpha * bg_dim));
 
         // [谱面揭晓] Reveal 模式对整个谱面模型栈缩放 1/2.5：Note 顶点经
         // res.model_stack（不含相机矩阵）生成，缩放后其谱面 NDC 坐标变小进入可视范围，
