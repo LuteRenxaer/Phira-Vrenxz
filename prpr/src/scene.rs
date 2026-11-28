@@ -68,6 +68,9 @@ pub struct DialogInputResult {
     pub enter: bool,
     /// Esc 边沿（系统框吃掉键盘时由宿主轮询给出）
     pub escape: bool,
+    /// 宿主的原生输入点是否真的拿到了键盘焦点。
+    /// false 时输入对话框要退回游戏内按键处理，不然两边都收不到键。
+    pub focused: bool,
 }
 
 /// 宿主程序（Windows）挂上来的原生输入点；挂上后输入对话框不再自己处理键盘，
@@ -496,20 +499,23 @@ impl InputDialog {
             let to_byte = |text: &str, idx: usize| -> usize {
                 text.char_indices().nth(idx).map(|(i, _)| i).unwrap_or(text.len())
             };
-            self.cursor = to_byte(&self.text, res.caret);
-            if res.changed {
-                self.selection = None;
-            }
-            if let Some((s, e)) = sel {
-                let bs = to_byte(&self.text, s);
-                let be = to_byte(&self.text, e);
-                if bs < be {
-                    self.selection = Some((bs, be));
-                } else {
+            // 只有系统框真的拿到焦点（或它改了文本）时，才用它的光标/选区覆盖自己的：
+            // 没焦点时用它的位置会把游戏内输入的光标顶回开头。
+            if res.focused || res.changed {
+                self.cursor = to_byte(&self.text, res.caret);
+                if res.changed {
                     self.selection = None;
                 }
+                if let Some((s, e)) = sel {
+                    let bs = to_byte(&self.text, s);
+                    let be = to_byte(&self.text, e);
+                    if bs < be {
+                        self.selection = Some((bs, be));
+                    } else {
+                        self.selection = None;
+                    }
+                }
             }
-            while get_char_pressed().is_some() {}
             if res.escape || is_key_pressed(KeyCode::Escape) {
                 self.cancel();
                 return false;
@@ -518,7 +524,13 @@ impl InputDialog {
                 self.confirm();
                 return false;
             }
-            return true;
+            if res.focused {
+                // 键盘在系统框里：本帧的字符队列归它，游戏内别再重复插一遍
+                while get_char_pressed().is_some() {}
+                return true;
+            }
+            // 系统框没拿到键盘（比如刚点过窗口）：落到下面的游戏内按键路径，
+            // 保证"输入不了"不会发生；文本下一帧会自动推回系统框。
         }
         // Windows 上 IME 有时会吃掉 Ctrl 组合键；用物理键状态兜底。
         if let Some(shortcut) = crate::shortcut::poll() {

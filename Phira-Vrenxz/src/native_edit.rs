@@ -71,6 +71,28 @@ extern "system" {
     fn GetWindowLongW(h: Handle, index: i32) -> i32;
     fn SetWindowLongW(h: Handle, index: i32, value: i32) -> i32;
     fn ClientToScreen(h: Handle, pt: *mut i32) -> i32;
+    fn SetForegroundWindow(h: Handle) -> i32;
+    fn GetForegroundWindow() -> Handle;
+    fn GetParent(h: Handle) -> Handle;
+    fn SetParent(h: Handle, parent: Handle) -> Handle;
+    fn GetClassNameW(h: Handle, buf: *mut u16, max: i32) -> i32;
+}
+
+/// 把键盘焦点真正交给某个字段：先直接 SetFocus；拿不到（游戏窗口被点过、
+/// 或不在前台）就把主窗口提到前台再试一次。返回最终是否拿到了焦点。
+fn force_focus(h: Handle, parent: Handle) -> bool {
+    unsafe {
+        if GetFocus() != h {
+            SetFocus(h);
+        }
+        if GetFocus() != h {
+            if GetForegroundWindow() != parent {
+                SetForegroundWindow(parent);
+            }
+            SetFocus(h);
+        }
+        GetFocus() == h
+    }
 }
 
 #[link(name = "imm32")]
@@ -341,7 +363,7 @@ pub fn end_frame() {
         match inp.focus_req {
             Some(id) => {
                 if let Some(slot) = inp.slots.get(id) {
-                    unsafe { SetFocus(slot.h) };
+                    force_focus(slot.h, parent);
                 }
             }
             None => unsafe {
@@ -367,7 +389,27 @@ pub fn dialog_input(text: &mut String, masked: bool, multiline: bool) -> prpr::s
     // 关键：end_frame 会把所有输入点收回 (1,1)，所以必须在它之后再挪，否则
     // 系统输入法候选窗仍然锚在窗口左上角。挪到输入框上以后候选窗就贴着输入框弹。
     place_dialog_edit(id);
-    prpr::scene::DialogInputResult { changed, sel, caret, enter, escape }
+    // 原生框有没有真正拿到键盘焦点：拿不到就得让 prpr 退回游戏内按键处理，
+    // 否则两边都不收键，表现就是「输入框输入不了」。
+    let mut focused = false;
+    if let (Some(h), Some(parent)) = (
+        slot_hwnd(id),
+        INPUTS.lock().ok().and_then(|g| g.as_ref().map(|it| it.parent)),
+    ) {
+        focused = force_focus(h, parent);
+        // 拿不到焦点通常说明输入点挂错了父窗口（例如真正前台的不是这个 HWND）：
+        // 改挂到当前前台窗口再要一次焦点。
+        if !focused {
+            unsafe {
+                let fg = GetForegroundWindow();
+                if fg != 0 && GetParent(h) != fg {
+                    SetParent(h, fg);
+                }
+                focused = force_focus(h, fg);
+            }
+        }
+    }
+    prpr::scene::DialogInputResult { changed, sel, caret, enter, escape, focused }
 }
 
 /// 上次给 IME 设过的锚点：位置没变就不重复设，免得打字时候选窗每帧被重置。
