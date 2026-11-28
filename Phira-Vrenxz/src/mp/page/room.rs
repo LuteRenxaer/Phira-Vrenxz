@@ -118,9 +118,7 @@ const R_SEND_RIGHT: f32 = 475.79;
 const R_SEND_QUAD: [(f32, f32); 4] = [(428.44, 275.02), (475.34, 275.02), (423.65, 313.96), (475.79, 313.96)];
 const R_SEND_FS: f32 = 14.30;
 
-const BG_TOP: Color = Color::new(0.365, 0.365, 0.365, 1.);
-
-const BG_BOTTOM: Color = Color::new(0.722, 0.722, 0.722, 1.);
+const BG_SOLID: Color = Color::new(0.42, 0.42, 0.42, 1.);
 const PANEL_TOP_C: Color = Color::new(0.533, 0.533, 0.533, 1.);
 const PANEL_BOTTOM_C: Color = Color::new(1., 1., 1., 1.);
 
@@ -376,6 +374,12 @@ pub fn action_items(room: &ClientRoomState, view: &RoomView) -> Vec<ActItem> {
                     });
                 }
                 push_room_settings(&mut items, room);
+                // 选了本地谱之后「谱面库」不能被藏掉：房主随时能回库换谱
+                items.push(ActItem {
+                    action: RoomAction::Library,
+                    label: mtl!("mp-library").into_owned(),
+                    disabled: false,
+                });
             } else if view.local_ready {
                 items.push(ActItem {
                     action: RoomAction::CancelDownload,
@@ -552,8 +556,6 @@ pub struct RoomPage {
     chart_badge: String,
     /// 本地谱面目录（曲绘从这里加载）
     chart_path: Option<String>,
-    /// 顶栏按钮量出来的文字宽度：(标签, 字号, 世界宽度)
-    width_cache: Vec<(String, u32, f32)>,
 }
 
 /// 功能按钮集合的缓存键：房间阶段 + 展示状态，任一变化才重算按钮集合。
@@ -750,20 +752,6 @@ impl RoomPage {
         }
     }
 
-    /// 量一次标签宽度就记住：顶栏按钮每帧各 measure 一次是纯浪费（文字布局不便宜）。
-    fn label_w(&mut self, ui: &mut Ui, label: &str, size: f32) -> f32 {
-        let bits = size.to_bits();
-        if let Some((_, _, w)) = self.width_cache.iter().find(|(l, s, _)| l == label && *s == bits) {
-            return *w;
-        }
-        let w = ui.text(label).size(size).measure().w;
-        if self.width_cache.len() >= 32 {
-            self.width_cache.clear();
-        }
-        self.width_cache.push((label.to_owned(), bits, w));
-        w
-    }
-
     // ==================== 横屏：严格照设计稿 ====================
 
     fn render_landscape(&mut self, ui: &mut Ui, t: f32, ctx: &mut Render, items: &[ActItem], accent: Color) {
@@ -771,31 +759,8 @@ impl RoomPage {
         let a = ui.alpha;
         let m = 0.03;
 
-        // —— 背景：没选谱面时纯色；选了谱面后铺它曲绘的高斯模糊图 ——
-        let mut bg_done = false;
-        if let Some(illu) = &self.illu {
-            let ia = illu.alpha(t);
-            if ia > 0.02 && (ctx.view.chart_id.is_some() || ctx.view.local_chart.is_some()) {
-                let blur = illu.blurred.lock().unwrap().clone();
-                let tex = blur.as_ref().unwrap_or(&illu.texture.0);
-                cover_quad(
-                    [
-                        Vec2::new(-1., -top),
-                        Vec2::new(1., -top),
-                        Vec2::new(-1., top),
-                        Vec2::new(1., top),
-                    ],
-                    tex,
-                    ia * a,
-                );
-                // 压一层暗纱，保证面板上的字读得清
-                ui.fill_rect(ui.screen_rect(), Color::new(0., 0., 0., 0.35 * ia * a));
-                bg_done = true;
-            }
-        }
-        if !bg_done {
-            theme::slant_panel_grad(ui, -1., -top, 2., 2. * top, 0., fade(BG_TOP, a), fade(BG_BOTTOM, a));
-        }
+        // —— 背景：整页灰色纯色（不铺曲绘、不做渐变） ——
+        ui.fill_rect(ui.screen_rect(), fade(BG_SOLID, a));
 
         // ---------- 顶部 tab 栏 ----------
         let bar = Rect::new(-1. + m, -top + 0.025, 2. - m * 2., 0.1);
@@ -814,7 +779,6 @@ impl RoomPage {
             None => mtl!("multiplayer").into_owned(),
         };
         let title_x = bar.x + back_s + 0.036;
-        let chip_sz = FS_TAG;
 
         let main = items
             .iter()
@@ -824,50 +788,23 @@ impl RoomPage {
             .filter(|it| main.is_none_or(|m2| m2.action != it.action))
             .collect();
 
-        let mut widths: Vec<f32> = chips
-            .iter()
-            .map(|it| {
-                let tw = self.label_w(ui, short_label(it.action), chip_sz);
-                (tw + 0.045).max(0.085)
-            })
-            .collect();
+        // 顶部功能位统一成方形图标按钮（顶上小字那一列是竖屏的样式，横屏这里只放图标）
         let gap = 0.012;
-        let gaps = gap * chips.len().saturating_sub(1) as f32;
+        let chip_h = (bar.h * 0.64).min(0.062);
+        let chip_w = chip_h;
         let chips_right = bar.right() - 0.012;
         let title_w = ui.text(&title).size(FS_SECTION).measure().w;
         let title_reserve = (title_w + 0.08).min(bar.w * 0.32);
-        let avail = chips_right - (title_x + title_reserve) - gaps;
-        let total: f32 = widths.iter().sum();
-        if total > avail && avail > 0.02 && !widths.is_empty() {
-            let k = avail / total;
-            for w in &mut widths {
-                *w = (*w * k).max(0.055);
-            }
-        }
-        let chip_h = bar.h * 0.64;
+        let title_limit = title_x + title_reserve;
         let mut cx = chips_right;
-        for (i, item) in chips.iter().enumerate().rev() {
-            let w = widths[i];
-            cx -= w;
-            if cx + w * 0.5 < title_x + title_reserve {
+        for item in chips.iter().rev() {
+            if cx - chip_w < title_limit {
                 break;
             }
-            let r = Rect::new(cx, bar.center().y - chip_h * 0.5, w, chip_h);
-            let label = short_label(item.action);
-            if item.disabled {
-                self.actions.get(item.action).invalidate();
-                theme::button_static(
-                    ui,
-                    r,
-                    label,
-                    chip_sz,
-                    Color::new(0.30, 0.30, 0.33, 1.),
-                    Color::new(0.62, 0.62, 0.66, 1.),
-                );
-            } else {
-                theme::button(ui, self.actions.get(item.action), t, r, label, chip_sz, secondary(), text());
-            }
-            cx -= gap;
+            let r = Rect::new(cx - chip_w, bar.center().y - chip_h * 0.5, chip_w, chip_h);
+            let icon = theme::tool_icon(item.action.icon());
+            draw_icon_chip(ui, self.actions.get(item.action), t, r, icon.as_ref(), short_label(item.action), item.disabled);
+            cx -= chip_w + gap;
         }
         theme::text_left_bold(ui, title_x, bar.center().y, FS_SECTION, semi_white(1.), &title, title_reserve);
 
@@ -1744,6 +1681,50 @@ fn cover_quad(pts: [Vec2; 4], tex: &SafeTexture, alpha: f32) {
     gl.texture(Some(**tex));
     gl.draw_mode(DrawMode::Triangles);
     gl.geometry(&v, &[0, 2, 3, 0, 1, 3]);
+}
+
+/// 顶栏的方形图标按钮：有图标画图标（没有就退回单字），禁用态变暗且不接收点击。
+fn draw_icon_chip(
+    ui: &mut Ui,
+    btn: &mut DRectButton,
+    t: f32,
+    r: Rect,
+    icon: Option<&SafeTexture>,
+    label: &str,
+    disabled: bool,
+) {
+    let fill = if disabled {
+        Color::new(0.30, 0.30, 0.33, 1.)
+    } else {
+        Color::new(0.24, 0.24, 0.27, 1.)
+    };
+    let fg = if disabled {
+        Color::new(0.62, 0.62, 0.66, 1.)
+    } else {
+        WHITE
+    };
+    btn.build(ui, t, r, |ui, path| {
+        ui.fill_path(&path, fill);
+        match icon {
+            Some(tex) => {
+                let s = r.h * 0.56;
+                let ir = Rect::new(r.center().x - s / 2., r.center().y - s / 2., s, s);
+                ui.fill_rect(ir, (**tex, ir, ScaleType::Fit, fg));
+            }
+            None => {
+                ui.text(label)
+                    .pos(r.center().x, r.center().y)
+                    .anchor(0.5, 0.5)
+                    .no_baseline()
+                    .size(FS_TAG)
+                    .color(fg)
+                    .draw();
+            }
+        }
+    });
+    if disabled {
+        btn.invalidate();
+    }
 }
 
 /// 稿子上的四边形（顺序：左上 / 右上 / 左下 / 右下）→ 世界坐标的实心面片。
