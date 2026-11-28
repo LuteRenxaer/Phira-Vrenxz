@@ -116,22 +116,10 @@ impl ConnectPage {
         let lean = cr.h * PARALLELOGRAM_SLOPE;
         let text_w = (cr.w - (lean + INSET) * 2.).max(0.05);
 
-        // 说明文案：本页唯一的正文
-        let hint = mtl!("mp-connect-hint");
-        ui.text(hint.as_ref())
-            .pos(cr.center().x, cr.y + ch * 0.34)
-            .anchor(0.5, 0.5)
-            .no_baseline()
-            .size(FS_BODY)
-            .color(text_dim())
-            .max_width(text_w)
-            .multiline()
-            .draw();
-
         // 「管理服务器」入口：地址簿（增删、选中）全在那一页，本页只留一个入口
         let mw = text_w.min(0.42);
         let mh = (ch * 0.2).min(0.07);
-        let mr = Rect::new(cr.center().x - mw / 2., cr.y + ch * 0.52, mw, mh);
+        let mr = Rect::new(cr.center().x - mw / 2., cr.y + ch * 0.46, mw, mh);
         theme::button(
             ui,
             &mut self.manage,
